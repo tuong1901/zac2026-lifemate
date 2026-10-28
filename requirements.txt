@@ -1,0 +1,17 @@
+# Core & Utilities
+pydantic>=2.0
+tqdm>=4.66.0
+pyyaml>=6.0
+
+# Speech / ASR
+faster-whisper>=1.0.0
+soundfile>=0.12.1
+
+# LLM & Generation
+openai>=1.30.0
+transformers>=4.40.0
+accelerate>=0.29.0
+
+# Optional speedups / deployment
+# vllm>=0.6.0
+# unsloth

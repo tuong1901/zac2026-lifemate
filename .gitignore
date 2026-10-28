@@ -1,0 +1,32 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data & Audio files (Tuyệt đối không push file âm thanh lên Git)
+data/
+*.wav
+*.mp3
+*.zip
+*.tar.gz
+*.jsonl
+!sample_submission.jsonl
+
+# Logs & Output
+submission.jsonl
+*.log
+checkpoints/
+models/
+output/
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.env
+
+# IDE / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

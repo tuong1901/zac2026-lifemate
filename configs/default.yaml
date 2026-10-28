@@ -1,0 +1,15 @@
+data:
+  data_root: "D:/Download/train+public_test/train+public_test"
+  train_split: "train"
+  public_test_split: "public_test"
+
+asr:
+  model_size: "large-v3-turbo"
+  device: "cuda"          # "cuda" hoặc "cpu"
+  compute_type: "float16" # "float16" hoặc "int8" trên GPU, "int8" trên CPU
+  language: "vi"
+
+llm:
+  model_name: "Qwen/Qwen2.5-7B-Instruct"
+  temperature: 0.1
+  max_tokens: 1024
