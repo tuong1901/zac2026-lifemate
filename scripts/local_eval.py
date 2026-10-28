@@ -1,9 +1,30 @@
+"""
+local_eval.py — Hệ thống chấm điểm nội bộ Zalo AI Challenge 2026 (LifeMate).
+Cài đặt chính xác 100% theo công thức toán học và thể lệ kỹ thuật chính thức của BTC:
+
+Score = {
+  0,  if hash_sys != hash_gold or M == 0
+  (2 * P * R) / (P + R),  otherwise
+}
+
+P = M / (M + U)
+R = M / |G|
+Final score = (100 / N) * sum(Score_i)
+
+- Nếu |G| == 0 (Out-of-scope): Score = 1 nếu submitted calls rỗng ([]), ngược lại = 0.
+- M: Số lượng tool call khớp (Tên tool trùng khớp, tham số non-fuzzy giống hệt, tham số fuzzy có token-F1 > 0.6).
+- U: Số lượng call không khớp (bao gồm cả call bị từ chối do lỗi schema).
+- hash_sys != hash_gold: Điểm bằng 0 ngay lập tức (Gatekeeper).
+"""
+
 import os
 import sys
 import json
 import random
+import unicodedata
 import argparse
 from pathlib import Path
+from collections import Counter
 from tqdm import tqdm
 
 # Cố định random seed theo quy định Reproducibility của BTC
@@ -22,55 +43,155 @@ try:
 except ImportError:
     pass
 
-def calculate_tool_f1(pred_calls, true_calls):
+
+def compute_token_f1(s1, s2) -> float:
     """
-    Tính F1-score trên danh sách tool calls (so khớp tên tool và arguments)
+    Tính Token-F1 sau khi lowercase và chuẩn hóa Unicode NFC
     """
-    if not pred_calls and not true_calls:
+    s1_norm = unicodedata.normalize("NFC", str(s1).lower()).strip()
+    s2_norm = unicodedata.normalize("NFC", str(s2).lower()).strip()
+    tokens1 = s1_norm.split()
+    tokens2 = s2_norm.split()
+
+    if not tokens1 and not tokens2:
         return 1.0
-    if not pred_calls or not true_calls:
+    if not tokens1 or not tokens2:
         return 0.0
 
-    def call_to_str(c):
-        return f"{c.get('name')}::{json.dumps(c.get('arguments', {}), sort_keys=True)}"
+    c1 = Counter(tokens1)
+    c2 = Counter(tokens2)
+    common = sum((c1 & c2).values())
 
-    pred_set = set(call_to_str(c) for c in pred_calls)
-    true_set = set(call_to_str(c) for c in true_calls)
-
-    common = pred_set.intersection(true_set)
-    precision = len(common) / len(pred_set) if pred_set else 0.0
-    recall = len(common) / len(true_set) if true_set else 0.0
-
-    if precision + recall == 0:
+    p = common / len(tokens1)
+    r = common / len(tokens2)
+    if p + r == 0:
         return 0.0
-    return 2 * (precision * recall) / (precision + recall)
+    return (2 * p * r) / (p + r)
+
+
+def load_fuzzy_map(catalog_path: Path) -> dict:
+    """
+    Trích xuất danh sách các tham số fuzzy (x-match: fuzzy) từ catalog
+    """
+    fuzzy_map = {}
+    if not catalog_path.exists():
+        return fuzzy_map
+
+    with open(catalog_path, "r", encoding="utf-8") as f:
+        catalog = json.load(f)
+
+    for app in catalog.get("apps", []):
+        for tool in app.get("tools", []):
+            tname = tool["name"]
+            props = tool.get("parameters", {}).get("properties", {})
+            for pname, pinfo in props.items():
+                if pinfo.get("x-match") == "fuzzy":
+                    fuzzy_map.setdefault(tname, set()).add(pname)
+    return fuzzy_map
+
+
+def match_single_call(pred_call: dict, gold_call: dict, fuzzy_params: set) -> bool:
+    """
+    Kiểm tra 1 pred call có khớp với 1 gold call không:
+    - Tên tool trùng khớp
+    - Tham số non-fuzzy giống hệt
+    - Tham số fuzzy có token-F1 > 0.6
+    """
+    if pred_call.get("name") != gold_call.get("name"):
+        return False
+
+    pred_args = pred_call.get("arguments") or {}
+    gold_args = gold_call.get("arguments") or {}
+
+    # Tất cả các key trong gold bắt buộc phải có trong pred và ngược lại
+    all_keys = set(pred_args.keys()) | set(gold_args.keys())
+
+    for k in all_keys:
+        val_pred = pred_args.get(k)
+        val_gold = gold_args.get(k)
+
+        if k in fuzzy_params:
+            # Tham số tự do: tính token-F1 > 0.6
+            f1 = compute_token_f1(val_pred, val_gold)
+            if f1 <= 0.6:
+                return False
+        else:
+            # Tham số strict: phải giống hệt
+            if val_pred != val_gold:
+                return False
+
+    return True
+
+
+def evaluate_sample(pred_calls: list, gold_calls: list, hash_sys: str, hash_gold: str, fuzzy_map: dict) -> float:
+    """
+    Tính điểm cho một mẫu (Score_i) theo đúng công thức BTC
+    """
+    # 1. Trường hợp Out-of-scope (Gold list rỗng)
+    if len(gold_calls) == 0:
+        return 1.0 if len(pred_calls) == 0 else 0.0
+
+    # 2. Điều kiện tiên quyết: State Hash Match
+    if hash_sys != hash_gold:
+        return 0.0
+
+    # 3. Tính số lượng call trùng khớp M (Bipartite matching)
+    matched_gold_indices = set()
+    M = 0
+
+    for p_call in pred_calls:
+        tname = p_call.get("name", "")
+        fuzzy_p = fuzzy_map.get(tname, set())
+
+        for g_idx, g_call in enumerate(gold_calls):
+            if g_idx not in matched_gold_indices:
+                if match_single_call(p_call, g_call, fuzzy_p):
+                    matched_gold_indices.add(g_idx)
+                    M += 1
+                    break
+
+    if M == 0:
+        return 0.0
+
+    U = len(pred_calls) - M
+    P = M / (M + U) if (M + U) > 0 else 0.0
+    R = M / len(gold_calls) if len(gold_calls) > 0 else 0.0
+
+    if P + R == 0:
+        return 0.0
+
+    return (2 * P * R) / (P + R)
+
 
 def main():
-    parser = argparse.ArgumentParser(description="Chấm điểm offline cho ZAC 2026 LifeMate")
-    parser.add_argument("--data_root", type=str, default="D:/Download/train+public_test/train+public_test", help="Thư mục chứa train và public_test")
-    parser.add_argument("--limit", type=int, default=50, help="Số lượng mẫu test (để test nhanh)")
+    parser = argparse.ArgumentParser(description="ZAC 2026 LifeMate Official Scorer")
+    parser.add_argument("--data_root", type=str, default="D:/Download/train+public_test/train+public_test", help="Thư mục data gốc")
+    parser.add_argument("--limit", type=int, default=100, help="Số lượng mẫu test offline (mặc định: 100 mẫu)")
     args = parser.parse_args()
 
     root = Path(args.data_root)
     split_dir = root / "train"
     train_file = split_dir / "train.jsonl"
+    catalog_file = split_dir / "train_tools_catalog.json"
 
     if not train_file.exists():
         print(f"Lỗi: Không tìm thấy file {train_file}")
         return
 
-    # Thêm zaic_tools của split train vào sys.path
     sys.path.insert(0, str(split_dir))
     try:
         from zaic_tools import ToolEnv
-        from zaic_tools.utils import state_hash as calc_hash
     except ImportError as e:
         print(f"Lỗi import zaic_tools: {e}")
         return
 
-    print(f"--- Bắt đầu đánh giá nội bộ trên {args.limit} mẫu train ---")
-    f1_scores = []
+    fuzzy_map = load_fuzzy_map(catalog_file)
+    print(f"Đã nạp schema: có {len(fuzzy_map)} tools chứa tham số dạng fuzzy (x-match: fuzzy).")
+    print(f"--- Bắt đầu đánh giá trên {args.limit} mẫu train theo chuẩn BTC ---")
+
+    scores = []
     state_matches = 0
+    empty_matches = 0
     total = 0
 
     with open(train_file, "r", encoding="utf-8") as f:
@@ -79,51 +200,48 @@ def main():
                 break
             item = json.loads(line)
             sample_id = item["id"]
-            true_calls = item.get("label", {}).get("tool_calls", [])
-            true_final_state = item.get("label", {}).get("final_state")
+            gold_calls = item.get("label", {}).get("tool_calls", [])
 
-            # Tạo môi trường độc lập cho mẫu này
-            env = ToolEnv("train", sample_id, root=root)
+            # 1. Tính hash_gold chuẩn bằng cách chạy replay gold_calls trên 1 ToolEnv sạch
+            gold_env = ToolEnv("train", sample_id, root=root)
+            for c in gold_calls:
+                gold_env.call(c["name"], c.get("arguments") or {})
+            hash_gold = gold_env.get_state_hash()
 
-            # --- MÔ PHỎNG DỰ ĐOÁN (Baseline Mock) ---
-            # Sau này thay phần này bằng agent thực tế của nhóm:
-            # pred_calls, current_hash = agent.run(env, item, user_text)
-            # Ở bản mock baseline này, ta gọi thử chính label để kiểm tra tính đúng đắn của scorer:
-            for call in true_calls:
-                env.call(call["name"], call.get("arguments", {}))
-            
-            pred_calls = env.get_tool_calls()
-            pred_hash = env.get_state_hash()
+            # 2. Chạy môi trường Agent dự đoán (System Env)
+            sys_env = ToolEnv("train", sample_id, root=root)
 
-            # 1. Đo F1 trên tool calls
-            f1 = calculate_tool_f1(pred_calls, true_calls)
-            f1_scores.append(f1)
+            # --- MÔ PHỎNG DỰ ĐOÁN CỦA PIPELINE NHÓM ---
+            # (Thay thế đoạn này bằng agent thực tế của nhóm: pred_calls, hash_sys = agent.run(...))
+            # Ở bản baseline test này, ta gọi đúng gold_calls để xác minh độ chuẩn của bộ Scorer:
+            for c in gold_calls:
+                sys_env.call(c["name"], c.get("arguments") or {})
 
-            # 2. Đo State khớp với final_state
-            if true_final_state is not None:
-                current_states = env.get_state()
-                # Kiểm tra tất cả các app trong true_final_state có khớp không
-                match = True
-                for app_name, expected_app_state in true_final_state.items():
-                    if current_states.get(app_name) != expected_app_state:
-                        match = False
-                        break
-                if match:
-                    state_matches += 1
-            else:
-                # Nếu không có final_state thay đổi (NO_TOOL hoặc chỉ đọc)
+            pred_calls = sys_env.get_tool_calls()
+            hash_sys = sys_env.get_state_hash()
+
+            # 3. Tính điểm theo công thức chính thức
+            sample_score = evaluate_sample(pred_calls, gold_calls, hash_sys, hash_gold, fuzzy_map)
+            scores.append(sample_score)
+
+            if hash_sys == hash_gold:
                 state_matches += 1
+            if len(gold_calls) == 0 and len(pred_calls) == 0:
+                empty_matches += 1
 
             total += 1
 
-    avg_f1 = sum(f1_scores) / len(f1_scores) if f1_scores else 0.0
-    state_acc = (state_matches / total) * 100 if total > 0 else 0.0
+    final_score = (100.0 / total) * sum(scores) if total > 0 else 0.0
+    state_match_rate = (state_matches / total) * 100 if total > 0 else 0.0
 
-    print("\n================ KẾT QUẢ ĐÁNH GIÁ NỘI BỘ ================")
-    print(f"Tổng số mẫu đánh giá: {total}")
-    print(f"Điểm F1 Tool Calls trung bình: {avg_f1:.4f}")
-    print(f"Độ chính xác Final State (State Accuracy): {state_acc:.2f}%")
-    print("=========================================================")
+    print("\n" + "=" * 60)
+    print("       KẾT QUẢ ĐÁNH GIÁ CHUẨN THỂ LỆ ZALO AI CHALLENGE 2026")
+    print("=" * 60)
+    print(f"• Tổng số mẫu đánh giá (N):           {total}")
+    print(f"• Tỷ lệ khớp State Hash (hash_sys == hash_gold): {state_match_rate:.2f}%")
+    print(f"• ĐIỂM SỐ CHÍNH THỨC (FINAL SCORE / 100):  {final_score:.4f} / 100.0")
+    print("=" * 60)
+    print("Lưu ý: Mọi cải tiến của nhóm phải làm tăng chỉ số FINAL SCORE này trước khi submit!")
 
 if __name__ == "__main__":
     main()
