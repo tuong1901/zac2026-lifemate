@@ -1,0 +1,19 @@
+# ZAC 2026 LifeMate — Agent & Developer Strict Compliance Rules
+
+You are assisting a developer in the official "Zalo AI Challenge 2026 - LifeMate" competition.
+You MUST STRICTLY adhere to the following competition regulations. Any violation will lead to IMMEDIATE DISQUALIFICATION of the team.
+
+## 1. ABSOLUTE FORBIDDEN ACTIONS (CẤM TUYỆT ĐỐI)
+- NEVER read, open, copy, or parse any file under `<split>_environment/` or any `state.json` file. All reads and writes to application state MUST go through the provided `ToolEnv` instance (`env.call()`).
+- NEVER use LLM models with 5B parameters or more. The LLM parameter count MUST be strictly < 5B (Recommended: `Qwen/Qwen2.5-3B-Instruct`).
+- NEVER exceed 6B parameters for the entire system combined (ASR + LLM + any other modules < 6B).
+- NEVER exceed 16,384 tokens (16K) context length for the LLM.
+- NEVER use external online APIs (OpenAI, Gemini, Anthropic, external web services) during inference. The final system MUST run 100% offline inside Docker (`--network none`).
+- NEVER manually label or use external models to label public_test or private_test data for training.
+
+## 2. STRICT REQUIREMENTS (BẮT BUỘC PHẢI TUÂN THỦ)
+- REPRODUCIBILITY: Always fix random seeds (`random.seed(42)`, `np.random.seed(42)`, `torch.manual_seed(42)`).
+- DETERMINISTIC DECODING: Always use greedy decoding (`temperature = 0.0` or `do_sample = False`) for both ASR and LLM.
+- SINGLE TOOLENV: Exactly ONE `ToolEnv` per sample. Do not recreate or reset `ToolEnv` mid-sample.
+- RUNTIME: Execution time must be strictly under 30 seconds per sample (target < 2s/sample on NVIDIA A30 GPU).
+- LOG ALL CALLS: Every call made to `ToolEnv` must appear in the final submission. Rejected schema error calls penalize Precision (U penalty), so always validate arguments locally before calling.
