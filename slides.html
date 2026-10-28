@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZAC 2026 — LifeMate: Chiến lược Chinh phục Top 1</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: rgba(22, 30, 49, 0.75);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --primary: #3b82f6;
+      --primary-glow: rgba(59, 130, 246, 0.35);
+      --accent: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --purple: #8b5cf6;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background-image: 
+        radial-gradient(circle at 15% 20%, rgba(59, 130, 246, 0.12) 0%, transparent 40%),
+        radial-gradient(circle at 85% 80%, rgba(139, 92, 246, 0.12) 0%, transparent 40%);
+    }
+
+    /* Container & Slide Viewport */
+    .slide-viewport {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 4rem;
+      position: relative;
+    }
+
+    .slide {
+      display: none;
+      width: 100%;
+      max-width: 1200px;
+      height: 720px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      padding: 3.5rem;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7), 0 0 40px var(--primary-glow);
+      backdrop-filter: blur(16px);
+      flex-direction: column;
+      position: relative;
+      animation: fadeIn 0.4s ease-out forwards;
+    }
+
+    .slide.active {
+      display: flex;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(16px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* Header & Badges */
+    .slide-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      border-radius: 9999px;
+      color: #60a5fa;
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 1rem;
+      width: fit-content;
+    }
+
+    h1 {
+      font-size: 2.8rem;
+      font-weight: 800;
+      line-height: 1.2;
+      background: linear-gradient(135deg, #ffffff 30%, #93c5fd 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.75rem;
+    }
+
+    h2 {
+      font-size: 2.2rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, #ffffff 40%, #bfdbfe 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 1.15rem;
+      margin-bottom: 2rem;
+    }
+
+    /* Grids & Cards */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      flex: 1;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.25rem;
+      flex: 1;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1.25rem;
+      flex: 1;
+    }
+
+    .card {
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 16px;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card.highlight {
+      border-color: rgba(59, 130, 246, 0.4);
+      background: rgba(30, 58, 138, 0.2);
+    }
+
+    .card-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card p, .card li {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .card ul {
+      list-style-position: inside;
+      margin-top: 0.5rem;
+    }
+
+    .stat-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 16px;
+      padding: 1.25rem;
+      text-align: center;
+    }
+
+    .stat-number {
+      font-size: 2.8rem;
+      font-weight: 800;
+      color: #60a5fa;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .stat-label {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-top: 0.25rem;
+    }
+
+    /* Tag pills */
+    .pill {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-right: 4px;
+    }
+    .pill-green { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .pill-yellow { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+    .pill-purple { background: rgba(139, 92, 246, 0.2); color: #c084fc; }
+    .pill-blue { background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+
+    /* Code Snippet */
+    pre {
+      background: #0b1120;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 1rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      color: #cbd5e1;
+      overflow-x: auto;
+      line-height: 1.5;
+    }
+
+    /* Footer & Controls */
+    .controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.2rem 4rem 1.8rem;
+      background: rgba(9, 13, 22, 0.9);
+      border-top: 1px solid var(--card-border);
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 12px;
+    }
+
+    button {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    button:hover {
+      background: var(--primary);
+      border-color: var(--primary);
+      box-shadow: 0 0 15px var(--primary-glow);
+    }
+
+    .slide-indicator {
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.95rem;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .member-card {
+      border-left: 4px solid var(--primary);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="slide-viewport">
+
+    <!-- SLIDE 1: COVER -->
+    <div class="slide active">
+      <div class="slide-badge">Zalo AI Challenge 2026</div>
+      <h1>LIFEMATE: AGENTIC AI<br>TURNS VOICE INTO ACTION</h1>
+      <p class="subtitle">Chiến lược tổng thể, giải mã bộ dữ liệu và kế hoạch tác chiến cho đội hình 5 người</p>
+      
+      <div class="grid-3" style="margin-top: 1rem;">
+        <div class="card highlight">
+          <div class="card-title">🎯 Mục tiêu tối thượng</div>
+          <p>Xây dựng Voice Agent tiếng Việt hiểu khẩu lệnh đa miền và tự động lập kế hoạch thực thi công việc trên 46 ứng dụng đời thực.</p>
+        </div>
+        <div class="card">
+          <div class="card-title">⚡ Điểm mấu chốt</div>
+          <p>Không chỉ là ASR gỡ băng, mà là vòng lặp <strong>Interactive ReAct</strong> (Gọi tool → Nhận kết quả → Lập luận bước tiếp theo).</p>
+        </div>
+        <div class="card">
+          <div class="card-title">🏆 Mục tiêu Bảng xếp hạng</div>
+          <p>Hoàn thành MVP Baseline trong 48h tới, kiểm soát độ chính xác offline bằng <code>local_eval.py</code> trước khi đua Top 1.</p>
+        </div>
+      </div>
+      <div style="margin-top: 2rem; display: flex; gap: 1rem; color: var(--text-muted); font-size: 0.85rem;">
+        <span>👤 Nhóm nghiên cứu: 5 thành viên</span> • 
+        <span>📅 Ngày bắt đầu: 28/10/2026</span> • 
+        <span>💻 Kho mã nguồn: github.com/tad0910/zac2026-lifemate</span>
+      </div>
+    </div>
+
+    <!-- SLIDE 2: BỐI CẢNH & THỂ LỆ -->
+    <div class="slide">
+      <div class="slide-badge">Tổng quan đề bài</div>
+      <h2>Thể lệ cuộc thi & Cơ chế chấm điểm</h2>
+      <p class="subtitle">Hiểu rõ luật chơi của BTC để không bị mất điểm oan</p>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">📋 Quy chế 2 giai đoạn</div>
+          <ul>
+            <li><strong>Giai đoạn 1 (Public Test):</strong> Nộp file kết quả <code>submission.jsonl</code> trên 634 mẫu test. Bảng xếp hạng (Leaderboard) chấm điểm thời gian thực.</li>
+            <li><strong>Giai đoạn 2 (Private Test):</strong> Đóng gói mã nguồn vào <strong>Docker</strong> chạy offline trên máy chủ BTC (không có Internet).</li>
+            <li><strong>Yêu cầu cốt lõi:</strong> Toàn bộ mô hình ASR và LLM bắt buộc phải tự chạy (Self-hosted Open Weights như Whisper, Qwen 2.5), không phụ thuộc API thương mại.</li>
+          </ul>
+        </div>
+        <div class="card highlight">
+          <div class="card-title">⚖️ Cơ chế chấm điểm tự động</div>
+          <ul>
+            <li><strong>Replay trên ToolEnv:</strong> BTC nạp <code>state.json</code> gốc và chạy lại toàn bộ <code>tool_calls</code> trong file bạn nộp qua thư viện <code>zaic_tools</code>.</li>
+            <li><strong>Thang điểm 1:</strong> F1-score trên chuỗi tool calls (đúng tên tool + đúng tham số).</li>
+            <li><strong>Thang điểm 2:</strong> Độ khớp trạng thái cuối <code>state_hash</code> sau khi thực thi.</li>
+            <li><strong>Quy tắc từ chối:</strong> Chỉ bị tính lỗi khi gọi sai schema (thiếu required param, sai type, gọi app chưa cài).</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 3: GIẢI MÃ DỮ LIỆU -->
+    <div class="slide">
+      <div class="slide-badge">Phân tích định lượng dữ liệu (EDA)</div>
+      <h2>Giải mã gói dữ liệu ZAC v3.2.0</h2>
+      <p class="subtitle">Kết quả phân tích trực tiếp từ 1.545 mẫu Train và 634 mẫu Public Test</p>
+
+      <div class="grid-4" style="margin-bottom: 1.5rem; max-height: 120px;">
+        <div class="stat-box">
+          <div class="stat-number">1.545</div>
+          <div class="stat-label">Mẫu Train có nhãn</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-number">634</div>
+          <div class="stat-label">Mẫu Public Test</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-number">46 / 147</div>
+          <div class="stat-label">Apps / Tools tích hợp</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-number">65.9%</div>
+          <div class="stat-label">Có lịch sử hội thoại</div>
+        </div>
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-title"><span class="pill pill-green">78.8%</span> Thực thi (Execute)</div>
+          <p>1.217 mẫu cần gọi tool. <strong>Gần 70% là chuỗi từ 2 đến 5 tool liên hoàn</strong> (tìm kiếm → lấy thông tin → thực hiện hành động).</p>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="pill pill-yellow">14.0%</span> Hỏi lại (Clarify)</div>
+          <p>217 mẫu người dùng nói thiếu thông tin bắt buộc. Phải gọi meta-tool đặc biệt: <code>sys.ask_missing_info</code>.</p>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="pill pill-purple">7.2%</span> Từ chối (Reject)</div>
+          <p>111 mẫu yêu cầu nằm ngoài phạm vi các app được cài trong máy. Bắt buộc trả về danh sách rỗng <code>[]</code>.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 4: CÁC THÁCH THỨC CỐT LÕI -->
+    <div class="slide">
+      <div class="slide-badge">Thách thức kỹ thuật</div>
+      <h2>4 "Cái bẫy" mất điểm và cách vượt qua</h2>
+      <p class="subtitle">Những điểm khác biệt giữa đội nghiệp dư và đội vô địch</p>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">⚠️ Bẫy 1: Đoán mò 1 lần (One-shot)</div>
+          <p><strong>Rủi ro:</strong> Ném toàn bộ câu lệnh vào LLM rồi bắt nó đoán tất cả tool calls. Sẽ sai nếu bước 2 phụ thuộc kết quả bước 1 (chưa search danh bạ thì không thể biết số điện thoại).</p>
+          <p style="color: #34d399; margin-top: 6px;"><strong>Giải pháp:</strong> Dùng ReAct Loop chạy từng bước trên <code>ToolEnv</code>.</p>
+        </div>
+        <div class="card">
+          <div class="card-title">⚠️ Bẫy 2: Tự ý bịa tham số bị thiếu</div>
+          <p><strong>Rủi ro:</strong> Người dùng nói "Chuyển tiền cho Nam" mà Agent tự đoán số tiền 500k để gọi API ngân hàng → Bị 0 điểm.</p>
+          <p style="color: #34d399; margin-top: 6px;"><strong>Giải pháp:</strong> Xây dựng Validator phát hiện thiếu param bắt buộc để chuyển sang <code>sys.ask_missing_info</code>.</p>
+        </div>
+        <div class="card">
+          <div class="card-title">⚠️ Bẫy 3: Nghe nhầm tên riêng tiếng Việt</div>
+          <p><strong>Rủi ro:</strong> ASR nghe "Sếp Dũng" thành "Sếp Dụng", "phòng khách" thành "phòng khác" làm hỏng toàn bộ chuỗi tìm kiếm.</p>
+          <p style="color: #34d399; margin-top: 6px;"><strong>Giải pháp:</strong> Kỹ thuật Dynamic Hotwords (trích xuất danh bạ/thiết bị từ <code>state.json</code> nhồi vào prompt ASR).</p>
+        </div>
+        <div class="card">
+          <div class="card-title">⚠️ Bẫy 4: Quá tải 147 Tools vào Prompt</div>
+          <p><strong>Rủi ro:</strong> Nhồi 147 tools vào prompt làm LLM bị ngợp, suy luận chậm và gọi nhầm app người dùng chưa cài.</p>
+          <p style="color: #34d399; margin-top: 6px;"><strong>Giải pháp:</strong> Lọc Catalog theo <code>installed_apps</code> của từng mẫu (chỉ còn 5-10 tools).</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 5: KIẾN TRÚC HỆ THỐNG -->
+    <div class="slide">
+      <div class="slide-badge">Kiến trúc giải pháp</div>
+      <h2>Pipeline tổng thể: Voice-to-Action ReAct</h2>
+      <p class="subtitle">Quy trình luồng dữ liệu khép kín từ Audio đến file kết quả nộp bài</p>
+
+      <div style="background: #0b1120; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 1.5rem; flex: 1; display: flex; flex-direction: column; justify-content: space-around;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; text-align: center;">
+          <div style="flex: 1; background: rgba(59, 130, 246, 0.15); border: 1px solid #3b82f6; padding: 12px; border-radius: 12px;">
+            <div style="font-weight: 700; color: #60a5fa;">1. AUDIO INPUT</div>
+            <div style="font-size: 0.8rem; color: #94a3b8;">WAV 16kHz Mono</div>
+          </div>
+          <div style="color: #60a5fa; font-weight: bold;">➔</div>
+          <div style="flex: 1.2; background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; padding: 12px; border-radius: 12px;">
+            <div style="font-weight: 700; color: #34d399;">2. FASTER-WHISPER</div>
+            <div style="font-size: 0.8rem; color: #94a3b8;">+ Dynamic Hotwords</div>
+          </div>
+          <div style="color: #10b981; font-weight: bold;">➔</div>
+          <div style="flex: 1; background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; padding: 12px; border-radius: 12px;">
+            <div style="font-weight: 700; color: #fbbf24;">3. CATALOG FILTER</div>
+            <div style="font-size: 0.8rem; color: #94a3b8;">Chỉ lấy installed_apps</div>
+          </div>
+          <div style="color: #f59e0b; font-weight: bold;">➔</div>
+          <div style="flex: 1.5; background: rgba(139, 92, 246, 0.2); border: 1px solid #8b5cf6; padding: 12px; border-radius: 12px;">
+            <div style="font-weight: 700; color: #c084fc;">4. REACT AGENT (LLM)</div>
+            <div style="font-size: 0.8rem; color: #94a3b8;">Qwen 2.5 + ToolEnv Loop</div>
+          </div>
+          <div style="color: #8b5cf6; font-weight: bold;">➔</div>
+          <div style="flex: 1; background: rgba(59, 130, 246, 0.15); border: 1px solid #3b82f6; padding: 12px; border-radius: 12px;">
+            <div style="font-weight: 700; color: #60a5fa;">5. SUBMISSION</div>
+            <div style="font-size: 0.8rem; color: #94a3b8;">tool_calls + state_hash</div>
+          </div>
+        </div>
+
+        <pre style="margin-top: 1rem;"><code># Core Execution Loop (src/agent/react_loop.py)
+env = ToolEnv(SPLIT, item["id"], root=DATA_ROOT)
+while not finished and step &lt; MAX_STEPS:
+    action = llm.plan_next_action(user_text, context, tools_schema, previous_results)
+    if action.is_missing_info:
+        env.call("sys.ask_missing_info", action.params); break
+    result = env.call(action.name, action.arguments)  # Real state update in memory!
+return env.get_tool_calls(), env.get_state_hash()</code></pre>
+      </div>
+    </div>
+
+    <!-- SLIDE 6: PHÂN CHIA 5 THÀNH VIÊN -->
+    <div class="slide">
+      <div class="slide-badge">Tổ chức nhân sự</div>
+      <h2>Phân công nhiệm vụ đội hình 5 người</h2>
+      <p class="subtitle">Chuyên môn hóa tuyệt đối, mỗi người một module, ráp nối qua Git</p>
+
+      <div style="display: flex; flex-direction: column; gap: 0.75rem; flex: 1;">
+        <div class="card member-card" style="padding: 1rem 1.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-weight: 700; color: #fff;">👤 Thành viên 1: Team Lead — Pipeline & Local Evaluator</div>
+            <span class="pill pill-blue">scripts/</span>
+          </div>
+          <p style="margin-top: 4px;">Viết <code>local_eval.py</code> tự chấm điểm F1/State, quản lý code chung trên Git, ghép nối pipeline nộp bài <code>make_submission.py</code>.</p>
+        </div>
+
+        <div class="card member-card" style="padding: 1rem 1.25rem; border-color: #10b981;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-weight: 700; color: #fff;">👤 Thành viên 2: Kỹ sư Âm thanh — Speech / ASR Specialist</div>
+            <span class="pill pill-green">src/asr/</span>
+          </div>
+          <p style="margin-top: 4px;">Cài đặt Faster-Whisper, xây dựng tính năng Dynamic Hotwords từ danh bạ/thiết bị, đo Word Error Rate (WER) trên tập train.</p>
+        </div>
+
+        <div class="card member-card" style="padding: 1rem 1.25rem; border-color: #8b5cf6;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-weight: 700; color: #fff;">👤 Thành viên 3: Kỹ sư Tác nhân — ReAct Loop & Prompt Lead</div>
+            <span class="pill pill-purple">src/agent/</span>
+          </div>
+          <p style="margin-top: 4px;">Xây dựng vòng lặp tương tác với <code>ToolEnv</code>, thiết kế System Prompt, Few-shot Prompting với Qwen 2.5 7B.</p>
+        </div>
+
+        <div class="card member-card" style="padding: 1rem 1.25rem; border-color: #f59e0b;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-weight: 700; color: #fff;">👤 Thành viên 4: Chuyên gia Nghiệp vụ — Schema & Rules Specialist</div>
+            <span class="pill pill-yellow">src/rules/</span>
+          </div>
+          <p style="margin-top: 4px;">Xử lý 14% ca thiếu thông tin (<code>sys.ask_missing_info</code>), lọc Catalog theo app đã cài, chuẩn hóa tiếng lóng ("năm loét", "tối mai").</p>
+        </div>
+
+        <div class="card member-card" style="padding: 1rem 1.25rem; border-color: #ec4899;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-weight: 700; color: #fff;">👤 Thành viên 5: Kỹ sư Huấn luyện Mô hình — MLOps & Docker</div>
+            <span class="pill" style="background: rgba(236, 72, 153, 0.2); color: #f472b6;">src/training/</span>
+          </div>
+          <p style="margin-top: 4px;">Fine-tune Qwen 2.5 LoRA bằng 1.545 mẫu train, tối ưu tốc độ suy luận bằng vLLM, đóng gói Docker cho vòng Private.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 7: LỘ TRÌNH 3 TUẦN -->
+    <div class="slide">
+      <div class="slide-badge">Kế hoạch tác chiến</div>
+      <h2>Lộ trình 3 tuần leo đỉnh Bảng xếp hạng</h2>
+      <p class="subtitle">Từng mốc thời gian cụ thể hướng tới vòng chung cuộc</p>
+
+      <div class="grid-3">
+        <div class="card highlight">
+          <div class="card-title">🚀 TUẦN 1: MVP BASELINE</div>
+          <div style="font-size: 0.85rem; color: #60a5fa; margin-bottom: 0.5rem; font-weight: bold;">(28/10 - 03/11)</div>
+          <ul>
+            <li>Clone repo Git chung, cài đặt môi trường.</li>
+            <li>Chạy thông suốt ASR + LLM ReAct đơn giản.</li>
+            <li>Hoàn thành <code>local_eval.py</code>.</li>
+            <li><strong>Mục tiêu:</strong> Xuất file nộp bài đầu tiên lên Leaderboard để có điểm chính thức.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⚡ TUẦN 2: TỐI ƯU SÂU</div>
+          <div style="font-size: 0.85rem; color: #34d399; margin-bottom: 0.5rem; font-weight: bold;">(04/11 - 10/11)</div>
+          <ul>
+            <li>Bật Dynamic Hotwords cho Whisper (triệt tiêu lỗi nghe sai tên).</li>
+            <li>Tối ưu xử lý <code>sys.ask_missing_info</code> và từ chối ngoài phạm vi.</li>
+            <li>Tăng cường Few-shot Prompting từ các ca khó của train.</li>
+            <li><strong>Mục tiêu:</strong> Bứt phá vào Top 10 Leaderboard.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🏆 TUẦN 3: SPRINT VÔ ĐỊCH</div>
+          <div style="font-size: 0.85rem; color: #c084fc; margin-bottom: 0.5rem; font-weight: bold;">(11/11 - Chung cuộc)</div>
+          <ul>
+            <li>Fine-tune LoRA cho Qwen 2.5 7B trên 1.545 mẫu train.</li>
+            <li>Tăng tốc độ bằng vLLM (đảm bảo độ trễ &lt; 2s/mẫu).</li>
+            <li>Đóng gói kiểm thử Docker Offline không Internet.</li>
+            <li><strong>Mục tiêu:</strong> Chốt chặn Top 1 vòng Private Test!</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CONTROLS FOOTER -->
+  <div class="controls">
+    <div class="btn-group">
+      <button id="prevBtn" onclick="prevSlide()">◀ Trang trước</button>
+      <button id="nextBtn" onclick="nextSlide()">Trang sau ▶</button>
+    </div>
+    <div class="slide-indicator" id="indicator">Slide 1 / 7</div>
+    <div style="color: var(--text-muted); font-size: 0.85rem;">
+      Dùng phím mũi tên <strong>← / →</strong> để chuyển slide
+    </div>
+  </div>
+
+  <script>
+    let currentSlide = 0;
+    const slides = document.querySelectorAll('.slide');
+    const indicator = document.getElementById('indicator');
+
+    function showSlide(index) {
+      slides.forEach((slide, i) => {
+        slide.classList.toggle('active', i === index);
+      });
+      indicator.textContent = `Slide ${index + 1} / ${slides.length}`;
+    }
+
+    function nextSlide() {
+      if (currentSlide < slides.length - 1) {
+        currentSlide++;
+        showSlide(currentSlide);
+      }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 0) {
+        currentSlide--;
+        showSlide(currentSlide);
+      }
+    }
+
+    // Keyboard navigation
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === 'Space') {
+        nextSlide();
+      } else if (e.key === 'ArrowLeft') {
+        prevSlide();
+      }
+    });
+  </script>
+</body>
+</html>
