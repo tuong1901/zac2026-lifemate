@@ -1,15 +1,27 @@
+# Cấu hình ZAC 2026 LifeMate tuân thủ 100% quy định kỹ thuật chính thức của BTC:
+# - Toàn bộ hệ thống < 6B params
+# - LLM < 5B params, context <= 16,384 tokens
+# - Không đọc trực tiếp state.json (mọi thứ qua ToolEnv)
+# - Deterministic decoding (temperature = 0, seed cố định)
+
 data:
   data_root: "D:/Download/train+public_test/train+public_test"
   train_split: "train"
   public_test_split: "public_test"
 
+reproducibility:
+  seed: 42
+
 asr:
-  model_size: "large-v3-turbo"
-  device: "cuda"          # "cuda" hoặc "cpu"
-  compute_type: "float16" # "float16" hoặc "int8" trên GPU, "int8" trên CPU
+  model_size: "large-v3-turbo" # ~809M params
+  device: "cuda"
+  compute_type: "float16"
   language: "vi"
+  beam_size: 5
+  temperature: 0.0 # Bắt buộc theo luật deterministic của BTC
 
 llm:
-  model_name: "Qwen/Qwen2.5-7B-Instruct"
-  temperature: 0.1
+  model_name: "Qwen/Qwen2.5-3B-Instruct" # 3.09B params (< 5B theo luật BTC)
+  context_window: 16384 # Tối đa 16K tokens theo luật
+  temperature: 0.0 # Bắt buộc greedy decoding theo luật BTC
   max_tokens: 1024

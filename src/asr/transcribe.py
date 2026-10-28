@@ -4,7 +4,10 @@ from typing import List, Optional
 class SpeechTranscriber:
     """
     Module phụ trách chuyển đổi âm thanh thành văn bản tiếng Việt bằng Faster-Whisper.
-    Tích hợp kỹ thuật Dynamic Hotwords (nhồi tên danh bạ, thiết bị vào initial_prompt).
+    Tuân thủ quy chế ZAC 2026:
+    - Kích thước < 1B params (Large-v3-turbo ~809M params)
+    - Deterministic decoding: temperature = 0.0, beam_size = 5
+    - Tuyệt đối KHÔNG đọc file state.json trong <split>_environment/
     """
     def __init__(self, model_size: str = "large-v3-turbo", device: str = "auto", compute_type: str = "default"):
         try:
@@ -14,28 +17,30 @@ class SpeechTranscriber:
             print("[Cảnh báo] faster-whisper chưa được cài đặt. Chạy ở chế độ Mock/Fallback.")
             self.model = None
 
-    def transcribe(self, audio_path: str, hotwords: Optional[List[str]] = None) -> str:
+    def transcribe(self, audio_path: str, context_hints: Optional[List[str]] = None) -> str:
         """
-        Nhận vào đường dẫn audio .wav và danh sách từ khóa gợi ý (hotwords),
-        trả về văn bản tiếng Việt.
+        Nhận vào đường dẫn audio .wav.
+        context_hints: Danh sách từ khóa lấy từ context hợp lệ trong jsonl (tên người dùng, tên thành phố).
+        Tuyệt đối không lấy từ state.json!
         """
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"Không tìm thấy file audio: {audio_path}")
 
         if self.model is None:
-            # Fallback nếu chưa tải model ASR
             return "Bật điều hòa phòng khách"
 
-        # Tận dụng initial_prompt để định hướng ASR không nghe sai tên riêng
-        initial_prompt = "Các khẩu lệnh tiếng Việt điều khiển nhà thông minh, tin nhắn, tài khoản."
-        if hotwords:
-            initial_prompt += f" Danh bạ và thiết bị: {', '.join(hotwords[:30])}."
+        # Prompt định hướng chung về khẩu lệnh tiếng Việt điều khiển ứng dụng
+        initial_prompt = "Các khẩu lệnh tiếng Việt điều khiển ứng dụng: tin nhắn, lịch, báo thức, đèn, điều hòa, ngân hàng."
+        if context_hints:
+            initial_prompt += f" Ngữ cảnh: {', '.join(context_hints)}."
 
+        # Cấu hình deterministic decoding (temperature=0.0) theo luật BTC
         segments, _ = self.model.transcribe(
             audio_path,
             language="vi",
             initial_prompt=initial_prompt,
             beam_size=5,
+            temperature=0.0,
             vad_filter=True
         )
         text = " ".join([seg.text.strip() for seg in segments])

@@ -312,26 +312,27 @@
 
     <!-- SLIDE 2: BỐI CẢNH & THỂ LỆ -->
     <div class="slide">
-      <div class="slide-badge">Tổng quan đề bài</div>
-      <h2>Thể lệ cuộc thi & Cơ chế chấm điểm</h2>
-      <p class="subtitle">Hiểu rõ luật chơi của BTC để không bị mất điểm oan</p>
+      <div class="slide-badge">Quy chế chính thức</div>
+      <h2>Thể lệ cuộc thi & Yêu cầu Kỹ thuật chuẩn</h2>
+      <p class="subtitle">Các quy định bắt buộc phải tuân thủ để không bị loại (Disqualified)</p>
 
       <div class="grid-2">
-        <div class="card">
-          <div class="card-title">📋 Quy chế 2 giai đoạn</div>
+        <div class="card highlight">
+          <div class="card-title">⚙️ Giới hạn Kỹ thuật Bắt buộc</div>
           <ul>
-            <li><strong>Giai đoạn 1 (Public Test):</strong> Nộp file kết quả <code>submission.jsonl</code> trên 634 mẫu test. Bảng xếp hạng (Leaderboard) chấm điểm thời gian thực.</li>
-            <li><strong>Giai đoạn 2 (Private Test):</strong> Đóng gói mã nguồn vào <strong>Docker</strong> chạy offline trên máy chủ BTC (không có Internet).</li>
-            <li><strong>Yêu cầu cốt lõi:</strong> Toàn bộ mô hình ASR và LLM bắt buộc phải tự chạy (Self-hosted Open Weights như Whisper, Qwen 2.5), không phụ thuộc API thương mại.</li>
+            <li><strong>Kích thước Model:</strong> Toàn hệ thống &lt; 6B params. <strong>LLM bắt buộc &lt; 5B params</strong> (Context &le; 16.384 tokens).</li>
+            <li><strong>Lựa chọn chuẩn:</strong> <code>Qwen2.5-3B-Instruct</code> (3B) + <code>Whisper-Turbo</code> (0.8B) = <strong>~3.8B params</strong>.</li>
+            <li><strong>CẤM ĐỌC STATE:</strong> Tuyệt đối không đọc trực tiếp file trong <code>*_environment/</code> (kể cả <code>state.json</code>). Mọi tương tác chỉ qua <code>ToolEnv</code>!</li>
+            <li><strong>Tính tái lập:</strong> Cố định Seed và bắt buộc Greedy Decoding (<code>temperature = 0.0</code>).</li>
           </ul>
         </div>
-        <div class="card highlight">
-          <div class="card-title">⚖️ Cơ chế chấm điểm tự động</div>
+        <div class="card">
+          <div class="card-title">🖥️ Máy chủ chấm bài & Đua tốc độ</div>
           <ul>
-            <li><strong>Replay trên ToolEnv:</strong> BTC nạp <code>state.json</code> gốc và chạy lại toàn bộ <code>tool_calls</code> trong file bạn nộp qua thư viện <code>zaic_tools</code>.</li>
-            <li><strong>Thang điểm 1:</strong> F1-score trên chuỗi tool calls (đúng tên tool + đúng tham số).</li>
-            <li><strong>Thang điểm 2:</strong> Độ khớp trạng thái cuối <code>state_hash</code> sau khi thực thi.</li>
-            <li><strong>Quy tắc từ chối:</strong> Chỉ bị tính lỗi khi gọi sai schema (thiếu required param, sai type, gọi app chưa cài).</li>
+            <li><strong>Hạ tầng BTC:</strong> 1 GPU NVIDIA A30 (24GB VRAM), CPU 16-core Intel Xeon Gold, 64GB RAM.</li>
+            <li><strong>Giới hạn thời gian:</strong> Tối đa <strong>30 giây / mẫu</strong>. Quá 30s hoặc crash tính 0 điểm.</li>
+            <li><strong>Offline hoàn toàn:</strong> Docker chạy ngắt mạng <code>--network none</code> lúc chấm điểm.</li>
+            <li><strong>Phân định hòa (Tie-break):</strong> Nếu bằng điểm số, đội có <strong>thời gian xử lý trung bình mỗi mẫu thấp hơn</strong> sẽ xếp trên!</li>
           </ul>
         </div>
       </div>
@@ -433,7 +434,7 @@
           <div style="color: #f59e0b; font-weight: bold;">➔</div>
           <div style="flex: 1.5; background: rgba(139, 92, 246, 0.2); border: 1px solid #8b5cf6; padding: 12px; border-radius: 12px;">
             <div style="font-weight: 700; color: #c084fc;">4. REACT AGENT (LLM)</div>
-            <div style="font-size: 0.8rem; color: #94a3b8;">Qwen 2.5 + ToolEnv Loop</div>
+            <div style="font-size: 0.8rem; color: #94a3b8;">Qwen 2.5 3B (&lt;5B) + ToolEnv</div>
           </div>
           <div style="color: #8b5cf6; font-weight: bold;">➔</div>
           <div style="flex: 1; background: rgba(59, 130, 246, 0.15); border: 1px solid #3b82f6; padding: 12px; border-radius: 12px;">

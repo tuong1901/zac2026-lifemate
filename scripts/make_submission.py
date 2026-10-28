@@ -1,9 +1,26 @@
 import os
 import sys
 import json
+import random
 import argparse
 from pathlib import Path
 from tqdm import tqdm
+
+# Cố định random seed theo quy định Reproducibility của BTC
+SEED = 42
+random.seed(SEED)
+try:
+    import numpy as np
+    np.random.seed(SEED)
+except ImportError:
+    pass
+try:
+    import torch
+    torch.manual_seed(SEED)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(SEED)
+except ImportError:
+    pass
 
 def main():
     parser = argparse.ArgumentParser(description="Tạo file nộp bài submission.jsonl cho ZAC 2026 LifeMate")
