@@ -5,5 +5,6 @@ RAG Module for ZAC 2026 LifeMate:
 """
 
 from .exemplar_retriever import BM25ExemplarRetriever
+from .history_resolver import HistoryResolver
 
-__all__ = ["BM25ExemplarRetriever"]
+__all__ = ["BM25ExemplarRetriever", "HistoryResolver"]

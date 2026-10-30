@@ -1,81 +1,166 @@
+"""
+react_loop.py — Vòng lặp điều phối ReAct Agent (Nấc thang 1 hoàn chỉnh).
+Tích hợp:
+- BM25 Exemplar Retriever (Thành viên 1 - Pha 1)
+- Safe Schema Guardrail (Thành viên 1 - Pha 2)
+- History Memory Resolver (Thành viên 2)
+- Observation Compactor & Chống lặp vô hạn
+"""
+
 import json
-from typing import List, Dict, Any, Tuple
-from src.agent.prompt import SYSTEM_PROMPT, build_user_prompt
+import re
+from typing import List, Dict, Any, Tuple, Optional
+
+from src.agent.prompt import SYSTEM_PROMPT, build_user_prompt, compact_observation
+from src.agent.rag.exemplar_retriever import BM25ExemplarRetriever
+from src.agent.rag.history_resolver import HistoryResolver
 from src.rules.catalog_filter import CatalogFilter
+from src.rules.schema_guardrail import SafeSchemaGuardrail
+
 
 class ReActAgent:
     """
-    Tác nhân ReAct: Tương tác trực tiếp với ToolEnv của zaic_tools.
-    Gọi tool -> Xem kết quả -> Lập luận bước tiếp theo -> Dừng lại khi xong.
+    Tác nhân ReAct: Tương tác an toàn với ToolEnv qua SafeSchemaGuardrail.
     """
-    def __init__(self, llm_client, catalog_filter: CatalogFilter, max_steps: int = 6):
+    def __init__(
+        self,
+        llm_client: Any,
+        catalog_filter: CatalogFilter,
+        exemplar_retriever: Optional[BM25ExemplarRetriever] = None,
+        history_resolver: Optional[HistoryResolver] = None,
+        guardrail: Optional[SafeSchemaGuardrail] = None,
+        max_steps: int = 5
+    ):
         self.llm_client = llm_client
         self.catalog_filter = catalog_filter
+        self.exemplar_retriever = exemplar_retriever
+        self.history_resolver = history_resolver or HistoryResolver()
+        self.guardrail = guardrail or SafeSchemaGuardrail()
         self.max_steps = max_steps
 
-    def run(self, env, item: dict, user_text: str) -> Tuple[List[Dict[str, Any]], str]:
+    def parse_llm_json(self, response: str) -> Optional[Dict[str, Any]]:
         """
-        env: ToolEnv instance từ zaic_tools
-        item: Mẫu dữ liệu từ train.jsonl hoặc public_test.jsonl
-        user_text: Câu lệnh sau khi ASR gỡ băng (hoặc lấy từ audio_text)
+        Trích xuất và phân tích JSON từ chuỗi sinh của LLM.
+        Hỗ trợ dọn dẹp markdown ```json ... ``` và sửa lỗi cú pháp nhẹ.
+        """
+        if not response:
+            return None
+
+        clean = response.strip()
+        if "```json" in clean:
+            clean = clean.split("```json")[1].split("```")[0].strip()
+        elif "```" in clean:
+            clean = clean.split("```")[1].split("```")[0].strip()
+
+        # Tìm kiếm khối {...} đầu tiên nếu còn dính text bên ngoài
+        match = re.search(r"(\{.*\})", clean, re.DOTALL)
+        if match:
+            clean = match.group(1)
+
+        try:
+            return json.loads(clean)
+        except Exception:
+            return None
+
+    def run(self, env: Any, item: Dict[str, Any], user_text: str) -> Tuple[List[Dict[str, Any]], str]:
+        """
+        Thực thi trọn vẹn một mẫu yêu cầu từ người dùng.
+        
+        Args:
+            env: Phiên làm việc ToolEnv của mẫu hiện tại
+            item: Dữ liệu mẫu (context, history, v.v.)
+            user_text: Khẩu lệnh của người dùng sau ASR hoặc audio_text
+        
+        Returns:
+            (tool_calls, state_hash): Đúng định dạng yêu cầu của BTC
         """
         context = item.get("context", {})
         installed_apps = context.get("installed_apps", {})
         history = item.get("history", [])
 
-        # 1. Lọc chỉ lấy các tool được phép cho mẫu này
+        # 1. Lọc danh sách công cụ được phép
         allowed_tools = self.catalog_filter.get_allowed_tools(installed_apps)
         tools_desc = self.catalog_filter.format_tools_for_prompt(allowed_tools)
 
-        step_history = []
+        # 2. Người 2: Bóc tách thông tin từ History hội thoại
+        history_entities = self.history_resolver.extract_active_memory(history)
 
+        # 3. Người 1: Truy xuất Top-2 ví dụ mẫu bằng BM25
+        few_shot_str = "Không có ví dụ mẫu."
+        if self.exemplar_retriever:
+            exemplars = self.exemplar_retriever.retrieve(
+                query_text=user_text,
+                installed_apps=installed_apps,
+                top_k=2
+            )
+            few_shot_str = self.exemplar_retriever.format_exemplars_for_prompt(exemplars)
+
+        step_history: List[Dict[str, Any]] = []
+        executed_call_signatures = set()
+
+        # Vòng lặp ReAct từng bước
         for step_idx in range(self.max_steps):
+            # Ghép User Prompt đầy đủ ngữ cảnh
             prompt = build_user_prompt(
                 user_utterance=user_text,
                 context=context,
-                history=history,
+                history_entities=history_entities,
                 tools_description=tools_desc,
+                few_shot_examples=few_shot_str,
                 previous_steps=step_history
             )
 
-            # Gọi LLM sinh bước tiếp theo
+            # Gọi LLM sinh suy luận bước tiếp theo
             response = self.llm_client.generate(SYSTEM_PROMPT, prompt)
-            
-            try:
-                # Trích xuất JSON từ phản hồi của LLM
-                clean_json = response.strip()
-                if "```json" in clean_json:
-                    clean_json = clean_json.split("```json")[1].split("```")[0].strip()
-                elif "```" in clean_json:
-                    clean_json = clean_json.split("```")[1].split("```")[0].strip()
-                    
-                parsed = json.loads(clean_json)
-            except Exception as e:
-                # Fallback nếu format bị vỡ
+            parsed = self.parse_llm_json(response)
+
+            if not parsed:
+                # LLM sinh hỏng format -> Dừng lại an toàn
                 break
 
             action = parsed.get("action")
             is_finished = parsed.get("is_finished", False)
 
-            # Nếu không có hành động hoặc LLM báo hoàn thành
+            # Nếu không có hành động nào
             if not action or action.get("name") is None:
                 break
 
-            tool_name = action["name"]
+            tool_name = action.get("name")
             arguments = action.get("arguments", {})
 
-            # 2. Thực thi tool trên môi trường ảo ToolEnv
-            res = env.call(tool_name, arguments)
-            
+            # Chống lặp vô hạn: nếu LLM gọi lại y hệt 1 lệnh vừa gọi
+            call_sig = f"{tool_name}:{json.dumps(arguments, sort_keys=True)}"
+            if call_sig in executed_call_signatures:
+                break
+            executed_call_signatures.add(call_sig)
+
+            # 4. Người 1 - Pha 2: Chốt chặn an toàn SafeSchemaGuardrail
+            is_valid, clean_args, err_msg = self.guardrail.guard_and_validate(env, tool_name, arguments)
+
+            if not is_valid:
+                # [QUAN TRỌNG]: TUYỆT ĐỐI KHÔNG GỌI env.call() để giữ U = 0!
+                # Nạp lỗi ngược lại vào step_history để LLM tự sửa ở bước tiếp theo
+                step_history.append({
+                    "step": step_idx + 1,
+                    "tool_called": tool_name,
+                    "arguments": clean_args,
+                    "error": err_msg
+                })
+                continue
+
+            # 5. Thực thi an toàn trên ToolEnv
+            res = env.call(tool_name, clean_args)
+            compact_res = compact_observation(res, max_length=350)
+
             step_history.append({
                 "step": step_idx + 1,
                 "tool_called": tool_name,
-                "arguments": arguments,
-                "result": res
+                "arguments": clean_args,
+                "observation": compact_res
             })
 
-            # Nếu đã gọi công cụ sys.ask_missing_info thì kết thúc luôn
-            if tool_name == "sys.ask_missing_info" or is_finished:
+            # Nếu là tool kết thúc cuộc gọi, sys.ask_missing_info, hoặc LLM báo đã hoàn thành -> Dừng ngay
+            if is_finished or tool_name == "sys.ask_missing_info":
                 break
 
         return env.get_tool_calls(), env.get_state_hash()
