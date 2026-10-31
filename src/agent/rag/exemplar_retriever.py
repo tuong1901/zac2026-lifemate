@@ -232,22 +232,22 @@ class BM25ExemplarRetriever:
         Định dạng danh sách ví dụ thành chuỗi Markdown ngắn gọn cho LLM Prompt.
         """
         if not exemplars:
-            return "Không có ví dụ tham khảo."
+            return "No reference example available."
 
-        lines = ["[VÍ DỤ THỰC TẾ TƯƠNG ĐỒNG NHẤT ĐỂ NOI THEO]"]
+        lines = ["[CLOSEST REFERENCE EXEMPLAR]"]
         for idx, ex in enumerate(exemplars, 1):
-            lines.append(f"- Tình huống mẫu: \"{ex['audio_text']}\"")
+            lines.append(f"- Example Utterance: \"{ex['audio_text']}\"")
             
             tool_calls = ex.get("tool_calls", [])
             if not tool_calls:
-                lines.append("- Trình tự hành động chuẩn: [] (Ngoài phạm vi - không gọi tool nào)")
+                lines.append("- Expected Tools: [] (Out of scope)")
             else:
-                lines.append("- Trình tự công cụ chuẩn BẮT BUỘC noi theo:")
+                lines.append("- Expected Tool Sequence:")
                 for s_i, tc in enumerate(tool_calls, 1):
                     name = tc.get("name", "")
                     args = tc.get("arguments", {})
                     args_compact = json.dumps(args, ensure_ascii=False)
-                    lines.append(f"  + Bước {s_i}: `{name}({args_compact})`")
+                    lines.append(f"  + Step {s_i}: `{name}({args_compact})`")
 
         return "\n".join(lines)
 
