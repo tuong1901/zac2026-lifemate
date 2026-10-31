@@ -97,6 +97,7 @@ class ReActAgent:
 
         step_history: List[Dict[str, Any]] = []
         executed_call_signatures = set()
+        failed_call_signatures = set()
 
         # Vòng lặp ReAct từng bước
         for step_idx in range(self.max_steps):
@@ -115,11 +116,19 @@ class ReActAgent:
             parsed = self.parse_llm_json(response)
 
             if not parsed:
-                # LLM sinh hỏng format -> Dừng lại an toàn
+                print(f"  [ReAct Bước {step_idx + 1}] Không phân tích được JSON từ LLM: {response[:100]}...")
                 break
 
+            thought = parsed.get("thought", "")
             action = parsed.get("action")
             is_finished = parsed.get("is_finished", False)
+
+            print(f"  [ReAct Bước {step_idx + 1}]")
+            print(f"    - Thought: {thought}")
+            if action and action.get("name"):
+                print(f"    - Action: {action.get('name')}({action.get('arguments', {})}) [is_finished={is_finished}]")
+            else:
+                print(f"    - Action: None [is_finished={is_finished}]")
 
             # Nếu không có hành động nào
             if not action or action.get("name") is None:
@@ -128,18 +137,24 @@ class ReActAgent:
             tool_name = action.get("name")
             arguments = action.get("arguments", {})
 
-            # Chống lặp vô hạn: nếu LLM gọi lại y hệt 1 lệnh vừa gọi
+            # Chống lặp lệnh đã thực thi thành công
             call_sig = f"{tool_name}:{json.dumps(arguments, sort_keys=True)}"
             if call_sig in executed_call_signatures:
+                print(f"    - Phát hiện lặp lệnh đã thực thi: Dừng vòng lặp an toàn.")
                 break
-            executed_call_signatures.add(call_sig)
 
             # 4. Người 1 - Pha 2: Chốt chặn an toàn SafeSchemaGuardrail
             is_valid, clean_args, err_msg = self.guardrail.guard_and_validate(env, tool_name, arguments)
 
             if not is_valid:
                 # [QUAN TRỌNG]: TUYỆT ĐỐI KHÔNG GỌI env.call() để giữ U = 0!
-                # Nạp lỗi ngược lại vào step_history để LLM tự sửa ở bước tiếp theo
+                print(f"    - Guardrail phát hiện lỗi (CHẶN ĐỨNG GỌI ENV): {err_msg}")
+                # Nếu lệnh lỗi giống hệt lệnh lỗi của bước trước -> Dừng ngay
+                if call_sig in failed_call_signatures:
+                    print(f"    - Lệnh lỗi bị lặp lại lần 2: Dừng vòng lặp an toàn.")
+                    break
+                failed_call_signatures.add(call_sig)
+
                 step_history.append({
                     "step": step_idx + 1,
                     "tool_called": tool_name,
@@ -148,9 +163,12 @@ class ReActAgent:
                 })
                 continue
 
+            executed_call_signatures.add(call_sig)
+
             # 5. Thực thi an toàn trên ToolEnv
             res = env.call(tool_name, clean_args)
             compact_res = compact_observation(res, max_length=350)
+            print(f"    - Thực thi env.call() thành công: {compact_res[:100]}...")
 
             step_history.append({
                 "step": step_idx + 1,
