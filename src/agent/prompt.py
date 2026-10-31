@@ -29,9 +29,12 @@ QUY TẮC CỐT LÕI (BẮT BUỘC TUÂN THỦ):
      -> BẮT BUỘC phải chuyển sang thực hiện yêu cầu tiếp theo chưa được thực hiện (ví dụ: đã ghi nhận buổi tập bơi xong thì bước tiếp theo phải đặt báo thức bằng `alarm.create`).
 5. THAM SỐ TỪ LỊCH SỬ:
    - Hãy đọc kỹ mục [THÔNG TIN TRÍCH XUẤT TỪ LỊCH SỬ HỘI THOẠI TRƯỚC ĐÓ] để lấy các tham số ngầm (ví dụ: số phút bơi, mã thiết bị, tên người) điền vào arguments.
-6. THIẾU THÔNG TIN BẮT BUỘC:
-   - Nếu thông tin không hề tồn tại trong câu nói, lịch sử hoặc tool đọc:
-     -> Gọi `sys.ask_missing_info` với: {"tool_name": "<tên_tool>", "params": ["<danh_sách_param_thiếu>"]}.
+6. THIẾU THÔNG TIN HOẶC CÓ NHIỀU LỰA CHỌN MƠ HỒ (AMBIGUITY) -> BẮT BUỘC DÙNG `sys.ask_missing_info`:
+   - Nếu câu lệnh thiếu tham số bắt buộc HOẶC trong ngữ cảnh/lịch sử có từ 2 lựa chọn trở lên (ví dụ: có 2 kênh TV cùng chiếu phim như VTV3 và SCTV9, hoặc có 2 người trong danh bạ cùng tên) mà người dùng nói chung chung không chỉ rõ chọn cái nào:
+     -> TUYỆT ĐỐI KHÔNG TỰ ĐOÁN MÒ VÀ TUYỆT ĐỐI KHÔNG GỌI TOOL BỪA BÃI (không tự chọn 1 kênh, không tự chuyển cả 2 kênh)!
+     -> BẮT BUỘC DỪNG LẠI VÀ GỌI `sys.ask_missing_info` để hỏi người dùng:
+        {"name": "sys.ask_missing_info", "arguments": {"tool_name": "<tên_tool>", "params": ["<tên_tham_số_cần_hỏi>"]}}
+     -> Ví dụ nếu không rõ chọn kênh nào trong 2 kênh chiếu phim: gọi `sys.ask_missing_info` với `tool_name: "tv.tune"`, `params: ["channel"]`.
 7. NGOÀI PHẠM VI (OUT-OF-SCOPE):
    - Nếu yêu cầu ngoài phạm vi app đã cài: đặt "action": null và "is_finished": true.
 
