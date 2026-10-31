@@ -234,22 +234,20 @@ class BM25ExemplarRetriever:
         if not exemplars:
             return "Không có ví dụ tham khảo."
 
-        lines = ["[VÍ DỤ THỰC TẾ TƯƠNG TỰ TRONG QUÁ KHỨ]"]
+        lines = ["[VÍ DỤ THỰC TẾ TƯƠNG ĐỒNG NHẤT ĐỂ NOI THEO]"]
         for idx, ex in enumerate(exemplars, 1):
-            lines.append(f"--- Ví dụ {idx} ---")
-            lines.append(f"- Khẩu lệnh người dùng: \"{ex['audio_text']}\"")
+            lines.append(f"- Tình huống mẫu: \"{ex['audio_text']}\"")
             
             tool_calls = ex.get("tool_calls", [])
             if not tool_calls:
-                lines.append("- Hành động chuẩn: [] (Không gọi tool nào do yêu cầu ngoài phạm vi)")
+                lines.append("- Trình tự hành động chuẩn: [] (Ngoài phạm vi - không gọi tool nào)")
             else:
-                call_strs = []
-                for tc in tool_calls:
+                lines.append("- Trình tự công cụ chuẩn BẮT BUỘC noi theo:")
+                for s_i, tc in enumerate(tool_calls, 1):
                     name = tc.get("name", "")
                     args = tc.get("arguments", {})
                     args_compact = json.dumps(args, ensure_ascii=False)
-                    call_strs.append(f"{name}({args_compact})")
-                lines.append(f"- Hành động chuẩn: {' -> '.join(call_strs)}")
+                    lines.append(f"  + Bước {s_i}: `{name}({args_compact})`")
 
         return "\n".join(lines)
 

@@ -122,7 +122,11 @@ class OpenAICompatibleClient(BaseLLMClient):
         except ImportError:
             raise ImportError("Vui lòng cài đặt thư viện openai: pip install openai")
 
-        self.client = OpenAI(base_url=base_url, api_key=api_key)
+        self.client = OpenAI(
+            base_url=base_url,
+            api_key=api_key,
+            default_headers={"ngrok-skip-browser-warning": "true"}
+        )
         self.model = model
         self.max_tokens = max_tokens
 
