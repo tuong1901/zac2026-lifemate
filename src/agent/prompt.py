@@ -152,27 +152,18 @@ WEEKDAY_VN = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", 
 
 
 def build_calendar_helper(current_time_str: str) -> str:
-    """Tính sẵn lịch 7 ngày tới, 7 ngày trước và các mốc +phút/+tiếng từ thời điểm hiện tại để mô hình 3B không tính nhầm."""
+    """Tính sẵn lịch các mốc quan trọng từ thời điểm hiện tại."""
     try:
         dt = datetime.fromisoformat(current_time_str)
         cur_date = dt.date()
         wday = WEEKDAY_VN[cur_date.weekday()]
-        yesterday = (cur_date - timedelta(days=1)).isoformat()
         tomorrow = (cur_date + timedelta(days=1)).isoformat()
         day_after = (cur_date + timedelta(days=2)).isoformat()
         in_5_days = (cur_date + timedelta(days=5)).isoformat()
-        next_days = []
-        for d in range(1, 8):
-            nd = cur_date + timedelta(days=d)
-            next_days.append(f"{WEEKDAY_VN[nd.weekday()]}={nd.isoformat()}")
-        rel_offsets = []
-        for mins in (15, 20, 30, 45, 60, 90, 120):
-            rel_offsets.append(f"+{mins}p={(dt + timedelta(minutes=mins)).isoformat()}")
+        rel_offsets = [f"+{m}p={(dt + timedelta(minutes=m)).isoformat()}" for m in (15, 30, 60)]
         return (
-            f"- Hôm nay: {wday}, ngày {cur_date.isoformat()} (Hôm qua={yesterday}; Ngày mai={tomorrow}; Ngày kia={day_after}; "
-            f"Cửa sổ 5 ngày tới={cur_date.isoformat()}..{in_5_days})\n"
-            f"- Lịch 7 ngày tới: {', '.join(next_days)}\n"
-            f"- Mốc thời gian tính từ hiện tại ({current_time_str}): {', '.join(rel_offsets)}"
+            f"- Hôm nay: {wday}, ngày {cur_date.isoformat()} (Mai={tomorrow}; Kia={day_after}; Cửa sổ 5 ngày={cur_date.isoformat()}..{in_5_days})\n"
+            f"- Mốc thời gian: {', '.join(rel_offsets)}"
         )
     except Exception:
         return ""
@@ -301,7 +292,7 @@ def format_event_time_offsets(ev: Dict[str, Any]) -> str:
 # ==============================================================================
 # 3. BỘ TRÍCH XUẤT LỊCH SỬ HỘI THOẠI TOÀN DIỆN (SCHEMA-AGNOSTIC HISTORY MEMORY)
 # ==============================================================================
-def extract_full_history_memory(history: List[Dict[str, Any]], fallback_memory: str, max_chars: int = 5500) -> str:
+def extract_full_history_memory(history: List[Dict[str, Any]], fallback_memory: str, max_chars: int = 2500) -> str:
     """
     Trích xuất toàn diện các lượt hội thoại và mọi đối tượng dữ liệu trong tool_results
     của history (sắp xếp danh sách có trường thời gian due/start/time theo thứ tự tăng dần
@@ -378,7 +369,7 @@ def extract_full_history_memory(history: List[Dict[str, Any]], fallback_memory: 
 
 
 def format_tools_with_enums(allowed_tools: List[Dict[str, Any]], fallback_desc: str) -> str:
-    """Định dạng danh sách tool kèm đầy đủ giá trị enum=[...] cho từng tham số."""
+    """Định dạng danh sách tool cô đọng kèm enum=[...] cho từng tham số (tiết kiệm token context)."""
     if not allowed_tools:
         return fallback_desc
     lines = []
@@ -389,12 +380,13 @@ def format_tools_with_enums(allowed_tools: List[Dict[str, Any]], fallback_desc: 
         required = t.get("parameters", {}).get("required", [])
         param_str = []
         for p_name, p_info in params.items():
-            req_tag = "(required)" if p_name in required else "(optional)"
+            req_tag = "*" if p_name in required else ""
             p_type = p_info.get("type", "any")
             if "enum" in p_info:
-                p_type += f" enum={p_info['enum']}"
-            param_str.append(f"{p_name}: {p_type} {req_tag}")
-        lines.append(f"- Tool: `{name}` | Mô tả: {desc} | Tham số: [{', '.join(param_str)}]")
+                p_type = f"enum={p_info['enum']}"
+            param_str.append(f"{p_name}{req_tag}: {p_type}")
+        desc = t.get("description", "").split(".")[0][:45]
+        lines.append(f"- `{name}`({', '.join(param_str)}) - {desc}")
     return "\n".join(lines)
 
 
@@ -1163,12 +1155,18 @@ Chỉ trả về duy nhất một khối JSON hợp lệ (không kèm văn bản
 """
 
 
-def compact_observation(result: Any, max_length: int = 3000) -> str:
+def compact_observation(result: Any, max_length: int = 1000) -> str:
     """Rút gọn kết quả trả về của tool để tránh làm phình to context tokens."""
     if result is None:
         return "null"
-    if isinstance(result, (dict, list)):
-        compact_str = json.dumps(result, ensure_ascii=False)
+    if isinstance(result, dict):
+        res_copy = dict(result)
+        for k, v in res_copy.items():
+            if isinstance(v, list) and len(v) > 4:
+                res_copy[k] = v[:4]
+        compact_str = json.dumps(res_copy, ensure_ascii=False)
+    elif isinstance(result, list):
+        compact_str = json.dumps(result[:4], ensure_ascii=False)
     else:
         compact_str = str(result)
     if len(compact_str) > max_length:
@@ -1229,17 +1227,26 @@ def build_user_prompt(
                             except Exception as exc:
                                 if attempt == 5:
                                     raise
-                                # Nếu lỗi 500 do prompt quá dài (tràn VRAM/max_length trên server), rút gọn phần ACTIVE MEMORY
+                                # Nếu lỗi 400/500 do prompt quá dài (tràn context 4096 trên vLLM), rút gọn quyết liệt PREVIOUS STEPS & ACTIVE MEMORY
+                                err_str = str(exc)
+                                if "PREVIOUS STEPS IN THIS SESSION" in cur_usr_p:
+                                    p1, rest = cur_usr_p.split("[PREVIOUS STEPS IN THIS SESSION]\n", 1)
+                                    next_match = re.search(r"\n\n\[", rest)
+                                    if next_match:
+                                        step_part = rest[:next_match.start()]
+                                        rest_tail = rest[next_match.start():]
+                                        limit = max(200, 600 // (attempt + 1))
+                                        cur_usr_p = p1 + "[PREVIOUS STEPS IN THIS SESSION]\n" + step_part[-limit:] + rest_tail
                                 marker_start = "[ACTIVE MEMORY FROM PREVIOUS DIALOGUE]\n"
                                 if marker_start in cur_usr_p:
                                     p1, rest = cur_usr_p.split(marker_start, 1)
-                                    next_sec = "\n\n["
-                                    if next_sec in rest:
-                                        mem_part, p2 = rest.split(next_sec, 1)
-                                        limit = max(500, 2000 // (attempt + 1))
-                                        if len(mem_part) > limit:
-                                            cur_usr_p = p1 + marker_start + mem_part[-limit:] + next_sec + p2
-                                time.sleep(2 * (attempt + 1))
+                                    next_match = re.search(r"\n\n\[", rest)
+                                    if next_match:
+                                        mem_part = rest[:next_match.start()]
+                                        rest_tail = rest[next_match.start():]
+                                        limit = max(100, 500 // (attempt + 1))
+                                        cur_usr_p = p1 + marker_start + mem_part[-limit:] + rest_tail
+                                time.sleep(0.5 * (attempt + 1))
                         return ""
                     llm_c.generate = _gen_with_retry
                     llm_c._retry_wrapped = True

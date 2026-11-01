@@ -36,7 +36,7 @@ class CatalogFilter:
 
     def format_tools_for_prompt(self, allowed_tools: List[Dict[str, Any]]) -> str:
         """
-        Định dạng danh sách tool thành chuỗi ngắn gọn cho LLM
+        Định dạng danh sách tool thành chuỗi ngắn gọn, tối ưu token context cho LLM.
         """
         lines = []
         for t in allowed_tools:
@@ -47,8 +47,11 @@ class CatalogFilter:
             
             param_str = []
             for p_name, p_info in params.items():
-                req_tag = "(required)" if p_name in required else "(optional)"
-                param_str.append(f"{p_name}: {p_info.get('type', 'any')} {req_tag}")
+                req_tag = "*" if p_name in required else ""
+                p_type = p_info.get("type", "any")
+                if "enum" in p_info:
+                    p_type = f"enum={p_info['enum']}"
+                param_str.append(f"{p_name}{req_tag}: {p_type}")
                 
-            lines.append(f"- Tool: `{name}` | Mô tả: {desc} | Tham số: [{', '.join(param_str)}]")
+            lines.append(f"- `{name}` | {desc} | Tham số: [{', '.join(param_str)}]")
         return "\n".join(lines)

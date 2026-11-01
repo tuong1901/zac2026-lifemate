@@ -222,7 +222,7 @@ class ReActAgent:
 
                 # 5. Thực thi an toàn trên ToolEnv
                 res = env.call(tool_name, clean_args)
-                compact_res = compact_observation(res, max_length=3000)
+                compact_res = compact_observation(res, max_length=1000)
                 print(f"    - Thực thi env.call() thành công: {compact_res[:100]}...")
 
                 step_history.append({

@@ -175,29 +175,46 @@ def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, lim
                 items.append(json.loads(line))
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    results = []
 
-    for idx, item in enumerate(tqdm(items, desc="Generating Submission"), 1):
-        sample_id = item["id"]
-        if sample_id in asr_map:
-            run_item, user_text = inject_asr_into_item(item, asr_map[sample_id])
-        else:
-            run_item = item
-            user_text = item.get("audio_text", "")
+    # Đọc các mẫu đã xử lý từ trước nếu có để hỗ trợ resume
+    processed_ids = set()
+    if output_file.exists():
+        with open(output_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        rec = json.loads(line)
+                        processed_ids.add(rec["id"])
+                    except Exception:
+                        pass
+        if processed_ids:
+            print(f"ℹ️ Tìm thấy {len(processed_ids)} mẫu đã xử lý trước đó trong {output_file.name}. Tiếp tục chạy phần còn lại...")
 
-        env = ToolEnv("public_test", sample_id, root=root)
-        pred_calls, hash_sys = agent.run(env, run_item, user_text)
+    completed_count = len(processed_ids)
+    with open(output_file, "a", encoding="utf-8") as out_f:
+        for idx, item in enumerate(tqdm(items, desc="Generating Submission"), 1):
+            sample_id = item["id"]
+            if sample_id in processed_ids:
+                continue
 
-        rec = {
-            "id": sample_id,
-            "tool_calls": pred_calls,
-            "state_hash": hash_sys
-        }
-        results.append(rec)
+            if sample_id in asr_map:
+                run_item, user_text = inject_asr_into_item(item, asr_map[sample_id])
+            else:
+                run_item = item
+                user_text = item.get("audio_text", "")
 
-    with open(output_file, "w", encoding="utf-8") as f:
-        for r in results:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+            env = ToolEnv("public_test", sample_id, root=root)
+            pred_calls, hash_sys = agent.run(env, run_item, user_text)
+
+            rec = {
+                "id": sample_id,
+                "tool_calls": pred_calls,
+                "state_hash": hash_sys
+            }
+            out_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            out_f.flush()
+            completed_count += 1
 
     # Đóng gói zip submission theo đúng chuẩn BTC
     zip_path = output_file.with_suffix(".zip")
@@ -205,7 +222,7 @@ def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, lim
         z.write(output_file, arcname=output_file.name)
 
     print(f"\n✅ ĐÃ XUẤT FILE SUBMISSION THÀNH CÔNG:")
-    print(f"   - File JSONL: {output_file} ({len(results)} mẫu)")
+    print(f"   - File JSONL: {output_file} ({completed_count} mẫu)")
     print(f"   - File ZIP:   {zip_path}\n")
 
 
@@ -214,7 +231,7 @@ def main():
     parser.add_argument("--data_root", type=str, default=None)
     parser.add_argument("--asr_dir", type=str, default=None)
     parser.add_argument("--eval_file", type=str, default="data/val_benchmark_200.jsonl")
-    parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--limit", type=int, default=None, help="Số lượng mẫu tối đa (mặc định: toàn bộ)")
     parser.add_argument("--mode", choices=["hf", "server"], default="server")
     parser.add_argument("--base_url", type=str, default="http://localhost:8000/v1")
     parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-3B-Instruct")
@@ -259,8 +276,7 @@ def main():
 
     if args.make_submission:
         out_path = Path(args.output_file) if Path(args.output_file).is_absolute() else PROJECT_ROOT / args.output_file
-        sub_limit = args.limit if args.limit and args.limit > 0 and args.limit < 634 else None
-        generate_submission(agent, root, asr_dir, out_path, limit=sub_limit, asr_model=args.asr_model if args.asr_model != "all" else "phowhisper_medium")
+        generate_submission(agent, root, asr_dir, out_path, limit=args.limit, asr_model=args.asr_model if args.asr_model != "all" else "phowhisper_medium")
         return
 
     eval_path = PROJECT_ROOT / args.eval_file if not Path(args.eval_file).is_absolute() else Path(args.eval_file)
