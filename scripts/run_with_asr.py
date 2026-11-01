@@ -129,34 +129,109 @@ def eval_dataset(agent, eval_items, root: Path, fuzzy_map: dict, asr_map: dict =
     return res
 
 
+def resolve_data_root(preferred_path: str = None) -> Path:
+    candidates = [
+        preferred_path,
+        "D:/Download/train+public_test/train+public_test",
+        "D:/TOOL_TH/ZAC_2026/train+public_test/train+public_test",
+        "/content/train+public_test/train+public_test",
+    ]
+    for c in candidates:
+        if c and Path(c).exists():
+            return Path(c)
+    raise FileNotFoundError("Không tìm thấy thư mục data_root! Hãy truyền --data_root hợp lệ.")
+
+
+def resolve_asr_dir(preferred_path: str = None) -> Path:
+    candidates = [
+        preferred_path,
+        str(PROJECT_ROOT / "data" / "MultiASR_Results"),
+        "C:/Users/Admin/Downloads/MultiASR_Results",
+        "D:/TOOL_TH/ZAC_2026/MultiASR_Results",
+    ]
+    for c in candidates:
+        if c and Path(c).exists():
+            return Path(c)
+    raise FileNotFoundError("Không tìm thấy thư mục MultiASR_Results! Hãy truyền --asr_dir hợp lệ.")
+
+
+def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, limit: int = None, asr_model: str = "phowhisper_medium"):
+    import zipfile
+    from zaic_tools import ToolEnv
+
+    split_dir = root / "public_test"
+    test_jsonl = split_dir / "public_test.jsonl"
+    asr_jsonl = asr_dir / f"public_test_{asr_model}_for_agent.jsonl"
+
+    print(f"\n🚀 BẮT ĐẦU CHẠY INFERENCE VÀ XUẤT SUBMISSION TRÊN PUBLIC_TEST ({asr_model})")
+    asr_map = load_asr_map(asr_jsonl)
+
+    items = []
+    with open(test_jsonl, "r", encoding="utf-8") as f:
+        for idx, line in enumerate(f):
+            if limit and idx >= limit:
+                break
+            if line.strip():
+                items.append(json.loads(line))
+
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    results = []
+
+    for idx, item in enumerate(tqdm(items, desc="Generating Submission"), 1):
+        sample_id = item["id"]
+        if sample_id in asr_map:
+            run_item, user_text = inject_asr_into_item(item, asr_map[sample_id])
+        else:
+            run_item = item
+            user_text = item.get("audio_text", "")
+
+        env = ToolEnv("public_test", sample_id, root=root)
+        pred_calls, hash_sys = agent.run(env, run_item, user_text)
+
+        rec = {
+            "id": sample_id,
+            "tool_calls": pred_calls,
+            "state_hash": hash_sys
+        }
+        results.append(rec)
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        for r in results:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    # Đóng gói zip submission theo đúng chuẩn BTC
+    zip_path = output_file.with_suffix(".zip")
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.write(output_file, arcname=output_file.name)
+
+    print(f"\n✅ ĐÃ XUẤT FILE SUBMISSION THÀNH CÔNG:")
+    print(f"   - File JSONL: {output_file} ({len(results)} mẫu)")
+    print(f"   - File ZIP:   {zip_path}\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Chạy so sánh Benchmark BTC vs DB ASR của Khoa")
-    parser.add_argument("--data_root", type=str, default="D:/TOOL_TH/ZAC_2026/train+public_test/train+public_test")
-    parser.add_argument("--asr_dir", type=str, default="D:/TOOL_TH/ZAC_2026/MultiASR_Results")
+    parser.add_argument("--data_root", type=str, default=None)
+    parser.add_argument("--asr_dir", type=str, default=None)
     parser.add_argument("--eval_file", type=str, default="data/val_benchmark_200.jsonl")
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--mode", choices=["hf", "server"], default="server")
     parser.add_argument("--base_url", type=str, default="http://localhost:8000/v1")
     parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-3B-Instruct")
     parser.add_argument("--asr_model", choices=["phowhisper_medium", "whisper_turbo", "phowhisper_small", "all"], default="phowhisper_medium")
+    parser.add_argument("--make_submission", action="store_true", help="Chạy trên 634 mẫu public_test và xuất submission.jsonl + submission.zip")
+    parser.add_argument("--output_file", type=str, default="submission.jsonl")
     args = parser.parse_args()
 
-    root = Path(args.data_root)
-    split_dir = root / "train"
-    catalog_file = split_dir / "train_tools_catalog.json"
+    root = resolve_data_root(args.data_root)
+    asr_dir = resolve_asr_dir(args.asr_dir)
+
+    split_dir = root / ("public_test" if args.make_submission else "train")
+    catalog_file = split_dir / f"{split_dir.name}_tools_catalog.json"
     cache_path = PROJECT_ROOT / "data" / "bm25_train_index.pkl"
 
     sys.path.insert(0, str(split_dir))
     import zaic_tools  # noqa
-
-    eval_path = PROJECT_ROOT / args.eval_file if not Path(args.eval_file).is_absolute() else Path(args.eval_file)
-    eval_items = []
-    with open(eval_path, "r", encoding="utf-8") as f:
-        for idx, line in enumerate(f):
-            if idx >= args.limit:
-                break
-            if line.strip():
-                eval_items.append(json.loads(line))
 
     fuzzy_map = load_fuzzy_map(catalog_file)
 
@@ -170,7 +245,7 @@ def main():
     if cache_path.exists():
         retriever.load_cache(str(cache_path))
     else:
-        retriever.build_from_train_file(str(split_dir / "train.jsonl"))
+        retriever.build_from_train_file(str(root / "train" / "train.jsonl"))
         retriever.save_cache(str(cache_path))
 
     agent = ReActAgent(
@@ -182,6 +257,21 @@ def main():
         max_steps=7
     )
 
+    if args.make_submission:
+        out_path = Path(args.output_file) if Path(args.output_file).is_absolute() else PROJECT_ROOT / args.output_file
+        sub_limit = args.limit if args.limit and args.limit > 0 and args.limit < 634 else None
+        generate_submission(agent, root, asr_dir, out_path, limit=sub_limit, asr_model=args.asr_model if args.asr_model != "all" else "phowhisper_medium")
+        return
+
+    eval_path = PROJECT_ROOT / args.eval_file if not Path(args.eval_file).is_absolute() else Path(args.eval_file)
+    eval_items = []
+    with open(eval_path, "r", encoding="utf-8") as f:
+        for idx, line in enumerate(f):
+            if idx >= args.limit:
+                break
+            if line.strip():
+                eval_items.append(json.loads(line))
+
     print("\n" + "=" * 72)
     print(f" BẮT ĐẦU CHẠY ĐỐI CHIẾU TRÊN {len(eval_items)} MẪU BENCHMARK")
     print("=" * 72)
@@ -190,7 +280,6 @@ def main():
     res_gold = eval_dataset(agent, eval_items, root, fuzzy_map, asr_map=None, desc="1. DB Chuẩn BTC (Gold Text)")
 
     # 2. Chạy trên DB ASR của Khoa
-    asr_dir = Path(args.asr_dir)
     models_to_run = ["phowhisper_medium", "whisper_turbo", "phowhisper_small"] if args.asr_model == "all" else [args.asr_model]
     asr_results = {}
     for m_name in models_to_run:
