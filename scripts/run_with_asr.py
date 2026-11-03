@@ -167,16 +167,22 @@ def resolve_asr_dir(preferred_path: str = None) -> Path:
     raise FileNotFoundError("Không tìm thấy thư mục MultiASR_Results! Hãy truyền --asr_dir hợp lệ.")
 
 
-def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, limit: int = None, asr_model: str = "phowhisper_medium"):
+def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, limit: int = None, asr_model: str = "phowhisper_medium", workers: int = 6):
     import zipfile
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from zaic_tools import ToolEnv
+    from src.agent.prompt import _get_multi_asr_variants, _get_atomic_retriever
 
     split_dir = root / "public_test"
     test_jsonl = split_dir / "public_test.jsonl"
     asr_jsonl = asr_dir / f"public_test_{asr_model}_for_agent.jsonl"
 
-    print(f"\n🚀 BẮT ĐẦU CHẠY INFERENCE VÀ XUẤT SUBMISSION TRÊN PUBLIC_TEST ({asr_model})")
+    print(f"\n🚀 BẮT ĐẦU CHẠY INFERENCE VÀ XUẤT SUBMISSION TRÊN PUBLIC_TEST ({asr_model}, workers={workers})")
     asr_map = load_asr_map(asr_jsonl)
+    _get_multi_asr_variants("public_0001", "")
+    if getattr(agent, "exemplar_retriever", None):
+        _get_atomic_retriever(agent.exemplar_retriever)
 
     items = []
     with open(test_jsonl, "r", encoding="utf-8") as f:
@@ -189,7 +195,7 @@ def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, lim
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
     # Đọc các mẫu đã xử lý từ trước nếu có để hỗ trợ resume
-    processed_ids = set()
+    processed_map = {}
     if output_file.exists():
         with open(output_file, "r", encoding="utf-8") as f:
             for line in f:
@@ -197,34 +203,48 @@ def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, lim
                 if line:
                     try:
                         rec = json.loads(line)
-                        processed_ids.add(rec["id"])
+                        processed_map[rec["id"]] = rec
                     except Exception:
                         pass
-        if processed_ids:
-            print(f"ℹ️ Tìm thấy {len(processed_ids)} mẫu đã xử lý trước đó trong {output_file.name}. Tiếp tục chạy phần còn lại...")
+        if processed_map:
+            print(f"ℹ️ Tìm thấy {len(processed_map)} mẫu đã xử lý trước đó trong {output_file.name}. Tiếp tục chạy phần còn lại...")
 
-    completed_count = len(processed_ids)
-    with open(output_file, "a", encoding="utf-8") as out_f:
-        for idx, item in enumerate(tqdm(items, desc="Generating Submission"), 1):
-            sample_id = item["id"]
-            if sample_id in processed_ids:
-                continue
+    pending_items = [it for it in items if it["id"] not in processed_map]
+    write_lock = threading.Lock()
 
-            if sample_id not in asr_map or not asr_map[sample_id].get("transcript"):
-                raise ValueError(f"Thiếu transcript ASR cho {sample_id}")
-            run_item, user_text = inject_asr_into_item(item, asr_map[sample_id])
+    if pending_items:
+        with open(output_file, "a", encoding="utf-8") as out_f:
+            def _process_one(item):
+                sample_id = item["id"]
+                if sample_id not in asr_map or not asr_map[sample_id].get("transcript"):
+                    raise ValueError(f"Thiếu transcript ASR cho {sample_id}")
+                run_item, user_text = inject_asr_into_item(item, asr_map[sample_id])
+                env = ToolEnv("public_test", sample_id, root=root)
+                pred_calls, hash_sys = agent.run(env, run_item, user_text)
+                rec = {
+                    "id": sample_id,
+                    "tool_calls": pred_calls,
+                    "state_hash": hash_sys,
+                }
+                with write_lock:
+                    out_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                    out_f.flush()
+                    processed_map[sample_id] = rec
+                return rec
 
-            env = ToolEnv("public_test", sample_id, root=root)
-            pred_calls, hash_sys = agent.run(env, run_item, user_text)
+            if workers <= 1:
+                for it in tqdm(pending_items, desc="Generating Submission"):
+                    _process_one(it)
+            else:
+                with ThreadPoolExecutor(max_workers=workers) as ex:
+                    futs = [ex.submit(_process_one, it) for it in pending_items]
+                    for fut in tqdm(as_completed(futs), total=len(futs), desc="Generating Submission"):
+                        fut.result()
 
-            rec = {
-                "id": sample_id,
-                "tool_calls": pred_calls,
-                "state_hash": hash_sys
-            }
+    ordered_recs = [processed_map[it["id"]] for it in items if it["id"] in processed_map]
+    with open(output_file, "w", encoding="utf-8") as out_f:
+        for rec in ordered_recs:
             out_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-            out_f.flush()
-            completed_count += 1
 
     # Đóng gói zip submission theo đúng chuẩn BTC
     zip_path = output_file.with_suffix(".zip")
@@ -232,7 +252,7 @@ def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, lim
         z.write(output_file, arcname=output_file.name)
 
     print(f"\n✅ ĐÃ XUẤT FILE SUBMISSION THÀNH CÔNG:")
-    print(f"   - File JSONL: {output_file} ({completed_count} mẫu)")
+    print(f"   - File JSONL: {output_file} ({len(ordered_recs)} mẫu)")
     print(f"   - File ZIP:   {zip_path}\n")
 
 

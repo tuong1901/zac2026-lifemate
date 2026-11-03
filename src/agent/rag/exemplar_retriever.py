@@ -6,8 +6,8 @@ Phụ trách: Thành viên 1 (Few-Shot Exemplar RAG).
 - Thuần túy giải tích toán học (BM25Okapi với Inverted Index), KHÔNG dùng mô hình AI (0 tham số, 0 VRAM).
 - Tokenize tiếng Việt chuyên sâu: Chuẩn hóa Unicode NFC + Lowercase + Unigram + Bigram để bắt trọn
   các từ ghép ("máy giặt", "máy sấy", "chuyển tiền", "báo thức", "cửa ban công").
-- Bộ lọc Hard App Filter: Chỉ lấy các bài mẫu mà tất cả tools gọi thuộc danh sách installed_apps
-  của mẫu hiện tại (hoặc sys.ask_missing_info / out-of-scope), tránh tuyệt đối việc gợi ý tool của app chưa cài.
+- Bộ lọc Hard App Filter: Chỉ lấy các bài mẫu mà tất cả tools gọi (bao gồm cả tool_name trong sys.ask_missing_info)
+  thuộc danh sách installed_apps của mẫu hiện tại, tránh tuyệt đối việc gợi ý tool của app chưa cài.
 - Tốc độ suy luận: < 1ms / mẫu.
 """
 
@@ -28,9 +28,7 @@ def normalize_vietnamese_text(text: str) -> str:
     if not text:
         return ""
     text = unicodedata.normalize("NFC", text.strip().lower())
-    # Loại bỏ ký tự đặc biệt, chỉ giữ lại chữ cái, chữ số và khoảng trắng
     text = re.sub(r"[^\w\s]", " ", text)
-    # Rút gọn khoảng trắng thừa
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
@@ -38,7 +36,6 @@ def normalize_vietnamese_text(text: str) -> str:
 def tokenize_vietnamese(text: str, use_bigrams: bool = True) -> List[str]:
     """
     Tách từ tiếng Việt dạng Unigram + Bigram để BM25 bắt chính xác từ ghép.
-    Ví dụ: "tắt máy giặt" -> ["tắt", "máy", "giặt", "tắt_máy", "máy_giặt"]
     """
     cleaned = normalize_vietnamese_text(text)
     if not cleaned:
@@ -63,7 +60,6 @@ class BM25ExemplarRetriever:
         self.avgdl: float = 0.0
         self.doc_freq: Dict[str, int] = {}
         self.idf: Dict[str, float] = {}
-        # Inverted index: token -> list of (doc_idx, tf)
         self.inverted_index: Dict[str, List[Tuple[int, int]]] = {}
         self.is_indexed: bool = False
 
@@ -85,21 +81,24 @@ class BM25ExemplarRetriever:
                 item = json.loads(line)
                 if item.get("id") in exclude_ids:
                     continue
-                
-                # Trích xuất thông tin cần thiết
+
                 sample_id = item.get("id", "")
                 audio_text = item.get("audio_text", "")
                 context = item.get("context", {})
                 installed_apps = list(context.get("installed_apps", {}).keys())
-                
+
                 label = item.get("label", {})
                 tool_calls = label.get("tool_calls", [])
-                
-                # Xác định các app được gọi trong đáp án chuẩn
+
                 called_apps = set()
                 for tc in tool_calls:
                     name = tc.get("name", "")
-                    if "." in name:
+                    if name == "sys.ask_missing_info":
+                        called_apps.add("sys")
+                        target_tn = tc.get("arguments", {}).get("tool_name", "")
+                        if "." in target_tn:
+                            called_apps.add(target_tn.split(".")[0])
+                    elif "." in name:
                         app_name = name.split(".")[0]
                         called_apps.add(app_name)
                     elif name:
@@ -135,12 +134,10 @@ class BM25ExemplarRetriever:
             self.doc_len.append(d_len)
             total_len += d_len
 
-            # Đếm tần suất từ trong tài liệu (TF)
             tf_map: Dict[str, int] = {}
             for t in tokens:
                 tf_map[t] = tf_map.get(t, 0) + 1
 
-            # Cập nhật inverted index và Document Frequency
             for t, count in tf_map.items():
                 self.doc_freq[t] = self.doc_freq.get(t, 0) + 1
                 if t not in self.inverted_index:
@@ -149,10 +146,8 @@ class BM25ExemplarRetriever:
 
         self.avgdl = total_len / num_docs if num_docs > 0 else 1.0
 
-        # Tính toán trước IDF theo chuẩn Lucene BM25
         self.idf = {}
         for t, df in self.doc_freq.items():
-            # idf = ln(1 + (N - df + 0.5) / (df + 0.5))
             self.idf[t] = math.log(1.0 + (num_docs - df + 0.5) / (df + 0.5))
 
         self.is_indexed = True
@@ -166,12 +161,6 @@ class BM25ExemplarRetriever:
     ) -> List[Dict[str, Any]]:
         """
         Tìm kiếm Top-K ví dụ mẫu tương đồng nhất bằng BM25.
-        
-        Args:
-            query_text: Khẩu lệnh của người dùng (từ ASR hoặc audio_text).
-            installed_apps: Dict hoặc Set các app đã cài (ví dụ: context["installed_apps"]).
-            top_k: Số lượng mẫu tương tự cần trả về (mặc định 2).
-            hard_app_filter: Nếu True, chỉ trả về mẫu mà các app được gọi nằm trong installed_apps.
         """
         if not self.is_indexed or not self.corpus:
             return []
@@ -180,32 +169,25 @@ class BM25ExemplarRetriever:
         if not query_tokens:
             return []
 
-        # Tập hợp app hợp lệ của mẫu hiện tại
         allowed_apps: Set[str] = set()
         if installed_apps:
             if isinstance(installed_apps, dict):
                 allowed_apps = set(installed_apps.keys())
             elif isinstance(installed_apps, (list, set)):
                 allowed_apps = set(installed_apps)
-        # 'sys' luôn luôn được phép gọi (ví dụ: sys.ask_missing_info)
         allowed_apps.add("sys")
 
-        # Tính điểm BM25 cho các tài liệu ứng viên qua Inverted Index
         scores: Dict[int, float] = {}
         for t in query_tokens:
             if t not in self.inverted_index:
                 continue
             t_idf = self.idf[t]
             for doc_idx, tf in self.inverted_index[t]:
-                # Hard filter: nếu bật lọc app, loại bỏ ngay tài liệu gọi app chưa cài
                 if hard_app_filter and allowed_apps:
                     rec_called = self.corpus[doc_idx]["called_apps"]
-                    # Nếu tài liệu có gọi tool của app ngoài danh sách đã cài -> bỏ qua
-                    if not rec_called.issubset(allowed_apps):
+                    if not rec_called or not rec_called.issubset(allowed_apps):
                         continue
 
-                # Công thức BM25Okapi:
-                # score += idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (doc_len / avgdl)))
                 d_len = self.doc_len[doc_idx]
                 denominator = tf + self.k1 * (1.0 - self.b + self.b * (d_len / self.avgdl))
                 numerator = tf * (self.k1 + 1.0)
@@ -213,13 +195,10 @@ class BM25ExemplarRetriever:
                 scores[doc_idx] = scores.get(doc_idx, 0.0) + term_score
 
         if not scores:
-            # Fallback nếu hard filter không tìm thấy kết quả nào:
-            # Cho phép tìm nới lỏng (chỉ cần giao thoa ít nhất 1 app)
             if hard_app_filter and allowed_apps:
                 return self.retrieve(query_text, installed_apps, top_k, hard_app_filter=False)
             return []
 
-        # Sắp xếp lấy Top-K điểm cao nhất
         sorted_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
 
         results = []
@@ -240,7 +219,6 @@ class BM25ExemplarRetriever:
         lines = ["[CLOSEST REFERENCE EXEMPLAR]"]
         for idx, ex in enumerate(exemplars, 1):
             lines.append(f"- Example Utterance: \"{ex['audio_text']}\"")
-            
             tool_calls = ex.get("tool_calls", [])
             if not tool_calls:
                 lines.append("- Expected Tools: [] (Out of scope)")
@@ -255,9 +233,6 @@ class BM25ExemplarRetriever:
         return "\n".join(lines)
 
     def save_cache(self, cache_path: str):
-        """
-        Lưu index và corpus ra file pickle để tải tức thì (<5ms) khi chạy.
-        """
         data = {
             "k1": self.k1,
             "b": self.b,
@@ -272,9 +247,6 @@ class BM25ExemplarRetriever:
             pickle.dump(data, f)
 
     def load_cache(self, cache_path: str):
-        """
-        Nạp index đã tính trước từ file pickle.
-        """
         with open(cache_path, "rb") as f:
             data = pickle.load(f)
         self.k1 = data["k1"]
