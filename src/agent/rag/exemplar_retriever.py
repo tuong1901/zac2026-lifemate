@@ -67,7 +67,7 @@ class BM25ExemplarRetriever:
         self.inverted_index: Dict[str, List[Tuple[int, int]]] = {}
         self.is_indexed: bool = False
 
-    def build_from_train_file(self, train_path: str):
+    def build_from_train_file(self, train_path: str, exclude_ids: Optional[Set[str]] = None):
         """
         Nạp toàn bộ các mẫu từ train.jsonl và khởi tạo chỉ mục BM25.
         """
@@ -76,12 +76,15 @@ class BM25ExemplarRetriever:
             raise FileNotFoundError(f"Không tìm thấy file train tại: {train_path}")
 
         records = []
+        exclude_ids = exclude_ids or set()
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
                 item = json.loads(line)
+                if item.get("id") in exclude_ids:
+                    continue
                 
                 # Trích xuất thông tin cần thiết
                 sample_id = item.get("id", "")
@@ -263,7 +266,7 @@ class BM25ExemplarRetriever:
             "avgdl": self.avgdl,
             "doc_freq": self.doc_freq,
             "idf": self.idf,
-            "inverted_index": self.inverted_index
+            "inverted_index": self.inverted_index,
         }
         with open(cache_path, "wb") as f:
             pickle.dump(data, f)

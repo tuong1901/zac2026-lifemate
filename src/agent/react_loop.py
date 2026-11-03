@@ -28,8 +28,6 @@ CANCEL_END_REGEX = re.compile(
 )
 ACTION_VERBS = r"(đặt|chuyển|gọi|nhắn|gửi|coi|kiểm tra|tìm|mở|bật|tắt|tạo|hủy|thêm|xóa|ghi|nhắc|nạp|trừ|làm|báo|dời|đẩy|đổi)"
 
-
-
 class ReActAgent:
     """
     Tác nhân ReAct: Tương tác an toàn với ToolEnv qua SafeSchemaGuardrail.
@@ -41,7 +39,9 @@ class ReActAgent:
         exemplar_retriever: Optional[BM25ExemplarRetriever] = None,
         history_resolver: Optional[HistoryResolver] = None,
         guardrail: Optional[SafeSchemaGuardrail] = None,
-        max_steps: int = 7
+        max_steps: int = 7,
+        resolve_lock_ids: bool = True,
+        structured_router: Optional[Any] = None
     ):
         self.llm_client = llm_client
         self.catalog_filter = catalog_filter
@@ -49,6 +49,44 @@ class ReActAgent:
         self.history_resolver = history_resolver or HistoryResolver()
         self.guardrail = guardrail or SafeSchemaGuardrail()
         self.max_steps = max_steps
+        self.resolve_lock_ids = resolve_lock_ids
+        self.structured_router = structured_router
+
+    @staticmethod
+    def _resolve_history_task_ordinal(history: List[Dict[str, Any]], user_text: str) -> Optional[str]:
+        """Resolve references such as 'việc thứ hai con mới kể' from task history."""
+        text = user_text.lower()
+        ordinal_patterns = [
+            (1, r"\b(việc )?(đầu tiên|thứ nhất|thứ 1)\b"),
+            (2, r"\b(việc )?thứ (hai|2)\b"),
+            (3, r"\b(việc )?thứ (ba|3)\b"),
+        ]
+        ordinal = next((index for index, pattern in ordinal_patterns if re.search(pattern, text)), None)
+        if ordinal is None or "việc" not in text:
+            return None
+
+        for turn in reversed(history):
+            if turn.get("role") != "assistant":
+                continue
+            calls = turn.get("tool_calls", [])
+            results = turn.get("tool_results", [])
+            if not any(call.get("name") == "tasks.list" for call in calls):
+                continue
+            tasks = next(
+                (result.get("tasks", []) for result in results if isinstance(result, dict) and "tasks" in result),
+                [],
+            )
+            assistant_text = str(turn.get("text", "")).lower()
+            ordered = []
+            for task in tasks:
+                title = str(task.get("title", "")).lower()
+                position = assistant_text.find(title)
+                if title and position >= 0:
+                    ordered.append((position, task.get("id")))
+            ordered.sort()
+            if len(ordered) >= ordinal:
+                return ordered[ordinal - 1][1]
+        return None
 
     def parse_llm_json(self, response: str) -> Optional[Dict[str, Any]]:
         """
@@ -73,6 +111,58 @@ class ReActAgent:
             return json.loads(clean)
         except Exception:
             return None
+
+    @staticmethod
+    def _resolve_lock_id(
+        history: List[Dict[str, Any]],
+        steps: List[Dict[str, Any]],
+        user_text: str = "",
+    ) -> Optional[str]:
+        """Resolve a referenced door from prior alerts and a live lock listing."""
+        locks: List[Dict[str, Any]] = []
+        for step in reversed(steps):
+            if step.get("tool_called") != "door_lock.list_locks":
+                continue
+            observation = step.get("raw_observation")
+            if not isinstance(observation, dict):
+                try:
+                    observation = json.loads(step.get("observation", "{}"))
+                except Exception:
+                    continue
+            locks = [lock for lock in observation.get("locks", []) if isinstance(lock, dict)]
+            break
+        if not locks:
+            return None
+
+        normalized_user = user_text.lower()
+        explicit_matches = [
+            lock for lock in locks
+            if lock.get("name") and str(lock["name"]).lower() in normalized_user
+        ]
+        if explicit_matches:
+            return max(explicit_matches, key=lambda lock: len(str(lock["name"])))["id"]
+
+        target_text = ""
+        for turn in history:
+            if turn.get("role") != "assistant":
+                continue
+            for result in turn.get("tool_results", []):
+                alerts = result.get("alerts", []) if isinstance(result, dict) else []
+                if alerts:
+                    alert = alerts[0]
+                    target_text = f"{alert.get('location', '')} {alert.get('message', '')}".lower()
+                    break
+            if target_text:
+                break
+        if not target_text:
+            return None
+
+        for lock in locks:
+            name = str(lock.get("name", "")).lower()
+            location = str(lock.get("location", "")).lower()
+            if (name and name in target_text) or (location and location in target_text):
+                return lock.get("id")
+        return None
 
     def is_oos_or_cancelled(self, text: str) -> bool:
         """
@@ -124,17 +214,31 @@ class ReActAgent:
         allowed_tools = self.catalog_filter.get_allowed_tools(installed_apps)
         tools_desc = self.catalog_filter.format_tools_for_prompt(allowed_tools)
 
+        task_id = self._resolve_history_task_ordinal(history, user_text)
+        if task_id and any(tool["name"] == "tasks.complete" for tool in allowed_tools):
+            arguments = {"task_id": task_id}
+            is_valid, clean_args, err_msg = self.guardrail.guard_and_validate(env, "tasks.complete", arguments)
+            if is_valid:
+                env.call("tasks.complete", clean_args)
+                print(f"  [History Resolver] 'việc thứ ...' -> tasks.complete({clean_args})")
+                return env.get_tool_calls(), env.get_state_hash()
+            print(f"  [History Resolver] Không thực thi được tasks.complete: {err_msg}")
+
         # 2. Người 2: Bóc tách thông tin từ History hội thoại
         history_entities = self.history_resolver.extract_active_memory(history)
 
-        # 3. Người 1: Truy xuất Top-2 ví dụ mẫu bằng BM25
+        # 3. Truy xuất một ví dụ gần nhất bằng BM25
         few_shot_str = "Không có ví dụ mẫu."
+        exemplars = []
         if self.exemplar_retriever:
-            exemplars = self.exemplar_retriever.retrieve(
-                query_text=user_text,
-                installed_apps=installed_apps,
-                top_k=1
-            )
+            if self.structured_router:
+                exemplars = self.structured_router.retrieve(user_text, installed_apps)
+            else:
+                exemplars = self.exemplar_retriever.retrieve(
+                    query_text=user_text,
+                    installed_apps=installed_apps,
+                    top_k=1
+                )
             few_shot_str = self.exemplar_retriever.format_exemplars_for_prompt(exemplars)
 
         step_history: List[Dict[str, Any]] = []
@@ -194,9 +298,42 @@ class ReActAgent:
                 print(f"    - Tất cả các lệnh trong lượt này đều đã được thực thi từ trước: Hoàn tất trọn vẹn.")
                 break
 
+            needs_replan = False
             for action in actions_list:
                 tool_name = action.get("name")
-                arguments = action.get("arguments", {})
+                arguments = dict(action.get("arguments", {}))
+
+                if self.resolve_lock_ids and tool_name == "door_lock.set_lock":
+                    reader = "door_lock.list_locks"
+                    reader_seen = any(sig.startswith(f"{reader}:") for sig in executed_call_signatures)
+                    has_alert_context = any(
+                        call.get("name") == "home_security.list_alerts"
+                        for turn in history if turn.get("role") == "assistant"
+                        for call in turn.get("tool_calls", [])
+                    )
+                    explicit_lock_reference = bool(re.search(r"\b(cửa|cổng)\b", user_text, re.IGNORECASE))
+                    if not reader_seen and (has_alert_context or explicit_lock_reference) and any(t["name"] == reader for t in allowed_tools):
+                        valid_reader, reader_args, _ = self.guardrail.guard_and_validate(env, reader, {})
+                        if valid_reader:
+                            reader_result = env.call(reader, reader_args)
+                            executed_call_signatures.add(f"{reader}:{{}}")
+                            step_history.append({
+                                "step": step_idx + 1,
+                                "tool_called": reader,
+                                "arguments": reader_args,
+                                "observation": compact_observation(reader_result, max_length=1000),
+                                "raw_observation": reader_result,
+                            })
+                            print(f"    - Resolve ID: {reader} trước {tool_name}; lập kế hoạch lại từ cảnh báo và danh sách khóa.")
+                            needs_replan = True
+                            is_finished = False
+                            break
+
+                if self.resolve_lock_ids and tool_name == "door_lock.set_lock":
+                    resolved_lock_id = self._resolve_lock_id(history, step_history, user_text)
+                    if resolved_lock_id and arguments.get("lock_id") != resolved_lock_id:
+                        print(f"    - Resolve ID: sửa lock_id {arguments.get('lock_id')} -> {resolved_lock_id} từ cảnh báo và list_locks.")
+                        arguments["lock_id"] = resolved_lock_id
 
                 # Chống lặp lệnh đã thực thi thành công
                 call_sig = f"{tool_name}:{json.dumps(arguments, sort_keys=True)}"
@@ -225,18 +362,23 @@ class ReActAgent:
                 compact_res = compact_observation(res, max_length=1000)
                 print(f"    - Thực thi env.call() thành công: {compact_res[:100]}...")
 
-                step_history.append({
+                step_record = {
                     "step": step_idx + 1,
                     "tool_called": tool_name,
                     "arguments": clean_args,
                     "observation": compact_res
-                })
+                }
+                if tool_name == "door_lock.list_locks":
+                    step_record["raw_observation"] = res
+                step_history.append(step_record)
 
                 if tool_name == "sys.ask_missing_info":
                     is_finished = True
                     break
 
             # Nếu là tool kết thúc cuộc gọi, sys.ask_missing_info, hoặc LLM báo đã hoàn thành -> Dừng ngay
+            if needs_replan:
+                continue
             if is_finished:
                 break
 

@@ -26,6 +26,7 @@ from src.rules.catalog_filter import CatalogFilter
 from src.rules.schema_guardrail import SafeSchemaGuardrail
 from src.agent.rag.exemplar_retriever import BM25ExemplarRetriever
 from src.agent.rag.history_resolver import HistoryResolver
+from src.agent.rag.structured_router import StructuredDomainRouter
 from src.agent.react_loop import ReActAgent
 from src.agent.llm_client import get_llm_client
 from local_eval import load_fuzzy_map, evaluate_sample
@@ -41,6 +42,8 @@ def load_asr_map(asr_jsonl_path: Path) -> dict:
             if not line:
                 continue
             rec = json.loads(line)
+            if rec["id"] in asr_map:
+                raise ValueError(f"Trùng ID trong file ASR: {rec['id']}")
             asr_map[rec["id"]] = rec
     return asr_map
 
@@ -66,7 +69,7 @@ def inject_asr_into_item(item: dict, asr_rec: dict) -> tuple[dict, str]:
     return new_item, user_text
 
 
-def eval_dataset(agent, eval_items, root: Path, fuzzy_map: dict, asr_map: dict = None, desc: str = "Eval"):
+def eval_dataset(agent, eval_items, root: Path, fuzzy_map: dict, asr_map: dict = None, desc: str = "Eval", trace_file: Path = None):
     from zaic_tools import ToolEnv
 
     scores = []
@@ -78,7 +81,9 @@ def eval_dataset(agent, eval_items, root: Path, fuzzy_map: dict, asr_map: dict =
         sample_id = item["id"]
         gold_calls = item.get("label", {}).get("tool_calls", [])
 
-        if asr_map and sample_id in asr_map:
+        if asr_map is not None:
+            if sample_id not in asr_map or not asr_map[sample_id].get("transcript"):
+                raise ValueError(f"Thiếu transcript ASR cho {sample_id}")
             run_item, user_text = inject_asr_into_item(item, asr_map[sample_id])
         else:
             run_item = item
@@ -101,6 +106,13 @@ def eval_dataset(agent, eval_items, root: Path, fuzzy_map: dict, asr_map: dict =
         matched = (hash_sys == hash_gold)
         if matched:
             state_matches += 1
+
+        if trace_file is not None:
+            trace = {"source": "asr" if asr_map is not None else "gold", "id": sample_id,
+                     "user_text": user_text, "gold_calls": gold_calls, "pred_calls": pred_calls,
+                     "state_match": matched, "score": sc, "schema_rejected": has_rejected}
+            with open(trace_file, "a", encoding="utf-8") as out:
+                out.write(json.dumps(trace, ensure_ascii=False) + "\n")
 
         if total <= 20:
             status_icon = "✅" if matched and sc == 1.0 else ("⚠️" if matched else "❌")
@@ -169,7 +181,7 @@ def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, lim
     items = []
     with open(test_jsonl, "r", encoding="utf-8") as f:
         for idx, line in enumerate(f):
-            if limit and idx >= limit:
+            if limit is not None and idx >= limit:
                 break
             if line.strip():
                 items.append(json.loads(line))
@@ -198,11 +210,9 @@ def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, lim
             if sample_id in processed_ids:
                 continue
 
-            if sample_id in asr_map:
-                run_item, user_text = inject_asr_into_item(item, asr_map[sample_id])
-            else:
-                run_item = item
-                user_text = item.get("audio_text", "")
+            if sample_id not in asr_map or not asr_map[sample_id].get("transcript"):
+                raise ValueError(f"Thiếu transcript ASR cho {sample_id}")
+            run_item, user_text = inject_asr_into_item(item, asr_map[sample_id])
 
             env = ToolEnv("public_test", sample_id, root=root)
             pred_calls, hash_sys = agent.run(env, run_item, user_text)
@@ -232,13 +242,30 @@ def main():
     parser.add_argument("--asr_dir", type=str, default=None)
     parser.add_argument("--eval_file", type=str, default="data/val_benchmark_200.jsonl")
     parser.add_argument("--limit", type=int, default=None, help="Số lượng mẫu tối đa (mặc định: toàn bộ)")
+    parser.add_argument("--sample_ids", type=str, default=None, help="Danh sách ID cần chấm, phân tách bằng dấu phẩy")
     parser.add_argument("--mode", choices=["hf", "server"], default="server")
     parser.add_argument("--base_url", type=str, default="http://localhost:8000/v1")
     parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-3B-Instruct")
     parser.add_argument("--asr_model", choices=["phowhisper_medium", "whisper_turbo", "phowhisper_small", "all"], default="phowhisper_medium")
+    parser.add_argument("--no_exemplars", action="store_true", help="Thử agent không dùng ví dụ BM25 trong prompt")
+    parser.add_argument("--structured-router", action="store_true", help="Thử domain classifier + workflow chunks trước BM25 exemplar")
+    parser.add_argument(
+        "--resolve-lock-ids",
+        dest="resolve_lock_ids",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Đọc danh sách khóa và đối chiếu lock_id từ câu hiện tại/history (mặc định bật)",
+    )
+    parser.add_argument("--eval_source", choices=["both", "gold", "asr"], default="both", help="Chọn đầu vào để chấm benchmark")
+    parser.add_argument("--trace_file", type=str, default=None, help="Ghi kết quả từng mẫu JSONL để phân tích lỗi")
     parser.add_argument("--make_submission", action="store_true", help="Chạy trên 634 mẫu public_test và xuất submission.jsonl + submission.zip")
     parser.add_argument("--output_file", type=str, default="submission.jsonl")
     args = parser.parse_args()
+    requested_ids = {value.strip() for value in args.sample_ids.split(",")} if args.sample_ids else None
+    trace_file = Path(args.trace_file) if args.trace_file else None
+    if trace_file is not None:
+        trace_file.parent.mkdir(parents=True, exist_ok=True)
+        trace_file.write_text("", encoding="utf-8")
 
     root = resolve_data_root(args.data_root)
     asr_dir = resolve_asr_dir(args.asr_dir)
@@ -258,20 +285,50 @@ def main():
         llm_client = get_llm_client(client_type="openai", base_url=args.base_url, model=args.model)
 
     catalog_filter = CatalogFilter(str(catalog_file))
+    eval_items = []
+    excluded_ids = set()
+    if not args.make_submission:
+        eval_path = PROJECT_ROOT / args.eval_file if not Path(args.eval_file).is_absolute() else Path(args.eval_file)
+        with open(eval_path, "r", encoding="utf-8") as f:
+            for idx, line in enumerate(f):
+                if not line.strip():
+                    continue
+                item = json.loads(line)
+                excluded_ids.add(item["id"])
+                if requested_ids is not None and item["id"] not in requested_ids:
+                    continue
+                if args.limit is not None and len(eval_items) >= args.limit:
+                    continue
+                eval_items.append(item)
+
     retriever = BM25ExemplarRetriever()
-    if cache_path.exists():
-        retriever.load_cache(str(cache_path))
+    if args.make_submission:
+        if cache_path.exists():
+            retriever.load_cache(str(cache_path))
+        else:
+            retriever.build_from_train_file(str(root / "train" / "train.jsonl"))
+            retriever.save_cache(str(cache_path))
     else:
-        retriever.build_from_train_file(str(root / "train" / "train.jsonl"))
-        retriever.save_cache(str(cache_path))
+        retriever.build_from_train_file(str(root / "train" / "train.jsonl"), exclude_ids=excluded_ids)
+        if any(rec["id"] in excluded_ids for rec in retriever.corpus):
+            raise RuntimeError("Validation ID vẫn nằm trong chỉ mục BM25")
+        print(f"[Clean holdout] Loại {len(excluded_ids)} validation ID khỏi BM25; còn {len(retriever.corpus)} ví dụ train.")
+
+
+    structured_router = None
+    if args.structured_router and not args.no_exemplars:
+        print("[Structured Router] Đang huấn luyện domain classifier từ clean train chunks...")
+        structured_router = StructuredDomainRouter(retriever).fit()
 
     agent = ReActAgent(
         llm_client=llm_client,
         catalog_filter=catalog_filter,
-        exemplar_retriever=retriever,
+        exemplar_retriever=None if args.no_exemplars else retriever,
         history_resolver=HistoryResolver(),
         guardrail=SafeSchemaGuardrail(),
-        max_steps=7
+        max_steps=7,
+        resolve_lock_ids=args.resolve_lock_ids,
+        structured_router=structured_router
     )
 
     if args.make_submission:
@@ -279,36 +336,30 @@ def main():
         generate_submission(agent, root, asr_dir, out_path, limit=args.limit, asr_model=args.asr_model if args.asr_model != "all" else "phowhisper_medium")
         return
 
-    eval_path = PROJECT_ROOT / args.eval_file if not Path(args.eval_file).is_absolute() else Path(args.eval_file)
-    eval_items = []
-    with open(eval_path, "r", encoding="utf-8") as f:
-        for idx, line in enumerate(f):
-            if idx >= args.limit:
-                break
-            if line.strip():
-                eval_items.append(json.loads(line))
-
     print("\n" + "=" * 72)
     print(f" BẮT ĐẦU CHẠY ĐỐI CHIẾU TRÊN {len(eval_items)} MẪU BENCHMARK")
     print("=" * 72)
 
     # 1. Chạy trên DB chuẩn của BTC (Gold Text)
-    res_gold = eval_dataset(agent, eval_items, root, fuzzy_map, asr_map=None, desc="1. DB Chuẩn BTC (Gold Text)")
+    res_gold = None
+    if args.eval_source in ("both", "gold"):
+        res_gold = eval_dataset(agent, eval_items, root, fuzzy_map, asr_map=None, desc="1. DB Chuẩn BTC (Gold Text)", trace_file=trace_file)
 
     # 2. Chạy trên DB ASR của Khoa
-    models_to_run = ["phowhisper_medium", "whisper_turbo", "phowhisper_small"] if args.asr_model == "all" else [args.asr_model]
+    models_to_run = (["phowhisper_medium", "whisper_turbo", "phowhisper_small"] if args.asr_model == "all" else [args.asr_model]) if args.eval_source in ("both", "asr") else []
     asr_results = {}
     for m_name in models_to_run:
         asr_file = asr_dir / f"train_{m_name}_for_agent.jsonl"
         asr_map = load_asr_map(asr_file)
-        asr_results[m_name] = eval_dataset(agent, eval_items, root, fuzzy_map, asr_map=asr_map, desc=f"2. DB Khoa ({m_name})")
+        asr_results[m_name] = eval_dataset(agent, eval_items, root, fuzzy_map, asr_map=asr_map, desc=f"2. DB Khoa ({m_name})", trace_file=trace_file)
 
     print("\n" + "=" * 72)
     print(" BẢNG TỔNG HỢP ĐIỂM SỐ (TRÊN THANG 100.0 CỦA BTC)")
     print("=" * 72)
     print(f"{'Bộ dữ liệu (Dataset)':<35} | {'Khớp State Hash':<16} | {'Phạt U':<8} | {'ĐIỂM SỐ (/100)'}")
     print("-" * 72)
-    print(f"{'1. DB Ban Tổ Chức (Gold Text)':<35} | {res_gold['state_match_rate']:>6.2f}% ({res_gold['state_matches']}/{res_gold['total']}) | {res_gold['schema_penalties']:>6} | {res_gold['final_score']:>8.4f} / 100")
+    if res_gold is not None:
+        print(f"{'1. DB Ban Tổ Chức (Gold Text)':<35} | {res_gold['state_match_rate']:>6.2f}% ({res_gold['state_matches']}/{res_gold['total']}) | {res_gold['schema_penalties']:>6} | {res_gold['final_score']:>8.4f} / 100")
     for m_name, r in asr_results.items():
         label = f"2. DB Khoa ({m_name})"
         print(f"{label:<35} | {r['state_match_rate']:>6.2f}% ({r['state_matches']}/{r['total']}) | {r['schema_penalties']:>6} | {r['final_score']:>8.4f} / 100")

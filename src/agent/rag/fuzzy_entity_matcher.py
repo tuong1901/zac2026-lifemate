@@ -75,14 +75,23 @@ def repair_utterance_with_context_entities(
     repairs = []
     repaired_text = text
 
-    # Sắp xếp các thực thể dài trước để ưu tiên match cụm từ đầy đủ
-    sorted_entities = sorted(candidate_entities, key=lambda x: len(x), reverse=True)
+    # Preserve entities already transcribed exactly. A fuzzy neighbour such as
+    # "Kevin Welsh" must not overwrite an exact "Kevin Walsh" occurrence.
+    exact_entity_texts = {
+        re.sub(r"[^\w\s]", "", entity).strip().lower()
+        for entity in candidate_entities
+    }
+
+    # Deterministic tie-breaker avoids process-dependent results from set order.
+    sorted_entities = sorted(candidate_entities, key=lambda x: (-len(x), x.casefold()))
 
     for ent in sorted_entities:
         ent_lower = ent.lower()
         ent_words = ent_lower.split()
         k = len(ent_words)
         if k == 0:
+            continue
+        if re.search(rf"(?<!\w){re.escape(ent)}(?!\w)", repaired_text, re.IGNORECASE):
             continue
 
         best_ratio = 0.0
@@ -98,6 +107,9 @@ def repair_utterance_with_context_entities(
                 ngram = " ".join(words[i : i + w_len])
                 ngram_clean = re.sub(r"[^\w\s]", "", ngram).strip().lower()
                 ent_clean = re.sub(r"[^\w\s]", "", ent_lower).strip()
+
+                if ngram_clean in exact_entity_texts:
+                    continue
                 
                 # Bỏ qua nếu đã khớp chính xác
                 if ngram_clean == ent_clean:

@@ -599,6 +599,7 @@ def analyze_observations(
     combined_records: List[Dict[str, Any]] = []
     paid_bill_ids: Set[str] = set()
     history_events: List[Dict[str, Any]] = []
+    history_alerts: List[Dict[str, Any]] = []
 
     if raw_history:
         for turn in raw_history:
@@ -613,6 +614,8 @@ def analyze_observations(
                     for ev in res["events"]:
                         if isinstance(ev, dict) and ev.get("end"):
                             history_events.append(ev)
+                if "alerts" in res and isinstance(res["alerts"], list):
+                    history_alerts.extend(alert for alert in res["alerts"] if isinstance(alert, dict))
                 tname = ""
                 targs = {}
                 if idx < len(t_calls) and isinstance(t_calls[idx], dict):
@@ -643,7 +646,7 @@ def analyze_observations(
     for step in (previous_steps or []):
         if step.get("error"):
             continue
-        obs_raw = step.get("observation", "")
+        obs_raw = step.get("raw_observation", step.get("observation", ""))
         try:
             obs = json.loads(obs_raw) if isinstance(obs_raw, str) else obs_raw
         except Exception:
@@ -949,6 +952,27 @@ def analyze_observations(
                     facts.append(
                         f"Cảnh báo an ninh `{al.get('id')}`: loại={al.get('type')}, vị_trí_camera_chuẩn=`\"location\": \"{al.get('location')}\"`, nội_dung=\"{al.get('message')}\" "
                         f"(Khi gọi `home_security.get_camera` cho camera báo mất kết nối này, BẮT BUỘC truyền `\"location\": \"{al.get('location')}\"`!)."
+                    )
+
+        # 13b. Đối chiếu khóa cửa với cảnh báo gần nhất trong hội thoại.
+        if not from_hist and tname == "door_lock.list_locks" and "locks" in obs:
+            target_alert = history_alerts[0] if history_alerts else None
+            target_text = ""
+            if target_alert:
+                target_text = f"{target_alert.get('location', '')} {target_alert.get('message', '')}".lower()
+            for lock in obs.get("locks") or []:
+                if not isinstance(lock, dict):
+                    continue
+                name = str(lock.get("name", ""))
+                location = str(lock.get("location", ""))
+                is_target = bool(target_text and (name.lower() in target_text or location.lower() in target_text))
+                target_note = " -> ĐÂY LÀ CỬA ĐƯỢC NHẮC TRONG CẢNH BÁO GẦN NHẤT" if is_target else ""
+                facts.append(
+                    f"Khóa `{lock.get('id')}`: tên=\"{name}\", vị_trí=\"{location}\", locked={lock.get('locked')}{target_note}."
+                )
+                if is_target:
+                    facts.append(
+                        f"BẮT BUỘC dùng `\"lock_id\": \"{lock.get('id')}\"` khi gọi `door_lock.set_lock` cho cửa vừa báo mở; không chọn khóa khác."
                     )
 
         # 14. Phân tích lịch uống thuốc (medication.list / schedules), chương trình TV (tv.guide) & đổi điểm (loyalty) từ cả history và bước hiện tại
@@ -1263,14 +1287,14 @@ def build_user_prompt(
                     pass
 
             installed_apps = f_locals.get("installed_apps") or context.get("installed_apps", {})
-            if agent_self and getattr(agent_self, "exemplar_retriever", None):
+            if isinstance(f_locals.get("exemplars"), list) and f_locals.get("exemplars"):
+                raw_exemplars = f_locals.get("exemplars")
+            elif agent_self and getattr(agent_self, "exemplar_retriever", None):
                 raw_exemplars = agent_self.exemplar_retriever.retrieve(
                     query_text=cleaned_utterance,
                     installed_apps=installed_apps,
                     top_k=1
                 )
-            elif isinstance(f_locals.get("exemplars"), list):
-                raw_exemplars = f_locals.get("exemplars")
     except Exception:
         pass
 

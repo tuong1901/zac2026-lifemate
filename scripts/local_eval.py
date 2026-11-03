@@ -193,7 +193,6 @@ def main():
     root = Path(args.data_root)
     split_dir = root / "train"
     catalog_file = split_dir / "train_tools_catalog.json"
-    cache_path = PROJECT_ROOT / "data" / "bm25_train_index.pkl"
 
     eval_path = Path(args.eval_file)
     if not eval_path.is_absolute():
@@ -226,10 +225,12 @@ def main():
 
     catalog_filter = CatalogFilter(str(catalog_file))
     retriever = BM25ExemplarRetriever()
-    if cache_path.exists():
-        retriever.load_cache(str(cache_path))
-    else:
-        retriever.build_from_train_file(str(split_dir / "train.jsonl"))
+    with open(eval_path, "r", encoding="utf-8") as f:
+        excluded_ids = {json.loads(line)["id"] for line in f if line.strip()}
+    retriever.build_from_train_file(str(split_dir / "train.jsonl"), exclude_ids=excluded_ids)
+    if any(rec["id"] in excluded_ids for rec in retriever.corpus):
+        raise RuntimeError("Validation ID vẫn nằm trong chỉ mục BM25")
+    print(f"[Clean holdout] Loại {len(excluded_ids)} validation ID khỏi BM25; còn {len(retriever.corpus)} ví dụ train.")
 
     history_resolver = HistoryResolver()
     guardrail = SafeSchemaGuardrail()

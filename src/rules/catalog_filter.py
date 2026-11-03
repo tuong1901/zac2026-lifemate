@@ -22,7 +22,9 @@ class CatalogFilter:
         # sys tool luôn luôn được phép gọi
         installed_ids.add("sys")
 
-        for app_id in installed_ids:
+        # A set has process-randomized iteration order. Tool order changes the prompt
+        # and can change greedy LLM output, so keep it stable across runs.
+        for app_id in sorted(installed_ids):
             if app_id in self.apps_by_id:
                 app_info = self.apps_by_id[app_id]
                 for tool in app_info.get("tools", []):
@@ -32,7 +34,7 @@ class CatalogFilter:
                         if specific_tools and tool["name"] not in specific_tools:
                             continue
                     allowed.append(tool)
-        return allowed
+        return sorted(allowed, key=lambda tool: tool["name"])
 
     def format_tools_for_prompt(self, allowed_tools: List[Dict[str, Any]]) -> str:
         """
