@@ -285,13 +285,21 @@ class FasterWhisperEngine:
         if context_hints:
             initial_prompt += f" Ngữ cảnh: {', '.join(context_hints)}."
 
+        # Nạp audio bằng soundfile thành numpy float32 16kHz
+        # Cách này hoàn toàn bỏ qua PyAV (av.open), khắc phục triệt để lỗi:
+        # TypeError: open() got an unexpected keyword argument 'metadata_errors'
+        try:
+            audio_input = load_audio_file(audio_path, target_sr=16000)
+        except Exception:
+            audio_input = str(audio_path)
+
         segments, _ = self.model.transcribe(
-            str(audio_path),
+            audio_input,
             language="vi",
             initial_prompt=initial_prompt,
             beam_size=1,
             temperature=0.0,
-            vad_filter=True
+            vad_filter=False
         )
         return " ".join([s.text.strip() for s in segments]).strip()
 

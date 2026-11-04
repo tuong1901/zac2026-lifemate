@@ -7,6 +7,7 @@ python-dotenv>=1.0.0
 # Speech / ASR & Audio
 faster-whisper>=1.0.0
 soundfile>=0.12.1
+av<14.0.0
 scipy>=1.10.0
 librosa>=0.10.0
 
