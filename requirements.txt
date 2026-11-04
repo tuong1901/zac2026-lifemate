@@ -12,6 +12,7 @@ openai>=1.30.0
 transformers>=4.40.0
 accelerate>=0.29.0
 scikit-learn>=1.4.0
+torch>=2.2.0
 
 # Optional speedups / deployment
 # vllm>=0.6.0

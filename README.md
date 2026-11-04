@@ -73,9 +73,13 @@ python scripts/local_eval.py --data_root "D:/Download/train+public_test/train+pu
 
 ### Tạo file nộp bài (Submission)
 ```bash
-python scripts/make_submission.py --data_root "D:/Download/train+public_test/train+public_test" --output submission.jsonl
+python scripts/run_with_asr.py --make_submission --mode hf --model <duong_dan_model_local> --output_file output/submission.jsonl
 ```
 Kiểm tra file nộp:
 ```bash
-python -m zaic_tools --split public_test --root "D:/Download/train+public_test/train+public_test" --validate submission.jsonl
+python scripts/validate_submission.py output/submission.jsonl --data_root "D:/Download/train+public_test/train+public_test"
 ```
+
+Xem hướng dẫn chạy benchmark, ASR, chunking và submission cho toàn đội tại [docs/TEAM_RUNBOOK.md](docs/TEAM_RUNBOOK.md).
+
+> Lưu ý: ASR model/pipeline chưa được bàn giao; hiện chỉ chạy và tối ưu agent với Gold Text. Không tạo submission speech-based cho đến khi ASR chạy offline trong Docker.
