@@ -166,3 +166,4 @@ class ASRConfig:
 def get_asr_config() -> ASRConfig:
     """Trả về instance cấu hình ASR hiện tại."""
     return ASRConfig()
+
