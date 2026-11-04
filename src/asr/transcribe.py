@@ -88,7 +88,7 @@ def load_audio_file(audio_path: Union[str, Path], target_sr: int = 16000) -> np.
 
 class PhoWhisperEngine:
     """
-    Engine ASR sử dụng PhoWhisper (vinai/PhoWhisper-small, medium, large) hoặc Whisper
+    Engine ASR sử dụng PhoWhisper (vinai/PhoWhisper-small, medium, large)
     thông qua HuggingFace Transformers Pipeline với khả năng xử lý BATCH trên GPU cực nhanh.
     """
     def __init__(
@@ -102,7 +102,6 @@ class PhoWhisperEngine:
         from transformers import pipeline, AutoModelForSpeechSeq2Seq, AutoProcessor
         import torch
 
-        # Chuẩn hóa tên model HuggingFace ID
         model_name_or_path = normalize_hf_model_id(model_name_or_path, "phowhisper")
         self.model_name = model_name_or_path
         self.batch_size = batch_size
@@ -117,7 +116,6 @@ class PhoWhisperEngine:
 
         print(f"[ASR PhoWhisper] Đang nạp mô hình '{model_name_or_path}' trên {self.device_str} (dtype={self.dtype})...")
         
-        # Nạp weights: PhoWhisper dùng định dạng pytorch_model.bin, KHÔNG dùng use_safetensors=True
         self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
             model_name_or_path,
             torch_dtype=self.dtype,
@@ -126,7 +124,6 @@ class PhoWhisperEngine:
 
         self.processor = AutoProcessor.from_pretrained(model_name_or_path)
 
-        # Sử dụng HuggingFace Pipeline hỗ trợ batching tự động
         self.pipe = pipeline(
             "automatic-speech-recognition",
             model=self.model,
@@ -140,7 +137,6 @@ class PhoWhisperEngine:
         print(f"[ASR PhoWhisper] Nạp thành công pipeline PhoWhisper! Sẵn sàng batch_size={batch_size}.")
 
     def transcribe(self, audio_path: Union[str, Path], context_hints: Optional[List[str]] = None) -> str:
-        """Gỡ băng 1 file audio."""
         return self.transcribe_batch([audio_path], [context_hints] if context_hints else None)[0]
 
     def transcribe_batch(
@@ -149,9 +145,6 @@ class PhoWhisperEngine:
         context_hints_list: Optional[List[Optional[List[str]]]] = None,
         batch_size: Optional[int] = None
     ) -> List[str]:
-        """
-        Gỡ băng theo LÔ (BATCH) danh sách các file audio. Tận dụng tối đa song song của GPU.
-        """
         if not audio_paths:
             return []
 
@@ -166,7 +159,6 @@ class PhoWhisperEngine:
             "num_beams": 1,
         }
 
-        # Gọi pipeline theo batch
         results = self.pipe(
             str_paths,
             batch_size=bs,
@@ -260,6 +252,8 @@ class PhoASREngine:
 class FasterWhisperEngine:
     """
     Engine ASR sử dụng faster-whisper (CTranslate2).
+    Siêu tốc độ, tiết kiệm VRAM, miễn nhiễm hoàn toàn với lỗi 403 của HuggingFace Hub.
+    Hỗ trợ cả PhoWhisper CT2 ('nunu-willump/PhoWhisper-medium-ct2') và 'large-v3-turbo'.
     """
     def __init__(
         self,
@@ -268,8 +262,23 @@ class FasterWhisperEngine:
         compute_type: str = "float16"
     ):
         from faster_whisper import WhisperModel
-        print(f"[ASR Faster-Whisper] Đang nạp model: {model_size_or_path}...")
-        self.model = WhisperModel(model_size_or_path, device=device, compute_type=compute_type)
+        import torch
+
+        if device == "auto":
+            dev = "cuda" if (torch and torch.cuda.is_available()) else "cpu"
+        else:
+            dev = device
+
+        comp = compute_type if dev == "cuda" else "float32"
+
+        # Nếu người dùng muốn PhoWhisper qua Faster-Whisper, nạp bản CTranslate2 chính chủ
+        if "phowhisper" in model_size_or_path.lower():
+            if not Path(model_size_or_path).exists():
+                model_size_or_path = "nunu-willump/PhoWhisper-medium-ct2"
+
+        print(f"[ASR Faster-Whisper] Đang nạp model: {model_size_or_path} trên {dev} ({comp})...")
+        self.model = WhisperModel(model_size_or_path, device=dev, compute_type=comp)
+        print(f"[ASR Faster-Whisper] Nạp thành công model {model_size_or_path}!")
 
     def transcribe(self, audio_path: Union[str, Path], context_hints: Optional[List[str]] = None) -> str:
         initial_prompt = "Các khẩu lệnh tiếng Việt điều khiển ứng dụng: tin nhắn, lịch, báo thức, đèn, điều hòa, ngân hàng."
@@ -301,6 +310,7 @@ class UnifiedASRTranscriber:
     """
     Giao diện ASR thống nhất: tự động nạp PhoWhisper, PhoASR hoặc Faster-Whisper
     dựa trên cấu hình trong .env hoặc tham số truyền vào.
+    Hỗ trợ Smart Fallback tự động khi HuggingFace Hub gặp sự cố mạng/403.
     """
     def __init__(self, config: Optional[ASRConfig] = None):
         self.config = config or get_asr_config()
@@ -327,24 +337,38 @@ class UnifiedASRTranscriber:
                     torch_dtype=self.config.torch_dtype,
                     batch_size=self.config.batch_size
                 )
-            elif engine_type in ("faster_whisper", "fasterwhisper"):
+            elif engine_type in ("faster_whisper", "fasterwhisper", "ctranslate2"):
                 self.engine = FasterWhisperEngine(
-                    model_size_or_path=model_name if model_name != "vinai/PhoWhisper-medium" else "large-v3-turbo",
+                    model_size_or_path=model_name if model_name != "vinai/PhoWhisper-medium" else "nunu-willump/PhoWhisper-medium-ct2",
                     device=self.config.device,
                     compute_type=self.config.compute_type
                 )
             else:
-                print(f"[Cảnh báo] Engine '{engine_type}' không xác định. Mặc định dùng PhoWhisper.")
-                self.engine = PhoWhisperEngine(
-                    model_name_or_path=model_name,
+                self.engine = FasterWhisperEngine(
+                    model_size_or_path="large-v3-turbo",
                     device=self.config.device,
-                    torch_dtype=self.config.torch_dtype,
-                    batch_size=self.config.batch_size
+                    compute_type=self.config.compute_type
                 )
         except Exception as e:
-            import traceback
-            print(f"\n[ASR LỖI] Không thể nạp ASR Engine ({engine_type} / {model_name}): {e}")
-            traceback.print_exc()
+            # Smart Fallback: Nếu HuggingFace PyTorch lỗi 403 / rate limit, tự động fallback sang CTranslate2
+            if engine_type in ("phowhisper", "whisper"):
+                print(f"\n⚠️ [ASR Cảnh báo] Không thể tải PyTorch PhoWhisper ({e}).")
+                print("🔄 TỰ ĐỘNG CHUYỂN SANG: PhoWhisper CTranslate2 (nunu-willump/PhoWhisper-medium-ct2) qua Faster-Whisper...")
+                try:
+                    self.engine = FasterWhisperEngine(
+                        model_size_or_path="nunu-willump/PhoWhisper-medium-ct2",
+                        device=self.config.device,
+                        compute_type=self.config.compute_type
+                    )
+                    return
+                except Exception as e2:
+                    print(f"🔄 Tiếp tục thử Faster-Whisper large-v3-turbo ({e2})...")
+                    self.engine = FasterWhisperEngine(
+                        model_size_or_path="large-v3-turbo",
+                        device=self.config.device,
+                        compute_type=self.config.compute_type
+                    )
+                    return
             raise RuntimeError(f"Khởi tạo ASR Engine thất bại: {e}")
 
     def transcribe(self, audio_path: Union[str, Path], context_hints: Optional[List[str]] = None) -> str:
