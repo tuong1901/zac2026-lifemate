@@ -3,14 +3,17 @@ run_asr_pipeline.py — Script dòng lệnh (CLI) chạy trọn gói Pipeline AS
 Tối ưu hóa chạy trên Kaggle GPU (T4 / P100 / A100) hoặc Local máy cá nhân.
 
 Các chế độ chạy chính:
-1. Đánh giá chi tiết trên tập Benchmark (200 mẫu):
+1. Đánh giá nhanh trên tập Benchmark (200 mẫu):
    python scripts/run_asr_pipeline.py --mode benchmark
 
-2. Gỡ băng tập nộp bài chính thức public_test:
+2. Đánh giá FULL toàn bộ 1.545 mẫu tập Train:
+   python scripts/run_asr_pipeline.py --mode train
+
+3. Gỡ băng FULL toàn bộ 634 mẫu tập nộp bài Public Test:
    python scripts/run_asr_pipeline.py --mode public_test
 
-3. Tùy chọn ASR Engine & Bật/Tắt các tầng Post-Processing:
-   python scripts/run_asr_pipeline.py --asr_engine phowhisper --model_name vinai/phowhisper-medium --batch_size 16 --enable_t2 --enable_t3
+4. Tùy chọn ASR Engine & Bật/Tắt các tầng Post-Processing:
+   python scripts/run_asr_pipeline.py --asr_engine phowhisper --model_name vinai/phowhisper-medium --batch_size 16 --enable_t1
 """
 
 import os
@@ -52,8 +55,8 @@ def resolve_data_root(preferred_path: str = None) -> Path:
 
 def main():
     parser = argparse.ArgumentParser(description="Chạy Pipeline ASR & Post-Processing cho ZAC 2026 LifeMate")
-    parser.add_argument("--mode", choices=["benchmark", "public_test", "custom"], default="benchmark",
-                        help="Chế độ: 'benchmark' (đánh giá 200 mẫu), 'public_test' (gỡ băng nộp bài), hoặc 'custom'")
+    parser.add_argument("--mode", choices=["benchmark", "train", "public_test", "custom"], default="benchmark",
+                        help="Chế độ: 'benchmark' (200 mẫu), 'train' (FULL 1.545 mẫu), 'public_test' (FULL 634 mẫu nộp bài), hoặc 'custom'")
     parser.add_argument("--data_root", type=str, default=None, help="Đường dẫn thư mục chứa train và public_test")
     parser.add_argument("--asr_engine", choices=["phowhisper", "phoasr", "faster_whisper", "whisper"], default=None,
                         help="Lựa chọn ASR Engine (ghi đè .env)")
@@ -63,7 +66,7 @@ def main():
     parser.add_argument("--enable_t1", action="store_true", default=None, help="Bật Tầng 1 (Lexicon/Rule)")
     parser.add_argument("--enable_t2", action="store_true", default=None, help="Bật Tầng 2 (Contextual ViT5)")
     parser.add_argument("--enable_t3", action="store_true", default=None, help="Bật Tầng 3 (ViBERT-capu Punctuation)")
-    parser.add_argument("--limit", type=int, default=None, help="Giới hạn số mẫu chạy thử (VD: 10, 50)")
+    parser.add_argument("--limit", type=int, default=None, help="Giới hạn số mẫu chạy thử (VD: 10, 50, bỏ trống để chạy FULL)")
     parser.add_argument("--overwrite", action="store_true", default=True, help="Ghi đè file kết quả cũ nếu đã tồn tại")
     parser.add_argument("--resume", dest="overwrite", action="store_false", help="Bỏ qua các mẫu đã xử lý trước đó (resume)")
     parser.add_argument("--output_file", type=str, default=None, help="Đường dẫn file jsonl đầu ra nếu chạy custom")
@@ -116,12 +119,37 @@ def main():
         out_path = out_dir / out_name
         audio_base = data_root / "train" if (data_root / "train").exists() else data_root
 
-        print(f"\n🚀 BẮT ĐẦU CHẠY ĐÁNH GIÁ BENCHMARK:")
+        print(f"\n🚀 BẮT ĐẦU CHẠY ĐÁNH GIÁ BENCHMARK (200 MẪU):")
         print(f"  - Input:      {bench_file}")
         print(f"  - Audio dir:  {audio_base}")
         print(f"  - Output:     {out_path}")
         runner.run_on_dataset(
             input_jsonl_path=bench_file,
+            output_jsonl_path=out_path,
+            audio_base_dir=audio_base,
+            limit=args.limit,
+            transcribe_history=True,
+            overwrite=args.overwrite
+        )
+
+    elif args.mode == "train":
+        train_file = data_root / "train" / "train.jsonl"
+        if not train_file.exists():
+            train_file = data_root / "train.jsonl"
+        if not train_file.exists():
+            print(f"[Lỗi] Không tìm thấy file train.jsonl tại {data_root}!")
+            return
+
+        out_name = f"train_{cfg.asr_engine}_{Path(cfg.model_name_or_path).name.replace('/', '_')}_for_agent.jsonl"
+        out_path = out_dir / out_name
+        audio_base = data_root / "train" if (data_root / "train").exists() else data_root
+
+        print(f"\n🚀 BẮT ĐẦU CHẠY ĐÁNH GIÁ VÀ GỠ BĂNG FULL TOÀN BỘ TẬP TRAIN (1.545 MẪU):")
+        print(f"  - Input:      {train_file}")
+        print(f"  - Audio dir:  {audio_base}")
+        print(f"  - Output:     {out_path}")
+        runner.run_on_dataset(
+            input_jsonl_path=train_file,
             output_jsonl_path=out_path,
             audio_base_dir=audio_base,
             limit=args.limit,
@@ -141,7 +169,7 @@ def main():
         out_path = out_dir / out_name
         audio_base = data_root / "public_test" if (data_root / "public_test").exists() else data_root
 
-        print(f"\n🚀 BẮT ĐẦU GỠ BĂNG PUBLIC_TEST ĐỂ NỘP BÀI:")
+        print(f"\n🚀 BẮT ĐẦU GỠ BĂNG FULL TOÀN BỘ PUBLIC_TEST (634 MẪU) ĐỂ NỘP BÀI:")
         print(f"  - Input:      {test_file}")
         print(f"  - Audio dir:  {audio_base}")
         print(f"  - Output:     {out_path}")
