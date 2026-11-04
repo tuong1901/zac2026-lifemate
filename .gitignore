@@ -17,6 +17,7 @@ submission.jsonl
 *.log
 checkpoints/
 models/
+model/
 output/
 
 # Virtual Environments
