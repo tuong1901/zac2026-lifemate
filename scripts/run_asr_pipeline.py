@@ -35,6 +35,7 @@ def resolve_data_root(preferred_path: str = None) -> Path:
     candidates = [
         preferred_path,
         os.getenv("DATA_ROOT"),
+        "/kaggle/input/datasets/n107hoangtuong/zalo-competion/train+public_test",
         "/kaggle/input/zalo-ai-challenge-2026/train+public_test",
         "/kaggle/input/train+public_test",
         "D:/Download/train+public_test/train+public_test",
@@ -63,6 +64,8 @@ def main():
     parser.add_argument("--enable_t2", action="store_true", default=None, help="Bật Tầng 2 (Contextual ViT5)")
     parser.add_argument("--enable_t3", action="store_true", default=None, help="Bật Tầng 3 (ViBERT-capu Punctuation)")
     parser.add_argument("--limit", type=int, default=None, help="Giới hạn số mẫu chạy thử (VD: 10, 50)")
+    parser.add_argument("--overwrite", action="store_true", default=True, help="Ghi đè file kết quả cũ nếu đã tồn tại")
+    parser.add_argument("--resume", dest="overwrite", action="store_false", help="Bỏ qua các mẫu đã xử lý trước đó (resume)")
     parser.add_argument("--output_file", type=str, default=None, help="Đường dẫn file jsonl đầu ra nếu chạy custom")
     parser.add_argument("--input_file", type=str, default=None, help="Đường dẫn file jsonl đầu vào nếu chạy custom")
     args = parser.parse_args()
@@ -89,7 +92,6 @@ def main():
         data_root = resolve_data_root(args.data_root)
         cfg.data_root = str(data_root)
     except FileNotFoundError:
-        # Nếu đang ở chế độ benchmark và có file local data/val_benchmark_200.jsonl
         data_root = PROJECT_ROOT / "data"
         cfg.data_root = str(data_root)
 
@@ -100,7 +102,6 @@ def main():
     runner = ASRBatchRunner(cfg)
 
     if args.mode == "benchmark":
-        # Tìm file benchmark
         bench_candidates = [
             PROJECT_ROOT / "data" / "val_benchmark_200.jsonl",
             data_root / "val_benchmark_200.jsonl",
@@ -124,7 +125,8 @@ def main():
             output_jsonl_path=out_path,
             audio_base_dir=audio_base,
             limit=args.limit,
-            transcribe_history=True
+            transcribe_history=True,
+            overwrite=args.overwrite
         )
 
     elif args.mode == "public_test":
@@ -148,7 +150,8 @@ def main():
             output_jsonl_path=out_path,
             audio_base_dir=audio_base,
             limit=args.limit,
-            transcribe_history=True
+            transcribe_history=True,
+            overwrite=args.overwrite
         )
 
     elif args.mode == "custom":
@@ -164,10 +167,10 @@ def main():
             output_jsonl_path=out_path,
             audio_base_dir=audio_base,
             limit=args.limit,
-            transcribe_history=True
+            transcribe_history=True,
+            overwrite=args.overwrite
         )
 
 
 if __name__ == "__main__":
     main()
-

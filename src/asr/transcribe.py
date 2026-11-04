@@ -30,6 +30,32 @@ except ImportError:
 from src.asr.config import ASRConfig, get_asr_config
 
 
+def normalize_hf_model_id(model_name: str, engine_type: str) -> str:
+    """Chuẩn hóa tên repository ID trên HuggingFace để tránh lỗi 403 / 404."""
+    if Path(model_name).exists():
+        return model_name
+
+    lower = model_name.lower().strip()
+    if engine_type in ("phowhisper", "whisper") or "phowhisper" in lower:
+        if "small" in lower:
+            return "vinai/PhoWhisper-small"
+        elif "large" in lower:
+            return "vinai/PhoWhisper-large"
+        elif "base" in lower:
+            return "vinai/PhoWhisper-base"
+        elif "tiny" in lower:
+            return "vinai/PhoWhisper-tiny"
+        else:
+            return "vinai/PhoWhisper-medium"
+
+    if engine_type in ("phoasr", "wav2vec2") or "phoasr" in lower:
+        if "wav2vec2" in lower or "nguyenvulebinh" in lower:
+            return "nguyenvulebinh/wav2vec2-base-vietnamese-250h"
+        return "vinai/phoasr-base"
+
+    return model_name
+
+
 def load_audio_file(audio_path: Union[str, Path], target_sr: int = 16000) -> np.ndarray:
     """
     Nạp file âm thanh (.wav) và chuyển đổi về dạng đơn kênh (mono) tần số lấy mẫu target_sr (mặc định 16kHz).
@@ -44,7 +70,6 @@ def load_audio_file(audio_path: Union[str, Path], target_sr: int = 16000) -> np.
         if len(speech.shape) > 1:
             speech = np.mean(speech, axis=1)
         if sr != target_sr:
-            # Resample nhẹ bằng scipy hoặc librosa nếu cần
             try:
                 import scipy.signal
                 num_samples = int(len(speech) * target_sr / sr)
@@ -53,7 +78,6 @@ def load_audio_file(audio_path: Union[str, Path], target_sr: int = 16000) -> np.
                 pass
         return speech.astype(np.float32)
     except Exception:
-        # Fallback với librosa
         try:
             import librosa
             speech, _ = librosa.load(audio_path_str, sr=target_sr, mono=True)
@@ -64,12 +88,12 @@ def load_audio_file(audio_path: Union[str, Path], target_sr: int = 16000) -> np.
 
 class PhoWhisperEngine:
     """
-    Engine ASR sử dụng PhoWhisper (vinai/phowhisper-small, medium, large) hoặc Whisper
+    Engine ASR sử dụng PhoWhisper (vinai/PhoWhisper-small, medium, large) hoặc Whisper
     thông qua HuggingFace Transformers Pipeline với khả năng xử lý BATCH trên GPU cực nhanh.
     """
     def __init__(
         self,
-        model_name_or_path: str = "vinai/phowhisper-medium",
+        model_name_or_path: str = "vinai/PhoWhisper-medium",
         device: str = "auto",
         torch_dtype: str = "float16",
         batch_size: int = 16,
@@ -78,6 +102,8 @@ class PhoWhisperEngine:
         from transformers import pipeline, AutoModelForSpeechSeq2Seq, AutoProcessor
         import torch
 
+        # Chuẩn hóa tên model HuggingFace ID
+        model_name_or_path = normalize_hf_model_id(model_name_or_path, "phowhisper")
         self.model_name = model_name_or_path
         self.batch_size = batch_size
         self.chunk_length_s = chunk_length_s
@@ -89,13 +115,13 @@ class PhoWhisperEngine:
 
         self.dtype = torch.float16 if self.device_str == "cuda" and torch_dtype == "float16" else torch.float32
 
-        print(f"[ASR PhoWhisper] Đang nạp mô hình {model_name_or_path} trên {self.device_str} (dtype={self.dtype})...")
+        print(f"[ASR PhoWhisper] Đang nạp mô hình '{model_name_or_path}' trên {self.device_str} (dtype={self.dtype})...")
         
+        # Nạp weights: PhoWhisper dùng định dạng pytorch_model.bin, KHÔNG dùng use_safetensors=True
         self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
             model_name_or_path,
             torch_dtype=self.dtype,
-            low_cpu_mem_usage=True,
-            use_safetensors=True
+            low_cpu_mem_usage=True
         ).to(self.device_str)
 
         self.processor = AutoProcessor.from_pretrained(model_name_or_path)
@@ -174,6 +200,7 @@ class PhoASREngine:
         from transformers import AutoProcessor, AutoModelForCTC
         import torch
 
+        model_name_or_path = normalize_hf_model_id(model_name_or_path, "phoasr")
         self.model_name = model_name_or_path
         self.batch_size = batch_size
 
@@ -184,7 +211,7 @@ class PhoASREngine:
 
         self.dtype = torch.float16 if self.device_str == "cuda" and torch_dtype == "float16" else torch.float32
 
-        print(f"[ASR PhoASR-CTC] Đang nạp mô hình {model_name_or_path} trên {self.device_str}...")
+        print(f"[ASR PhoASR-CTC] Đang nạp mô hình '{model_name_or_path}' trên {self.device_str}...")
         self.processor = AutoProcessor.from_pretrained(model_name_or_path)
         self.model = AutoModelForCTC.from_pretrained(
             model_name_or_path,
@@ -302,7 +329,7 @@ class UnifiedASRTranscriber:
                 )
             elif engine_type in ("faster_whisper", "fasterwhisper"):
                 self.engine = FasterWhisperEngine(
-                    model_size_or_path=model_name if model_name != "vinai/phowhisper-medium" else "large-v3-turbo",
+                    model_size_or_path=model_name if model_name != "vinai/PhoWhisper-medium" else "large-v3-turbo",
                     device=self.config.device,
                     compute_type=self.config.compute_type
                 )
@@ -315,12 +342,12 @@ class UnifiedASRTranscriber:
                     batch_size=self.config.batch_size
                 )
         except Exception as e:
-            print(f"[Lỗi nạp ASR Engine: {e}]. Sử dụng Mock Engine để kiểm thử logic.")
-            self.engine = None
+            import traceback
+            print(f"\n[ASR LỖI] Không thể nạp ASR Engine ({engine_type} / {model_name}): {e}")
+            traceback.print_exc()
+            raise RuntimeError(f"Khởi tạo ASR Engine thất bại: {e}")
 
     def transcribe(self, audio_path: Union[str, Path], context_hints: Optional[List[str]] = None) -> str:
-        if self.engine is None:
-            return "Bật điều hòa phòng khách lúc 12 giờ"
         return self.engine.transcribe(audio_path, context_hints=context_hints)
 
     def transcribe_batch(
@@ -329,8 +356,6 @@ class UnifiedASRTranscriber:
         context_hints_list: Optional[List[Optional[List[str]]]] = None,
         batch_size: Optional[int] = None
     ) -> List[str]:
-        if self.engine is None:
-            return ["Bật điều hòa phòng khách lúc 12 giờ" for _ in audio_paths]
         return self.engine.transcribe_batch(
             audio_paths, context_hints_list=context_hints_list, batch_size=batch_size
         )
@@ -338,4 +363,3 @@ class UnifiedASRTranscriber:
 
 # Tương thích ngược với interface cũ của nhóm
 SpeechTranscriber = UnifiedASRTranscriber
-

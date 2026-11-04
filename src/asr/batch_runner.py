@@ -12,6 +12,7 @@ import sys
 import json
 import time
 from pathlib import Path
+from dataclasses import asdict
 from typing import List, Dict, Any, Optional, Tuple
 from tqdm import tqdm
 
@@ -40,13 +41,11 @@ def extract_context_hints_from_item(item: Dict[str, Any]) -> List[str]:
         if isinstance(apps, dict):
             hints.extend(list(apps.keys()))
 
-    # Lấy thêm tên người liên hệ hoặc thực thể trong history nếu có
     history = item.get("history", [])
     if isinstance(history, list):
         for turn in history:
             text = turn.get("text") or turn.get("audio_text")
             if text and isinstance(text, str):
-                # Quét từ khóa ngắn
                 for token in text.split():
                     if token.istitle() and len(token) > 2 and token not in hints:
                         hints.append(token)
@@ -88,11 +87,12 @@ class ASRBatchRunner:
         output_jsonl_path: Path,
         audio_base_dir: Path,
         limit: Optional[int] = None,
-        transcribe_history: bool = True
+        transcribe_history: bool = True,
+        overwrite: bool = True
     ) -> Dict[str, Any]:
         """
         Chạy toàn bộ pipeline trên một file jsonl theo batch tối ưu cho Kaggle GPU.
-        Hỗ trợ resume nếu file output đã có kết quả trước đó.
+        Hỗ trợ resume nếu overwrite=False và file output đã có kết quả trước đó.
         """
         if not input_jsonl_path.exists():
             raise FileNotFoundError(f"Không tìm thấy file input: {input_jsonl_path}")
@@ -111,9 +111,15 @@ class ASRBatchRunner:
 
         print(f"\n[Batch Runner] Tổng số mẫu nạp: {len(items)} từ {input_jsonl_path.name}")
 
-        # 2. Kiểm tra các mẫu đã xử lý (Resume support)
+        # 2. Xử lý overwrite / resume
         processed_ids = set()
-        if output_jsonl_path.exists():
+        if overwrite and output_jsonl_path.exists():
+            print(f"[Batch Runner] Chế độ overwrite=True: Xóa kết quả cũ tại {output_jsonl_path.name} để chạy mới hoàn toàn.")
+            try:
+                output_jsonl_path.unlink()
+            except Exception:
+                pass
+        elif not overwrite and output_jsonl_path.exists():
             with open(output_jsonl_path, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
@@ -152,7 +158,6 @@ class ASRBatchRunner:
                         continue
                     full_audio_path = audio_base_dir / rel_audio
                     if not full_audio_path.exists():
-                        # Thử tìm trực tiếp nếu audio_base_dir đã chứa rel_audio
                         alt_path = Path(rel_audio)
                         if alt_path.exists():
                             full_audio_path = alt_path
@@ -238,7 +243,6 @@ class ASRBatchRunner:
             print(" BẮT ĐẦU ĐÁNH GIÁ CHI TIẾT (WER, CER, TOKEN-F1, ABLATION)")
             print("=" * 65)
 
-            # Đánh giá kết quả cuối cùng
             final_hyps = [d["final"] for d in pred_dicts]
             metrics, sample_details = self.evaluator.evaluate_predictions(
                 references=gold_texts,
@@ -247,14 +251,12 @@ class ASRBatchRunner:
                 elapsed_time_sec=elapsed_total
             )
 
-            # Đánh giá bóc tách (Ablation study)
             ablation = self.evaluator.evaluate_ablation(
                 references=gold_texts,
                 processed_dicts=pred_dicts,
                 sample_ids=sample_ids
             )
 
-            # Xuất báo cáo Markdown & JSON
             report_md_path = output_jsonl_path.parent / f"{output_jsonl_path.stem}_eval_report.md"
             self.evaluator.generate_markdown_report(
                 metrics=metrics,
@@ -270,7 +272,6 @@ class ASRBatchRunner:
                     "ablation": {k: asdict(v) for k, v in ablation.items()}
                 }, f, ensure_ascii=False, indent=2)
 
-            # In tóm tắt ra console
             print("\n" + "-" * 65)
             print(" KẾT QUẢ TỔNG QUAN")
             print("-" * 65)
@@ -288,4 +289,3 @@ class ASRBatchRunner:
             eval_result = {"metrics": metrics, "ablation": ablation}
 
         return eval_result
-
