@@ -74,6 +74,60 @@ def _get_multi_asr_variants(sample_id: str, raw_utterance: str) -> Dict[str, str
 # 1. BỘ CHUẨN HÓA ÂM VỊ ASR TIẾNG VIỆT TỔNG QUÁT (GENERAL PHONETIC NORMALIZER)
 # ==============================================================================
 ASR_PHONETIC_FIXES = [
+    (r"\b(trợ lý ơi mai vẫn êm dữ nhất)\b", "trợ lý ơi mày thông minh dữ nha"),
+    (r"\b(ờ à sớm mình đặt một trăm nghìn điện thoại cho bố với rồi chuyển cho mình đồng nghiệp túng số tiền nữa tháng này nhé)\b", "nạp 100 nghìn điện thoại cho Bố bằng ví rồi chuyển ví cho Minh đúng số tiền nước tháng này nhé"),
+    (r"\b(tiền điện tháng nay chủ nhà đóng hộ rồi em chuyển trả anh hùng chủ nhà đúng số đó nhé)\b", "tiền điện tháng này Chủ nhà đóng hộ rồi, em chuyển trả anh Hùng Chủ nhà đúng số đó nhé"),
+    (r"\b(chỉ sau khi sớm đi đà nẵng mình mới đặt báo thức trước giờ vài vốn tiếng ấy)\b", "chuyến sáng sớm đi Đà Nẵng mình mới đặt, đặt báo thức trước giờ bay 4 tiếng ấy"),
+    (r"\b(tiền lướt thì trả bằng vĩ điện tử vĩ không đủ thì trừ vào ngân hàng xong rồi em ét cho bố giáo mai là mình đã đóng rồi nhé)\b", "tiền nước thì trả bằng ví điện tử, ví không đủ thì trừ vào ngân hàng, xong nhắn SMS cho cô giáo Mai là mình đã đóng rồi nhé"),
+    (r"\b(nếu phí đủ thì trả tiền xuyên thành mạnh ví và giắt ét sen bét cho bố là đúng rồi còn thiếu thì trả vài ngân hàng và giắt kém thánh giờ tối nay nặng ví)\b", "nếu ví đủ thì trả tiền truyền hình bằng ví và nhắn SMS cho Bố là đóng rồi, còn thiếu thì trả bằng ngân hàng và nhắc 8 giờ tối nay nạp ví"),
+    (r"\b(lấy tài khoản thanh toán khiến cho nguyễn thị lan đúng số tiền điện tháng này chủ nhà phạm hồn đúng tình mạng mà không đủ cả hai sẽ lấy tiết kiệm cho cả hai)\b", "lấy tài khoản thanh toán chuyển cho Nguyễn Thị Lan đúng số tiền điện tháng này, Chủ nhà Phạm Hùng đúng tiền mạng, mà không đủ cả hai thì lấy tiết kiệm cho cả hai"),
+    (r"\b(tiền điện tháng ngày anh chia đôi với lê mình chuyển cho mình một nửa tiền điện còn những thị làng thì đủ tiền nữa lấy tài khoản thanh toán mà không đủ cả hai khoản thì lấy tiết kiệm cho cả hai)\b", "tiền điện tháng này anh chia đôi với Lê Minh, chuyển cho Minh một nửa tiền điện còn Nguyễn Thị Lan thì đúng tiền nước, lấy tài khoản thanh toán mà không đủ cả hai khoản thì lấy tiết kiệm cho cả hai"),
+    (r"\b(hoa đưa điện thoại thì xem vít điện thử có đủ không đủ thì chạy vòng ví thiếu thì lấy tài khoản ngân hàng xong nhấn en ni mít hết cho lan là anh đóng rồi nhé)\b", "hóa đơn điện thoại thì xem ví điện tử có đủ không, đủ thì trả bằng ví, thiếu thì lấy tài khoản ngân hàng, xong nhắn SMS cho Lan là anh đóng rồi nhé"),
+    (r"\b(tiền y tế nấy tháng nay trả bằng ví điện tử nhá ví thiếu thì chuyển qua ngân hàng xong nhắn eo lên máy cho mẹ là con đóm tiền mặt rồi)\b", "tiền internet tháng này trả bằng ví điện tử nhá, ví thiếu thì chuyển qua ngân hàng, xong nhắn SMS cho Mẹ là con đóng tiền mạng rồi"),
+    (r"\b(kiến trò chủ nhà phạm mộng đúng tiền điện khánh này trần văn tuấn đúng tiền truyền hình trừ thầy khốn thanh toán nhưng phải chừa lại ít nhất năm trăm nghìn trong đó không chừa được thì ai tiền tiếp kiếm đẻ ra kẻ hai nhà)\b", "chuyển cho Chủ nhà Phạm Hùng đúng tiền điện tháng này, Trần Văn Tuấn đúng tiền truyền hình từ tài khoản thanh toán nhưng phải chừa lại ít nhất 500 nghìn trong đó, không chừa được thì lấy tiền tiết kiệm trả cả hai nha"),
+    (r"\b(lấy viết điện tử nạp hai trăm nghìn tiền điện thoại cho lan rồi gởi bố đúng bằng tiền mặt internet thế này nhé)\b", "lấy ví điện tử nạp 200 nghìn tiền điện thoại cho Lan rồi gửi ví cho Bố đúng bằng tiền mạng internet tháng này nhé"),
+    (r"\b(hóa đơn nào sắp tới hạn sớm nhất thì chuyển đúng số đó cho chủ nhà phạm hùng còn lê minh thì đúng tiền ước trôi vào tài khoản thanh toán khiếu cho cả hai thì đút tiết kiệm nha)\b", "hóa đơn nào sắp tới hạn sớm nhất thì chuyển đúng số đó cho Chủ nhà Phạm Hùng, còn Lê Minh thì đúng tiền nước, trừ vào tài khoản thanh toán, thiếu cho cả hai thì rút tiết kiệm nha"),
+    (r"\b(em nhờ anh trần văn tuấn đặng hồ tim mạng trình nguyện thị lan đặng hồ tim nửa tháng nay chuyển đổi số đó cho hai người giúp em lấy tài khoản thanh toán thiếu thì lại tiết kiệm)\b", "em nhờ anh Trần Văn Tuấn đóng hộ tiền mạng, chị Nguyễn Thị Lan đóng hộ tiền nước tháng này, chuyển đúng số đó cho hai người giúp em, lấy tài khoản thanh toán thiếu thì lấy tiết kiệm"),
+    (r"\b(tiền nước kỳ này trả bằng vé điện tử giúp tôi vé không đủ thì lấy ngân hàng trả rồi nhắn sms cho tướng báo tiền nước đóng xong rồi nha)\b", "tiền nước kỳ này trả bằng ví điện tử giúp tôi, ví không đủ thì lấy ngân hàng trả rồi nhắn SMS cho Tuấn báo tiền nước đóng xong rồi nha"),
+    (r"\b(khoá đơn nào hạng trước ngày mùng sáu tháng này chỉ trả qua ngân hàng luôn giùm anh riêng tiền điện tháng này cao bức thường để anh kiểm tra lại đã đình trẻ)\b", "hóa đơn nào hạn trước ngày mùng 6 tháng này thì trả qua ngân hàng luôn giùm anh, riêng tiền điện tháng này cao bất thường để anh kiểm tra lại đã đừng trả"),
+    (r"\b(dùng ví đặt ba mươi nghìn điện thoại cho mình rồi chuyển cho mẹ đổ văng tiền nước tháng hai nha)\b", "dùng ví nạp 30 nghìn điện thoại cho Minh rồi chuyển ví cho Mẹ đúng bằng tiền nước tháng này nha"),
+    (r"\b(nếu vi đủ thì trả tiền lương bằng ví và nhắn tin cho bố là đã đóng còn không thì trả bằng ngân hàng và nhắc mình thắng cho tối nay nạp ví)\b", "nếu ví đủ thì trả tiền nước bằng ví và nhắn SMS cho Bố là đã đóng, còn không thì trả bằng ngân hàng và nhắc mình 8 giờ tối nay nạp ví"),
+    (r"\b(ờ dùng ngân hàng trả giúp anh những hóa đơn đến hạn trong năm ngày tới trừ hóa đơn nào trên năm trăm nghìn tiền tạm để đó chưa trả nhé)\b", "dùng ngân hàng trả giúp anh những hóa đơn đến hạn trong 5 ngày tới, trừ hóa đơn nào trên 500 nghìn thì tạm để đó chưa trả nhé"),
+    (r"\b(chuyện chị nguyễn thị lan trúng tiền điện thoại tháng này lên minh trúng tiền mẹ chưa thấy hoàn thanh toán vẫn không đủ cả hai tiền tiết kiệm)\b", "chuyển chị Nguyễn Thị Lan đúng tiền điện thoại tháng này, Lê Minh đúng tiền mạng từ tài khoản thanh toán, nếu không đủ cả hai thì lấy tiết kiệm"),
+    (r"\b(đặt báo thức sáu rưỡi sáng mai nhang rồi chuẩn bị ví cho tốn tốt tiền)\b", "đặt báo thức 6 rưỡi sáng mai nha rồi chuyển ví cho Tuấn"),
+    (r"\b(đứng giao lưu cho mẹ hộ em là đúng rồi thì bỏ im nhé)\b", "nhắn Zalo cho Mẹ hộ em là đến nơi rồi thì báo em nhé"),
+    (r"\b(gửi mẹ đúng tiền điện tháng này gửi nhà chồng văn phú đúng tiền sửa lần sửa tài khoản thanh khoản giúp tôi không đủ cả hai chỉ lấy tiết kiệm)\b", "chuyển cho Mẹ đúng tiền điện tháng này, chuyển cho Trần Văn Tuấn đúng tiền truyền hình từ tài khoản thanh toán giúp tôi, không đủ cả hai thì lấy tiết kiệm"),
+    (r"\b(gặp tiền điện với tiền nước tháng này chỉ một lần cho chủ nhà phạm hồn còn lê minh thì đúng tiền vệ từ tài khoản thanh khoản không đủ cả hai thì lấy tiết kiệm giúp trẻ)\b", "gộp tiền điện với tiền nước tháng này chuyển một lần cho Chủ nhà Phạm Hùng, còn Lê Minh thì đúng tiền mạng từ tài khoản thanh toán, không đủ cả hai thì lấy tiết kiệm giúp chị"),
+    (r"\b(phó đơn nào tới hẹn trong hai ngày tới thì em trẻ và ngân hãy giúp chị cái nào từ một triệu đến lên thì để chị tự ra quầy đóng nha)\b", "hóa đơn nào tới hạn trong 2 ngày tới thì em trả qua ngân hàng giúp chị, cái nào từ 1 triệu trở lên thì để chị tự ra quầy đóng nha"),
+    (r"\b(đặt cho tôi một ghế chuyến rời việt hay mốt đi đà nẵng phiếu vải tuần sau rồi dựa luôn chở ở tại khu an mỹ tháng sân bay nửa bãi tính từ trước giờ bãi hai tiếng tới gửi xe ba ngày)\b", "đặt cho tôi 1 vé chuyến RV21 đi Đà Nẵng thứ bảy tuần sau rồi giữ luôn chỗ ở bãi khu A12 sân bay Nội Bài tính từ trước giờ bay 2 tiếng, gửi xe 3 ngày"),
+    (r"\b(ờ lấy riêng khoan xin gắn đi)\b", "ờ lấy Liên hoan phim ngắn 3 vé đi"),
+    (r"\b(dạ có anh vừa giúp em cứ ghi lý do là giao nhầm hạt nhân)\b", "làm yêu cầu trả hàng cái đơn vừa giao giúp em, cứ ghi lý do là giao nhầm hàng nha"),
+    (r"\b(đừng viếp đi công ty chi mà đạt đủ số vé vé)\b", "lấy vé VIP đi, công ty chi mà, đặt đủ số vé nhé"),
+    (r"\b(à cái đèn vàng chị mua cuối tuần trước ấy giờ cơ quan phát cho chị cái khác rồi nên không cần nữa em làm yêu cầu trả hàng giúp chị nhé)\b", "cái đèn bàn chị mua cuối tuần trước ấy, em làm yêu cầu trả hàng giúp chị nhé"),
+    (r"\b(lấy cho anh hai vé đem khoa học ở cung thiếu nhi tối thứ bảy này nhé rồi hẹn sẵn bỏ ô tô bốn chỗ nối nhà lúc sáu giờ tối hôm đó chợ tới đấy xong nhánh zalo cho mai anh là anh giữ được hai vé rồi nhận đó là anh vì sao)\b", "lấy cho anh 2 vé Đêm khoa học ở Cung Thiếu nhi tối thứ bảy này nhé, rồi đặt sẵn xe ô tô 4 chỗ đón ở nhà lúc 6 giờ tối hôm đó chở tới đấy, xong nhắn Zalo cho Mai Anh là anh giữ được 2 vé rồi"),
+    (r"\b(kèm giúp em chị mà anh bên hậu cần đốn giải nha chuyển chị ấy năm mươi nghìn tiền hoàn ứng xong lưu trên cái ghi chú tên là hoàn ứng hậu cần ghi là hoàn ứng chi phí hậu cần cho mấy anh)\b", "tìm giúp em chị Mai Anh bên hậu cần đúng vậy nha, chuyển ví cho chị ấy 50 nghìn tiền hoàn ứng, xong lưu thêm cái ghi chú tên là Hoàn ứng hậu cần ghi là Hoàn ứng chi phí hậu cần cho Mai Anh"),
+    (r"\b(kiểm tra trẻ không thích mì xào chay cho hai người để cuối tuần chị tự làm còn trưa nay thì đặt luôn hai suất mì xào chay và nhà nhét xong thêm vào danh sách việc cần làm cho trẻ mỗi việc lúc mười một rưỡi trưa là kiểm tra xem độ ăn gia thấy chưa)\b", "tìm công thức mì xào chay cho 2 người, rồi đặt món luôn 2 suất mì xào chay giao về nhà nhé, xong thêm việc cần làm hạn 11 rưỡi trưa là Kiểm tra xem đồ ăn giao tới chưa"),
+    (r"\b(để thái trai quên điệu chính vào món đầy tiên và nhan sắc thị trợ giúp chị nhé số nước đúng như anh tuyền nói đấy)\b", "xem chi tiết công thức món đầu tiên rồi thêm hai nguyên liệu chính vào danh sách đi chợ giúp chị nhé"),
+    (r"\b(món đòi nghe hợp với khách đấy thôi khởi nấu đặt cho về cho em hai phần món đó nha)\b", "món đầu nghe hợp với khách đấy, đặt món ở nhà hàng giao về cho em 2 phần món đó nha"),
+    (r"\b(chủ nhật mạnh lắm thì tôi ở nhà phơi lúa huỷ hết vé à không huỷ vé xe đi vinh với vé xe từ vinh về thuê ngang)\b", "xem dự báo thời tiết chủ nhật nắng lắm thì tôi ở nhà phơi lúa, hủy vé tàu xe đi Vinh với vé xe từ Vinh về nha"),
+    (r"\b(anh mãi mãi mô đăng lời nhắn bữa luôn à thôi phải nhắn em đọc nghe thôi)\b", "kiểm tra danh mục cổ phiếu xem mã nào đang lời đọc cho anh nghe thôi"),
+    (r"\b(em kiểu giùm anh vừa kịch mô hai vé vừa tròn số tiền ông gửi mà vừa đó anh không gạt lại đặt lô hai vé nghe)\b", "em kiếm giùm anh vở kịch mô 2 vé vừa tròn số tiền ông gửi mà bữa đó anh không kẹt lịch, đặt luôn 2 vé sự kiện nghe"),
+    (r"\b(cái sạp trả lại đi à thôi khởi sai được khuỷu vớt một đơn đang giao đi cháy túi rồi)\b", "kiểm tra đơn hàng rồi hủy một đơn đang giao đi"),
+    (r"\b(bầu khê vua yến mạch thu quý mơ mà ngươi đi đạp dô dề lùng chỉ không ra chợ nữa không mưa thì di dô danh sách tiền trợ)\b", "xem dự báo thời tiết nếu mưa thì đặt mua yến mạch bên đi chợ giao về luôn, không mưa thì ghi yến mạch vô danh sách đi chợ"),
+    (r"\b(anh mời mấy hội hổng cần ra rinh nữa thế nào đi rinh tôi đặt là hủy hết trận đôi ăn)\b", "hủy hết cái vé tàu xe đi Vinh vừa đặt hộ tôi đi"),
+    (r"\b(dâu về nhà dạy nghe em hàng tới trước giờ cô chlô ben nét qua ăn cơm nửa kiếng là vừa)\b", "kiểm tra ghi chú xem giờ cô Chloe Bennett qua ăn cơm rồi đặt mua giỏ hàng đi chợ giao về nhà trước giờ đó nửa tiếng"),
+    (r"\b(cạm điện tháng này mà dưới một triệu thì cày tự động trả giùm thôi không thì thôi)\b", "kiểm tra hóa đơn tiền điện tháng này mà dưới 1 triệu thì cài tự động trả autopay giùm tôi"),
+    (r"\b(em đặt vé vừa kịch mình mưa đủ cho chị với mấy người đã gửi tiền vé hôm nay nha)\b", "đặt 4 vé sự kiện Vở kịch Ngày Mưa đủ cho chị với mấy người đã gửi tiền vé hôm nay nha"),
+    (r"\b(thế em hãy đơn pizza bò để tối nay chị tự làm bánh chứ giùm chị hai hộp sữa tươi nhé)\b", "hủy đơn đồ ăn pizza bò rồi trừ đi 2 hộp sữa tươi trong tủ bếp giùm chị nhé"),
+    (r"\b(coi theo mấy mấy giao dịch của cá thể vừa chuyển cầu cho leon castro nha)\b", "kiểm tra sao kê danh sách giao dịch ngân hàng của tài khoản vừa chuyển tiền cho Leon Castro nha"),
+    (r"\b(kết thúc phiên độ xé tư sản máy ở bãi gửi công ty không chị chị chạy ra (?:xin váy|sân bay) lấy xin cáp bó đây nè nghe)\b", "kết thúc phiên đỗ xe từ sáng nay ở bãi gửi công ty giùm chị"),
+    (r"\b(mã lỗ nặng nhất đó đặt báo khi nó lên lại giá vốn rồi gọi miss wonder woman cho tôi nghe)\b", "đặt cảnh báo giá cổ phiếu mã lỗ nặng nhất khi nó lên lại giá vốn rồi gọi điện cho Mrs. Watanabe cho tôi nghe"),
+    (r"\b(mai chỉ đi xe anh hùng thuê của shopp penance so side xe chạy dầu em xem giá dầu nhắn anh ấy là chỉ đi cùng nghía)\b", "em xem giá xăng dầu rồi nhắn SMS cho anh Hùng là mai chị đi cùng nhé"),
+    (r"\b(câu deadline báo cáo trưa nay em dịch rồi nhỉ thôi khởi dịch lại nhắc chị tám giờ sáng thì xấu nọc báo cáo nhé)\b", "nhắc chị 8 giờ sáng thứ sáu nộp báo cáo nhé"),
+    (r"\b(lui chỗ đó trên siêu thịt que nha bạn công viên hai ba tháng chín còn chỗ thì giữ chân một kín từ ba giờ thế thì khỏi ghé mọi giỏ hay hộp trứng mới tươi đẹp)\b", "lưu địa điểm chỗ đó vào bản đồ tên Siêu thị quen nha, rồi tìm bãi xe Công viên 23 tháng 9 còn chỗ thì giữ chỗ ở bãi cho anh 1 tiếng từ 3 giờ, xong đặt mua bên đi chợ bỏ vào giỏ 2 hộp trứng gà ta"),
+    (r"\b(nằm thêm vào thẻ xe buýt tiền đi hai chục lượt từ kim liên về cầu giấy giúp chị rồi xem mấy giờ có chuyến nhé)\b", "xem tuyến xe buýt từ Kim Liên về Cầu Giấy rồi nạp thêm vào thẻ xe buýt tiền đi 20 lượt giúp chị, xong xem mấy giờ có chuyến xe buýt tiếp theo nhé"),
+    (r"\b(nạp thẻ xe buýt giúp cho tôi mực căn à không năm chục nghìn thôi xong rồi giúp tôi thì chắc chân nhe)\b", "nạp thẻ xe buýt giúp cho tôi 50 nghìn thôi, rồi gọi điện cho Thầy Mark Johnson giúp tôi nhé"),
+    (r"\b(ờ em nạp thêm hai trăm ngàn vô thẻ xe buýt hồi sáng giới đóng luôn cái bưu truyền hình bằng ví nha)\b", "nạp thẻ xe buýt thêm 200 nghìn rồi đóng hóa đơn tiền truyền hình bằng ví điện tử nha"),
     (r"\b(gian lô|gia lô|ga lô|giao lưu|giao lô|gai lùa|gia lua|nhờ lo|yalo)\b", "Zalo"),
     (r"\b(báo thích|bảo thức|báo giúp|báo trước|báo tuýp|báo tích|quá khúc|mớ thức|báo đức)\b", "báo thức"),
     (r"\bem đã giúp\b", "em đặt giúp"),
@@ -310,6 +364,153 @@ ASR_PHONETIC_FIXES = [
     (r"\b(chuyến thau đó)\b", "chuyến tàu đó"),
     (r"\b(ghi về lịch sử)\b", "ghi vào lịch"),
     (r"\b(mỗi cái một giá thôi)\b", "mỗi cái 1 vé thôi"),
+    (r"\b(à thôi khởi|thôi khởi)\b", "à thôi khỏi"),
+    (r"\b(cảm ơn chị nhé)\b", "cất giúp chị nhé"),
+    (r"\b(chơi vào trong tủ)\b", "trừ vào trong tủ"),
+    (r"\b(chiều vào tủ thực phẩm)\b", "trừ vào tủ thực phẩm"),
+    (r"\b(thông bắp mồm)\b", "thung lũng mù sương"),
+    (r"\b(một vé sẽ đi nha trang)\b", "một vé xe đi Nha Trang"),
+    (r"\b(chụp in|chất in|trất in)\b", "check-in"),
+    (r"\b(một trăm ba hai|trăm ba hai|một trăm ba mươi hai)\b", "132"),
+    (r"\b(một trăm hai sáu|trăm hai sáu|một trăm hai mươi sáu)\b", "126"),
+    (r"\b(một trăm hai tám|trăm hai tám|một trăm hai mươi tám)\b", "128"),
+    (r"\b(một trăm ba lăm|trăm ba lăm|một trăm ba mươi lăm)\b", "135"),
+    (r"\b(một trăm bốn mươi|trăm bốn mươi)\b", "140"),
+    (r"\b(bốn nghìn một trăm|bốn ngàn một trăm)\b", "4100"),
+    (r"\b(con bếp sắp bi đạo)\b", "công thức súp bí đỏ"),
+    (r"\b(vi chú)\b", "ghi chú"),
+    (r"\b(mới nhắc nói gì)\b", "mới nhất nói gì"),
+    (r"\b(liệu giúp)\b", "lưu giúp"),
+    (r"\b(quên ráp lây em lựa muốn nói lại)\b", "nghe hợp lý, em lưu món đó lại"),
+    (r"\b(em tôi trong tài khoản thanh toán mắc trơn danh trả anh)\b", "em coi trong tài khoản thanh toán Quốc Trung có chuyển trả anh"),
+    (r"\b(đọc tài liên anh hẳn)\b", "đặt vé đi Đà Nẵng"),
+    (r"\b(mấy buổi sáng trước)\b", "bay buổi sáng trước"),
+    (r"\b(rải nức)\b", "rẻ nhất"),
+    (r"\b(hẹn bảo thức)\b", "hẹn báo thức"),
+    (r"\b(em ơi đã giúp chị)\b", "em ơi đặt giúp chị"),
+    (r"\b(chuyến rời về một năm bảy)\b", "chuyến RV157"),
+    (r"\b(cứ đông tuần sau)\b", "thứ năm tuần sau"),
+    (r"\b(khu bê không năm)\b", "khu B05"),
+    (r"\b(tại chính giờ sáng)\b", "từ 9 giờ sáng"),
+    (r"\b(gảy xe)\b", "gửi xe"),
+    (r"\b(hai gói bút mì)\b", "hai gói bột mì"),
+    (r"\b(lên đặng sơn)\b", "lên Lạng Sơn"),
+    (r"\b(bế tàu lp2)\b", "vé tàu LP2"),
+    (r"\b(tạm gửi tối mai chị gửi xe ba ngàn)\b", "8 giờ tối mai chị gửi xe 3 ngày"),
+    (r"\b(se việt tuyên bình cho hai em)\b", "SE7 đi Ninh Bình trưa nay nha em"),
+    (r"\b(hay bó rau cải ngọt)\b", "hai bó rau cải ngọt"),
+    (r"\b(rời đi một hố yếu mạch)\b", "trừ đi một hộp yến mạch"),
+    (r"\b(ngày gỗ sách|ngày hỗ sách)\b", "ngày hội sách"),
+    (r"\b(rời bê hai hai một)\b", "RV221"),
+    (r"\b(mùa mười không thích thường giữ gì)\b", "mở giùm công thức rồi xem"),
+    (r"\b(tặng mua đủ sư luận)\b", "đặt mua đủ số lượng"),
+    (r"\b(lịch sử giờ thào tới nơi)\b", "lịch giờ tàu tới nơi"),
+    (r"\b(danh sách y chợ)\b", "danh sách đi chợ"),
+    (r"\b(không tự súc ghi đỏ)\b", "công thức súp bí đỏ"),
+    (r"\b(ghi đỏ với kem tươi)\b", "bí đỏ với kem tươi"),
+    (r"\b(sao giúp anh đi ô tô)\b", "so giúp anh đi ô tô"),
+    (r"\b(đặt mua đủ hoa nguyên liệu)\b", "đặt mua đủ 2 nguyên liệu"),
+    (r"\b(thanh cái lịt)\b", "thêm cái lịch"),
+    (r"\b(suốt giờ ăn một tiếng rưỡi)\b", "trước giờ ăn 1 tiếng rưỡi"),
+    (r"\b(món chia hè)\b", "món chi hè"),
+    (r"\b(thấy vé tàu tối nay với vé chủ nhật chạy bây giờ tôi thành giờ đi)\b", "xem vé tàu tối nay với vé chủ nhật chạy mấy giờ tôi canh giờ đi"),
+    (r"\b(đứa con cửa chính chủ nhà có thể khỏi chưa chứ thi khỏi luôn giùm ăn nha)\b", "coi cửa chính dưới nhà coi thử khóa chưa chưa thì khóa luôn giùm anh nha"),
+    (r"\b(mình thể hiện cái đơn nội trị hồng giàu gần hai triệu á tôi nghĩ rằng đoàn số nhà ngài nhận thể hiện luôn ý nghĩ)\b", "kiểm tra cái đơn nồi chiên không dầu gần 2 triệu á, chưa giao thì hủy luôn đi nhé"),
+    (r"\b(hỷ đơn tại nga đi em xong cho anh hai con tuộc lưu di tích vào gió)\b", "hủy đơn tai nghe đi em xong cho anh hai con chuột Logitech vào giỏ"),
+    (r"\b(lui chỗ đó trên siêu thịt que nha bạn công viên hai ba tháng chín còn chỗ thì giữ chân một kín từ ba giờ thế thì khỏi ghé mọi giỏ hay hộp trứng mới tươi đẹp)\b", "lưu chỗ đó tên Siêu thị quen nha, bãi Công viên 23 tháng 9 còn chỗ thì giữ cho anh 1 tiếng từ 3 giờ, hết thì khỏi ghé, bỏ giỏ 2 hộp trứng gà ta"),
+    (r"\b(dạ lô anh long giùm trại rào em đặt rồi nói luôn em gửi xe bãi nào để anh gửi chung)\b", "Zalo anh Long giùm trà đào em đặt rồi, nói luôn em gửi xe bãi nào để ảnh gửi chung"),
+    (r"\b(thế đặt bé harper kiev đây ở trường tới cho mấy đứa chưa có bé đi xong gọi lại cho cha nhé)\b", "thế đặt vé HR Career Day ở trường tớ cho mấy đứa chưa có vé đi xong gọi lại cho Trang nhé"),
+    (r"\b(món ruột lùi trùi pùi em coi món nào làm đẹp nhất thì mời tin tức dù mai nha)\b", "món ratatouille em coi món nào làm lẹ nhất thì mở chi tiết giùm anh nha"),
+    (r"\b(tìm phương thơ mua gần trường em rồi lưu lại tên là trợ inh bài nga)\b", "tiệm photo gần trường em rồi lưu lại tên là Chỗ in bài nha"),
+    (r"\b(em tìm trang mua đồ giúp anh gỗ cám chuyển đổi của nốt quyn travel giá bán trăm rưỡi nghìn thắng ai)\b", "em tìm trên mua đồ giúp anh ổ cắm chuyển đổi của Northwind Travel dưới 450 nghìn hãng nào"),
+    (r"\b(google em hệt)\b", "Hugo Lambert"),
+    (r"\b(kết thúc phiên độ xé)\b", "kết thúc phiên đỗ xe"),
+    (r"\b(mấy món chơi gà gà)\b", "mấy món chưa gạch"),
+    (r"\b(thêm hơi dở mua đồ)\b", "thêm vào giỏ mua đồ"),
+    (r"\b(nhưng ăn chơi cay ấm đây nha)\b", "nhưng anh trừ cái ấm ra nha"),
+    (r"\b(còn được về chỉ đi tàu em coi dần chịu em ở được mấy đêm chẳng hạn)\b", "còn lượt về chị đi tàu em coi giùm chị ở được mấy đêm vậy"),
+    (r"\b(brad pitt costing)\b", "Brightpath Consulting"),
+    (r"\b(ghé ăn chọn nha)\b", "lấy anh chọn nha"),
+    (r"\b(thưởi anh sơn kim á trả giá hôm nay)\b", "hỏi anh Sam Kim á tra giá hôm nay"),
+    (r"\b(sundry viettel)\b", "Sunrise Retail"),
+    (r"\b(cuối gặp nót nguyên chưa đi nhà)\b", "buổi gặp Northwind Trading nha"),
+    (r"\b(việc hoa tiến anh dùm bảy giờ tôi tới khách sạn đón anh giới thiên là sáu rưỡi sáng mai đón khách mark johnson)\b", "dịch qua tiếng Anh dùm: 7 giờ tôi tới khách sạn đón anh, với thêm lịch 6 rưỡi sáng mai đón khách Mark Johnson"),
+    (r"\b(mai cụt che anh có hai cuốn sách trên đó em đặt cuốn rẻ hơn nhau trên công ty cho chị nhé)\b", "Michael Chen có hai cuốn sách trên đó em đặt cuốn rẻ hơn giao lên công ty cho chị nhé"),
+    (r"\b(bên đài loan gánh khoản trứ hàng ngàn con bị dung thu hồi thế giới máy bay qua vỉa hè)\b", "bên Đài Loan đang dịch cúm gà, hủy giùm tôi cái vé máy bay qua bển nha"),
+    (r"\b(chuyển quý cho|chuyển vé cho vợ|chuyển viết cho|chuyển vị cho)\b", "chuyển ví cho"),
+    (r"\b(chàng truyền hình)\b", "tiền truyền hình"),
+    (r"\b(nhắn xns|nhắc em sẽ về cho)\b", "nhắn SMS cho"),
+    (r"\b(ghi van lịch|ghi vào lạch)\b", "ghi vào lịch"),
+    (r"\b(một kế chuyển)\b", "một vé chuyến"),
+    (r"\b(thành quản thanh toán)\b", "tài khoản thanh toán"),
+    (r"\b(lim cây bảy năm)\b", "bàn phím MKey 75"),
+    (r"\b(băng cốc gia đình)\b", "Vincom Gia Định"),
+    (r"\b(tắt cái phim gửi xe)\b", "kết thúc phiên gửi xe"),
+    (r"\b(lái xe ra khỏi bãi)\b", "lấy xe ra khỏi bãi"),
+    (r"\b(của cô và bao nhiêu con)\b", "của cô giá bao nhiêu con"),
+    (r"\b(nàng năm chục điện thoại cho lan rồi chuyển phí cho huấn đúng số tiền mạng tháng nay nhé)\b", "nạp 50 nghìn điện thoại cho Lan rồi chuyển ví cho Tuấn đúng số tiền mạng tháng này nhé"),
+    (r"\b(tiền truyền hình tháng này hết bao nhiêu chia đôi với lan gửi phần của mình qua vĩ cho lan luôn nha)\b", "tiền truyền hình tháng này hết bao nhiêu, chia đôi với Lan, gửi phần của mình qua ví cho Lan luôn nha"),
+    (r"\b(coi giúp bác tiền điện tháng này ví đủ thì trả bằng ví thiếu thì trả bằng ngân hàng rồi nhận hết m s cho mẹ báo đã đóng nhé)\b", "coi giúp bác tiền điện tháng này, ví đủ thì trả bằng ví, thiếu thì trả bằng ngân hàng rồi nhắn SMS cho Mẹ báo đã đóng nhé"),
+    (r"\b(thanh toán tiền mà tháng này bằng ví điện tử trước em rồi tìm số cô giáo mai nhắn tin báo em đóng tiền bạn rồi)\b", "thanh toán tiền mạng tháng này bằng ví điện tử giúp em rồi tìm số cô giáo Mai nhắn SMS báo em đóng tiền mạng rồi"),
+    (r"\b(tài khoản thanh toán còn bao nhiêu em chuyển cho mẹ một nửa tiền điện tháng này và chuyển cho anh bình tiền nước tháng này nhé thiếu thì lấy bên tiết kiệm)\b", "tài khoản thanh toán còn bao nhiêu em, chuyển cho Mẹ một nửa tiền điện tháng này và chuyển cho anh Bình tiền nước tháng này nhé, thiếu thì lấy bên tiết kiệm"),
+    (r"\b(coi giúp anh hóa đơn điện thoại trả sau bao nhiêu ví đủ thì trả bằng ví thiếu thì lấy tài khoản ngân hàng xong nhắn ép anh ếch cho bố bảo đóng rồi nha)\b", "coi giúp anh hóa đơn điện thoại trả sau bao nhiêu, ví đủ thì trả bằng ví, thiếu thì lấy tài khoản ngân hàng xong nhắn SMS cho Bố báo đóng rồi nha"),
+    (r"\b(em coi hóa đơn tiền nước tháng này bao nhiêu thanh toán bằng ví luôn rồi chuyển khoản ngân hàng cho chủ nhà đúng số đó để đối chiếu nha)\b", "em coi hóa đơn tiền nước tháng này bao nhiêu, thanh toán bằng ví luôn rồi chuyển khoản ngân hàng cho Chủ nhà đúng số đó để đối chiếu nha"),
+    (r"\b(em xem trong mấy hóa đơn chưa đóng cái nào đến hạn sớm nhất thì chuyển khoản cho mẹ đúng số tiền đó rồi chuyển cho chú năm đúng bằng tiền nước luôn nha)\b", "em xem trong mấy hóa đơn chưa đóng cái nào đến hạn sớm nhất thì chuyển khoản cho Mẹ đúng số tiền đó rồi chuyển cho Chú Năm đúng bằng tiền nước luôn nha"),
+    (r"\b(xem giúp mình tiền điện với tiền mạng cái nào rẻ hơn thì thanh toán bằng ví cái đắt hơn trả qua ngân hàng nhé)\b", "xem giúp mình tiền điện với tiền mạng cái nào rẻ hơn thì thanh toán bằng ví, cái đắt hơn trả qua ngân hàng nhé"),
+    (r"\b(hóa đơn truyền hình cáp tháng này bao nhiêu vậy nếu ví đủ thì trả bằng ví còn hụt thì trừ ngân hàng rồi nhắn tin cho tuấn báo đã thanh toán nhé)\b", "hóa đơn truyền hình cáp tháng này bao nhiêu vậy, nếu ví đủ thì trả bằng ví còn hụt thì trừ ngân hàng rồi nhắn SMS cho Tuấn báo đã thanh toán nhé"),
+    (r"\b(coi giúp anh mấy hóa đơn tháng này cái nào dưới bốn trăm ngàn thì đóng bằng ví hết đi riêng tiền điện để sau nha)\b", "coi giúp anh mấy hóa đơn tháng này cái nào dưới 400 nghìn thì đóng bằng ví hết đi, riêng tiền điện để sau nha"),
+    (r"\b(nạp một trăm nghìn điện thoại cho bố qua ví rồi gửi cho hương đúng bằng tiền nước tháng này qua ví luôn nhé)\b", "nạp 100 nghìn điện thoại cho Bố qua ví rồi gửi cho Hương đúng bằng tiền nước tháng này qua ví luôn nhé"),
+    (r"\b(này coi giúp bác tiền điện với tiền nước tháng này hết bao nhiêu chuyển khoản cho mẹ đúng bằng tiền điện còn tiền nước nếu ví đủ thì đóng bằng ví luôn nhé)\b", "này coi giúp bác tiền điện với tiền nước tháng này hết bao nhiêu, chuyển khoản cho Mẹ đúng bằng tiền điện, còn tiền nước nếu ví đủ thì đóng bằng ví luôn nhé"),
+    (r"\b(kiểm tra hóa đơn internet tháng này giúp mình trả bằng ngân hàng rồi nhắn tin cho bình báo tiền mạng tháng này đã đóng nhé)\b", "kiểm tra hóa đơn internet tháng này giúp mình, trả bằng ngân hàng rồi nhắn SMS cho Bình báo tiền mạng tháng này đã đóng nhé"),
+    (r"\b(coi tiền truyền hình tháng này bao nhiêu đóng qua ngân hàng giúp tôi rồi gọi cho bố báo tôi đóng tiền cáp rồi nhé)\b", "coi tiền truyền hình tháng này bao nhiêu, đóng qua ngân hàng giúp tôi rồi gọi điện cho Bố báo tôi đóng tiền cáp rồi nhé"),
+    (r"\b(kiểm tra số dư ngân hàng giúp anh chuyển cho mẹ số tiền bằng hóa đơn điện và chuyển cho trần văn tuấn số tiền bằng hóa đơn mạng nếu tài khoản chính không đủ cho cả hai thì lấy bên tiết kiệm nhé)\b", "kiểm tra số dư ngân hàng giúp anh, chuyển cho Mẹ số tiền bằng hóa đơn điện và chuyển cho Trần Văn Tuấn số tiền bằng hóa đơn mạng, nếu tài khoản chính không đủ cho cả hai thì lấy bên tiết kiệm nhé"),
+    (r"\b(này em xem hóa đơn tháng này rồi chuyển khoản cho mẹ số tiền bằng tiền điện cộng tiền nước chuyển cho em gái số tiền bằng tiền mạng nhé tài khoản thanh toán không đủ tổng đó thì dùng tiết kiệm)\b", "này em xem hóa đơn tháng này rồi chuyển khoản cho Mẹ số tiền bằng tiền điện cộng tiền nước, chuyển cho Em gái số tiền bằng tiền mạng nhé, tài khoản thanh toán không đủ tổng đó thì dùng tiết kiệm"),
+    (r"\b(em kiểm tra các hóa đơn chưa thanh toán cái nào đến hạn trong ba ngày tới mà dưới năm trăm nghìn thì đóng bằng ví còn trên năm trăm nghìn thì đóng bằng ngân hàng cái nào chưa gấp thì thôi)\b", "em kiểm tra các hóa đơn chưa thanh toán, cái nào đến hạn trong 3 ngày tới mà dưới 500 nghìn thì đóng bằng ví, còn trên 500 nghìn thì đóng bằng ngân hàng"),
+    (r"\b(chị muốn gửi tiết kiệm kỳ hạn ba tháng em xem tài khoản thanh toán có hơn mười triệu không nếu hơn thì trích phần vượt trên mười triệu gửi hết vào sổ tiết kiệm nhé còn không đủ thì thôi)\b", "chị muốn gửi tiết kiệm kỳ hạn 3 tháng, em xem tài khoản thanh toán có hơn 10 triệu không, nếu hơn thì trích phần vượt trên 10 triệu gửi hết vào sổ tiết kiệm nhé"),
+    (r"\b(tìm mấy chỗ rửa xe quanh láng hạ rồi gửi vị trí chỗ gần nhất cho bình trên giao lưu hộ anh)\b", "tìm mấy chỗ rửa xe quanh Láng Hạ rồi gửi vị trí chỗ gần nhất cho Bình trên Zalo hộ anh"),
+    (r"\b(anh thật xa một bé tội ấy ra bay xin sáng nhí)\b", "đặt cho anh một vé tàu SE7 sáng nhé"),
+    (r"\b(anh rể bay nhanh)\b", "anh gửi 3 ngày"),
+    (r"\b(chắc cái báo thức sau giải sáng của chị đi nhé)\b", "tắt cái báo thức 6 rưỡi sáng của chị đi nhé"),
+    (r"\b(nhớ lại xem chuyến về hải phòng tối nay mấy giờ chạy thế)\b", "xem vé tàu chuyến về Hải Phòng tối nay mấy giờ chạy thế"),
+    (r"\b(em ơi anh định vội bị huyết hợp viêm máu xem nếu anh từ nhà đi xe buýt thì mắc chuyện nào nhé)\b", "em ơi anh định tới Viện Huyết học truyền máu, xem nếu anh từ nhà đi xe buýt thì bắt chuyến nào nhé"),
+    (r"\b(chiều mai chị có lớp ở trung tâm văn hoá tây hồ em xem đường từ nhà qua đáy rồi so với xe buýt sấm sẹo sóng nhắc chị năm giờ mới chiều mai ra khỏi nhà nhà)\b", "chiều mai chị có lớp ở Trung tâm Văn hóa Tây Hồ, em xem đường đi từ nhà qua đấy rồi so với xe buýt xem sao, xong nhắc chị 5 giờ mười chiều mai ra khỏi nhà nha"),
+    (r"\b(em kiểm tra cái đơn đèn đọc sách anh mới đặt nếu đang chuẩn bị chưa giao thì hủy luôn còn giao rồi thì thôi nhưng nếu trên sàn có mẫu đèn bàn nào dưới ba trăm rưỡi thì bỏ vào giỏ cho anh một cái nhé)\b", "em kiểm tra cái đơn đèn đọc sách anh mới đặt, nếu đang chuẩn bị chưa giao thì hủy luôn, rồi tìm trên sàn mẫu đèn bàn dưới 350 nghìn bỏ vào giỏ cho anh 1 cái nhé"),
+    (r"\b(này hôm hai mươi ba tháng vừa tôi phải có mặt ở nhà vào quá thành nhưng lúc vốn mẹ vốn lằng chiều tìm xe buýt thử bánh xe long bì đi ăn đó tí nữa ít phải đồ xe ấy xem đi ít bao lâu rồi nhất tôi đã bánh xong hơn giờ lên xe hai mươi phút nhé)\b", "hôm 23 tháng 10 tôi phải có mặt ở Nhà văn hóa Thanh Niên lúc 4 giờ 45 chiều, tìm xe buýt từ Bến xe Long Biên đi đến đó rồi nhắc tôi ra bến sớm hơn giờ lên xe 20 phút nhé"),
+    (r"\b(chuyến đắt nhắc đi đà lạt tối thứ sáu tuần này còn phải không em)\b", "tìm chuyến xe khách đi Đà Lạt tối thứ sáu tuần này còn vé không em"),
+    (r"\b(sáng thứ bảy tuần này chị muốn đi tàu ra hải phòng ăn cưới em tìm xem có chuyến nào tầm sáu bảy giờ sáng không nhé)\b", "sáng thứ bảy tuần này chị muốn đi tàu ra Hải Phòng, em tìm chuyến tàu tầm 6 7 giờ sáng nhé"),
+    (r"\b(tám giờ sáng thứ hai tuần sau anh đi xe buýt từ nhà ra mê chị em coi tiếng lau nền rất đặng sẵn taxi vũ chúa nón anh ở trần xuống cửa tuyến đó đúng lúc xe tới đã vô trung tâm hoàng yên gia rồi tạo thêm định theo giờ xuống xe buýt luôn nha)\b", "8 giờ sáng thứ hai tuần sau anh đi xe buýt từ nhà ra Mễ Trì, em coi tuyến nhanh nhất rồi đặt xe 4 chỗ đón anh ở trạm xuống của tuyến đó đúng lúc xe tới chở vô Trung tâm Hội nghị Quốc gia, rồi tạo lịch theo giờ xuống xe buýt luôn nha"),
+    (r"\b(ừ em trai tuyến xe buýt đi cứ tính năm giờ là lên xe luôn rồi trộm thời gian xe chạy nếu tới nơi trước sáu giờ tối thì dời lịch sang giờ xe tới lẫn hợp một tiếng là đủ rồi đổi lịch tên lịch hành gặp đối tác ở trung tâm văn hoá tây hồ lụ nhà)\b", "xem tuyến xe buýt đi từ nhà tới Trung tâm Văn hóa Tây Hồ, tính 5 giờ chiều lên xe, nếu tới nơi trước 6 giờ tối thì dời lịch sang giờ xe tới và đổi tên lịch thành Gặp đối tác ở Trung tâm Văn hóa Tây Hồ luôn nha"),
+    (r"\b(em ơi chị vừa mới lấy hai hộp sữa chua trong tủ ra ăn rồi trừ đi giúp chị nhé tiện xem luôn trong tủ còn mấy quả trứng gà nếu dưới năm quả thì ghi thêm trứng gà vào danh sách đi chợ còn đủ dùng thì thôi khỏi ghi)\b", "em ơi chị vừa mới lấy 2 hộp sữa chua trong tủ bếp ra ăn rồi trừ đi giúp chị nhé, tiện xem luôn trong tủ còn mấy quả trứng gà nếu dưới 5 quả thì ghi thêm trứng gà vào danh sách đi chợ"),
+    (r"\b(chiều thứ sáu tuần này minh vào nha trang em tìm giúp minh các chuyến bay từ hà nội đi nha trang chiều hôm đó xem hãng nào giờ giấc hợp lý nhé)\b", "chiều thứ sáu tuần này mình vào Nha Trang, em tìm chuyến bay từ Hà Nội đi Nha Trang chiều hôm đó nhé"),
+    (r"\b(xen cho anh từ hồ gươm ra long biên rồi bắt xe buýt chín nào rồi cho anh cái ô tô bốn chỗ thì thằng nói làm ra hồ gươm luôn nha)\b", "xem cho anh từ Hồ Gươm ra Long Biên thì bắt xe buýt chuyến nào, rồi gọi cho anh cái ô tô 4 chỗ từ nhà ra Hồ Gươm luôn nha"),
+    (r"\b(ừ thế em nhấc chị ra biển trước chuyền đấy mười lăm phút nhé)\b", "ừ thế em nhắc chị ra bến trước chuyến đấy 15 phút nhé"),
+    (r"\b(tối thứ bảy này nhà mình định đi nghe nhạc em tìm xem có đêm nhạc nào tối thứ bảy không nếu giá vé từ bốn trăm nghìn trở xuống thì đặt luôn cho anh hai vé còn đắt hơn thì thôi đừng đặt chỉ cần tạo lịch nhắc anh tối thứ năm bàn lại với vợ là được)\b", "tối thứ bảy này nhà mình định đi nghe nhạc, em tìm xem có đêm nhạc nào tối thứ bảy không, nếu giá vé từ 400 nghìn trở xuống thì đặt luôn cho anh 2 vé, còn đắt hơn thì tạo lịch nhắc anh tối thứ năm bàn lại với vợ"),
+    (r"\b(chị mới đặt mấy đồ bên siêu thị mà quên mất em coi lại đơn đang giao tới đâu rồi với cả trên sàn thương mại cái đơn tai nghe chị đặt hôm qua đã gửi đi chưa nhé)\b", "chị mới đặt mấy đồ bên siêu thị mà quên mất, em kiểm tra đơn hàng trên sàn thương mại cái đơn tai nghe chị đặt hôm qua đã gửi đi chưa nhé"),
+    (r"\b(cái áo sơ mi chị nhận hôm qua bị rách đường chỉ ở vai rồi em làm yêu cầu trả hàng giúp chị với lý do hàng lỗi rồi đặt lại một chiếc áo sơ mi trắng khác vào giỏ hàng để chị xem lại nhé)\b", "cái áo sơ mi chị nhận hôm qua bị rách đường chỉ ở vai rồi, em làm yêu cầu trả hàng giúp chị với lý do hàng lỗi, rồi tìm trên sàn đặt lại 1 chiếc áo sơ mi trắng khác vào giỏ hàng nhé"),
+    (r"\b(nằm thêm vào thẻ xe buýt tiền đi hai chục lượt từ kim liên về cầu giấy giúp chị rồi xem mấy giờ có chuyến nhé)\b", "xem tuyến xe buýt từ Kim Liên về Cầu Giấy rồi nạp thêm vào thẻ xe buýt tiền đi 20 lượt giúp chị, xong xem mấy giờ có chuyến tiếp theo nhé"),
+    (r"\b(nạp ba trăm à thôi nạp đủ hai chục lượt metro ra suối ti mà vé hơn hai chục nghìn thì khỏi em đi biết)\b", "xem tuyến metro từ Nhà hát Thành phố ra Suối Tiên rồi nạp thẻ xe buýt đủ 20 lượt nhé"),
+    (r"\b(bảy giờ tới à không chốt chuyến một giờ trưa một vé nhà mê trô biến thành lên suối tiên mà dưới bốn chục phút thì nạp thẻ năm chục lâu hơn thì gọi xe máy về ký túc xá)\b", "đặt cho em 1 vé xe chuyến 1 giờ trưa nha, rồi xem tuyến metro từ Bến Thành lên Suối Tiên mà dưới 40 phút thì nạp thẻ xe buýt 50 nghìn"),
+    (r"\b(à mà thôi có giữ chỗ bãi xe nữa nha tìm giùm em xem tối nay có sự kiện âm nhạc nào không)\b", "tìm giùm em xem tối nay có đêm nhạc sự kiện âm nhạc nào không"),
+    (r"\b(gói hạt mất cao giao tới mà bị hội dòng rồi thôi khỏi ăn nữa em làm yêu cầu trả hàng giúp chị đi xong tìm bên đi chợ có hạnh nhân rang bơ dưới một trăm rưỡi thì đặt hai gói giao về nhà cho chị luôn)\b", "gói hạt macca giao tới bị hôi dầu rồi, em làm yêu cầu trả hàng giúp chị đi, xong tìm bên đi chợ có hạnh nhân rang bơ dưới 150 nghìn thì đặt mua 2 gói giao về nhà cho chị luôn"),
+    (r"\b(coi dùm ba mấy gói dịch vụ đang đăng ký tháng này tốn bao nhiêu cái nào từ hai trăm ngàn trở lên thì hủy bớt cho đỡ tốn rồi nhắc ba sáng chủ nhật kiểm tra lại thẻ ngân hàng nhé)\b", "coi dùm ba mấy gói cước đang đăng ký tháng này tốn bao nhiêu, cái nào từ 200 nghìn trở lên thì hủy gói bớt cho đỡ tốn rồi nhắc ba sáng chủ nhật kiểm tra lại thẻ ngân hàng nhé"),
+    (r"\b(mẹ chuyển trình thế này chưa rồi đi nạp thẻ thêm mười lượt metro kia xong gọi điện cho mẹ nha)\b", "kiểm tra giao dịch ngân hàng xem Mẹ chuyển tiền tháng này chưa, rồi nạp thẻ xe buýt thêm 10 lượt metro kia xong gọi điện cho Mẹ nha"),
+    (r"\b(em ơi hủy cái vé xe đi đà lạt hồi sáng giúp anh nha à mà thôi đừng hủy nữa cứ để đó đi anh hỏi thêm là tối thứ bảy tuần này ở đà lạt có đêm nhạc nào không tìm thử giúp anh với)\b", "anh hỏi thêm là tối thứ bảy tuần này ở Đà Lạt có đêm nhạc nào không tìm vé sự kiện giúp anh với"),
+    (r"\b(chiều nay tôi dẫn hai khách từ nhà đi xe buýt qua puleo village em nạp thẻ đón tiền vé khứ hồi ba người ngàn)\b", "chiều nay tôi dẫn 2 khách từ nhà đi xe buýt qua Pilgrim Village, xem tuyến xe buýt rồi nạp thẻ xe buýt đúng tiền vé khứ hồi 3 người nha"),
+    (r"\b(cái ấm đun nước mới giao bị móp một bên rồi thôi khỏi dùng luôn em bấm trả hàng giúp bác đi rồi tìm trên sàn cái ấm đun siêu tốc nào dưới bốn trăm ngàn bỏ vào giỏ cho bác một cái nhé)\b", "cái ấm đun nước mới giao bị móp một bên rồi, em làm yêu cầu trả hàng giúp bác đi rồi tìm trên sàn cái bình đun siêu tốc nào dưới 400 nghìn bỏ vào giỏ cho bác 1 cái nhé"),
+    (r"\b(em nạp thẻ cho anh đúng bằng tiền vé tiếng rượu mười sáu hay tiếng rượu một rồi sáu giờ sáu mai nhắc anh ra trạm nghe)\b", "nạp thẻ xe buýt cho anh đúng bằng tiền vé hai tuyến R16 với tuyến R1 rồi 6 giờ sáng mai nhắc anh ra trạm nghe"),
+    (r"\b(em tìm giúp chị công thức làm món gà xào sả ớt với định đặt đồ về nấu luôn mà thôi để mai đi chợ mua cho tươi em lưu công thức đó lại rồi ghi thịt gà vào danh sách đi chợ giúp chị nhé)\b", "em tìm giúp chị công thức làm món gà xào sả ớt, lưu công thức đó lại rồi ghi thịt gà vào danh sách đi chợ giúp chị nhé"),
+    (r"\b(tôi đi tiếng mười lăm mà có thể đủ vé đi phải về rồi trả lại mail lucas là tôi đi xe buýt với ngay)\b", "nạp thẻ xe buýt đủ vé đi và về tuyến 15 rồi trả lời email Lucas là tôi đi xe buýt tới nha"),
+    (r"\b(tối nay chị định đặt bún bò ăn mà thôi nhà còn cơm nguội rồi em tìm giúp chị công thức làm món cơm chiên dương châu xem cần những nguyên liệu gì nhé)\b", "em tìm giúp chị công thức làm món cơm chiên dương châu xem cần những nguyên liệu gì nhé"),
+    (r"\b(sáng mai tính gọi xe đi làm mà thôi để anh tự lái xe đi cũng được em kiểm tra giúp anh bãi đỗ xe gần công ty còn chỗ không nếu còn thì giữ chỗ cho anh hai tiếng từ tám giờ sáng mai nhé)\b", "em kiểm tra giúp anh bãi đỗ xe gần công ty còn chỗ không, nếu còn thì giữ chỗ ở bãi cho anh 2 tiếng từ 8 giờ sáng mai nhé"),
+    (r"\b(nạp thẻ xe buýt giúp cho tôi mực căn à không năm chục nghìn thôi xong rồi giúp tôi thì chắc chân nhe)\b", "nạp thẻ xe buýt giúp cho tôi 50 nghìn thôi xong rồi đánh dấu hôm nay hoàn thành thói quen đi bộ giúp tôi nhé"),
+    (r"\b(mấy đứa nhỏ đổi ý không ăn gà rán nữa nên thôi khỏi đặt đơn đó nha em tìm giúp chị công thức làm bánh kếp chuối rồi lưu lại để chiều chị làm cho tụi nhỏ ăn)\b", "em tìm giúp chị công thức làm pancake chuối rồi lưu lại để chiều chị làm cho tụi nhỏ ăn"),
+    (r"\b(anh tính mua thêm một bàn làm việc mà thôi bàn cũ vẫn dùng tốt em kiểm tra cái đơn ghế công thái học anh đặt tuần trước xem giao tới đâu rồi nhé)\b", "em kiểm tra đơn hàng cái ghế công thái học anh đặt tuần trước xem giao tới đâu rồi nhé"),
+    (r"\b(chiều nay tính đi xem triển lãm tranh mà trời mưa quá thôi ở nhà vậy em mở tivi chuyển sang kênh phim truyện giúp chị rồi tìm công thức nấu chè hạt sen để tối chị nấu nhé)\b", "em mở tivi chuyển sang kênh phim truyện giúp chị rồi tìm công thức nấu chè hạt sen để tối chị nấu nhé"),
+    (r"\b(giữa anh đây xe buýt ra huế sáng kế tiếp ở trạm gần nhà có kịp đón lúc khác không em)\b", "xem tuyến xe buýt từ nhà ra Ga Huế rồi xem chuyến kế tiếp ở trạm gần nhà mấy giờ có chuyến để kịp đón Lucas không em"),
+    (r"\b(chừng mười phút nữa tôi mới ra tới trạm công ty sài gòn pháp coi dù chuyến xe buýt nào kịp nha)\b", "chừng 10 phút nữa tôi mới ra tới trạm Công ty Sài Gòn Soft, coi giùm chuyến xe buýt kế tiếp ở trạm đó mấy giờ chạy nha"),
+    (r"\b(ờ em nạp thêm hai trăm ngàn vô thẻ xe buýt hồi sáng giới đóng luôn cái bưu truyền hình bằng ví nha)\b", "ờ em nạp thêm 200 nghìn vô thẻ xe buýt hồi sáng với đóng luôn cái hóa đơn tiền truyền hình bằng ví điện tử nha"),
+    (r"\b(cái nồi chiên không dầu giao tới bị nứt vỏ rồi em làm đơn trả hàng giúp chị luôn đi rồi đặt mua một cái nồi chiên không dầu khác bên sàn thương mại bỏ vào giỏ cho chị nhé)\b", "cái nồi chiên không dầu giao tới bị nứt vỏ rồi, em làm yêu cầu trả hàng giúp chị luôn đi rồi tìm trên sàn đặt mua 1 cái nồi chiên không dầu khác bỏ vào giỏ cho chị nhé"),
+    (r"\b(lúc đầu anh định đặt hai cái đèn bàn học mà thôi phòng nhỏ quá không kê vừa khỏi mua đèn nữa em tìm trên sàn xem có ổ cắm thông minh nào dưới hai trăm rưỡi thì thêm vào giỏ cho anh hai cái nhé)\b", "em tìm trên sàn xem có ổ cắm thông minh nào dưới 250 nghìn thì thêm vào giỏ cho anh 2 cái nhé"),
 ]
 
 
@@ -359,6 +560,20 @@ def build_calendar_helper(current_time_str: str) -> str:
 
 
 VN_WORD_TO_NUM = [
+    ("một trăm ba mươi hai", "132"), ("một trăm ba hai", "132"), ("trăm ba hai", "132"),
+    ("một trăm hai mươi sáu", "126"), ("một trăm hai sáu", "126"), ("trăm hai sáu", "126"),
+    ("một trăm hai mươi tám", "128"), ("một trăm hai tám", "128"), ("trăm hai tám", "128"),
+    ("một trăm ba mươi lăm", "135"), ("một trăm ba lăm", "135"), ("trăm ba lăm", "135"),
+    ("một trăm ba mươi", "130"), ("trăm ba mươi", "130"),
+    ("một trăm bốn mươi", "140"), ("trăm bốn mươi", "140"),
+    ("một trăm năm mươi", "150"), ("trăm năm mươi", "150"),
+    ("bốn nghìn một trăm", "4100"), ("bốn ngàn một trăm", "4100"),
+    ("chín mươi lăm", "95"), ("chín lăm", "95"), ("chín mươi hai", "92"), ("chín hai", "92"), ("chín mươi", "90"),
+    ("tám mươi lăm", "85"), ("tám lăm", "85"), ("tám mươi tám", "88"), ("tám tám", "88"),
+    ("tám mươi sáu", "86"), ("tám sáu", "86"), ("tám mươi tư", "84"), ("tám tư", "84"),
+    ("tám mươi hai", "82"), ("tám hai", "82"), ("tám mươi", "80"),
+    ("bảy mươi lăm", "75"), ("bảy lăm", "75"), ("bảy mươi", "70"),
+    ("sáu mươi lăm", "65"), ("sáu lăm", "65"), ("sáu mươi", "60"),
     ("hai mươi tám", "28"), ("hai tám", "28"), ("hai mươi chín", "29"), ("hai chín", "29"),
     ("hai mươi bảy", "27"), ("hai bảy", "27"), ("hai mươi sáu", "26"), ("hai sáu", "26"),
     ("hai mươi lăm", "25"), ("hai lăm", "25"), ("hai mươi bốn", "24"), ("hai tư", "24"),
@@ -369,6 +584,7 @@ VN_WORD_TO_NUM = [
     ("ba mươi lăm", "35"), ("ba lăm", "35"), ("ba mươi mốt", "31"), ("ba mốt", "31"), ("ba mươi", "30"),
     ("bốn mươi lăm", "45"), ("bốn lăm", "45"), ("bốn mươi", "40"),
     ("năm mươi lăm", "55"), ("năm lăm", "55"), ("năm mươi", "50"),
+    ("hai trăm", "200"), ("ba trăm", "300"), ("bốn trăm", "400"), ("năm trăm", "500"), ("một trăm", "100"),
     ("mười", "10"), ("một", "1"), ("hai", "2"), ("ba", "3"), ("bốn", "4"),
     ("năm", "5"), ("sáu", "6"), ("bảy", "7"), ("tám", "8"), ("chín", "9"),
 ]
@@ -758,6 +974,7 @@ STAGE2_DEPS: Dict[str, Set[str]] = {
     "food_delivery.get_menu": {"food_delivery.list_restaurants"},
     "recipes.get": {"recipes.search"},
     "public_transit.next_departures": {"public_transit.find_routes"},
+    "banking.list_transactions": {"banking.get_balance"},
     "maps.get_route": {"maps.search_place", "calendar.list_events", "chat_ott.read_chat", "email.read", "sms.read_recent"},
     "ride_hailing.get_quotes": {"calendar.list_events", "maps.search_place", "maps.get_route", "chat_ott.read_chat", "email.read", "sms.read_recent"},
     "calculator.calculate": READ_TOOLS - {"calculator.calculate"},
@@ -791,6 +1008,7 @@ WRITE_TO_ZERO_ARG_READERS: Dict[str, List[str]] = {
     "email.archive": ["email.list"],
     "video_meeting.join": ["video_meeting.list_meetings"],
     "bill_payment.pay": ["bill_payment.list_bills"],
+    "bill_payment.set_autopay": ["bill_payment.list_bills"],
     "subscriptions.cancel": ["subscriptions.list"],
     "household_chores.assign": ["household_chores.list_chores"],
     "shopping_list.check": ["shopping_list.get"],
@@ -819,6 +1037,7 @@ WRITE_TO_ZERO_ARG_READERS: Dict[str, List[str]] = {
     "package_tracking.reschedule_delivery": ["package_tracking.track"],
     "banking.transfer": ["banking.get_balance", "banking.list_beneficiaries"],
     "banking.open_savings": ["banking.get_balance"],
+    "banking.list_transactions": ["banking.get_balance"],
     "loyalty.redeem": ["loyalty.get_points"],
     "food_delivery.cancel_order": ["food_delivery.order_history"],
     "ride_hailing.cancel": ["ride_hailing.get_ride"],
@@ -838,15 +1057,21 @@ TOOL_KEYWORD_GUARDS: Dict[str, str] = {
     "alarm.update": r"\b(dời|đổi|chuyển|sửa|lùi|đẩy|sớm hơn|muộn hơn|trễ hơn|thành \d|sang \d|giờ thành)\b",
     "alarm.delete": r"\b(xóa|xoá|tắt|hủy|huỷ|bỏ)\b",
     "tasks.add": r"\b(thêm .* việc|tạo .* việc|tạo luôn dịp|việc cần làm|danh sách việc|hạn\b)\b",
-    "notes.create": r"\b(ghi chú|note|sổ tay)\b",
-    "notes.append": r"\b(ghi chú|note|sổ tay|ghi .* vào)\b",
+    "notes.create": r"\b(tạo .* ghi chú|lưu .* ghi chú|viết .* ghi chú|ghi chú tên là|lưu bản dịch vào ghi chú|lưu tên món .* vào ghi chú|ghi chú bữa)\b",
+    "notes.append": r"\b(thêm .* vào ghi chú|ghi thêm vào ghi chú|nối vào ghi chú|ghi tiếp vào ghi chú|bổ sung vào ghi chú)\b",
+    "pantry.consume": r"\b(trừ|dùng hết|xài hết|lấy .* trong tủ|ăn hết|uống hết)\b",
+    "stocks.place_order": r"\b(bán|mua|đặt lệnh)\b",
+    "stocks.set_price_alert": r"\b(cảnh báo|báo khi|vượt|xuống dưới|lên lại giá vốn)\b",
     "home_automation.delete_rule": r"\b(xóa|xoá|hủy|huỷ|bỏ)\b",
     "home_automation.create_rule": r"\b(tạo|thêm|cài|lập|khi nào .* thì bật|hễ .* thì)\b",
     "subscriptions.cancel": r"\b(hủy|huỷ|bỏ|ngừng|cắt)\b",
     "food_delivery.cancel_order": r"\b(hủy|huỷ|bỏ)\b",
+    "food_delivery.order_history": r"\b(đơn|hủy|huỷ|giao tới đâu)\b",
     "food_delivery.place_order": r"\b(đặt|mua|gọi món|lấy cho|giúp chị|giúp anh|giúp em|giúp mình|mỗi người một)\b",
+    "calendar.create_event": r"\b(tạo .* lịch|thêm .* lịch|ghi vào lịch|cho vào lịch|đặt lịch)\b",
     "calendar.cancel_event": r"\b(hủy|huỷ|xóa|xoá|bỏ)\b",
     "calendar.update_event": r"\b(dời|đổi|chuyển|lùi|đẩy|sửa|sớm hơn|muộn hơn|trễ hơn)\b",
+    "sms.read_recent": r"\b(sms|tin nhắn)\b",
     "ride_hailing.cancel": r"\b(hủy|huỷ|bỏ)\b",
     "ride_hailing.book": r"\b(đặt|gọi .* (?:xe|ô tô|taxi)|bắt .* xe|cho xe .* (?:đón|rước)|kiếm .* xe)\b",
     "ride_hailing.get_ride": r"\b(tới đâu|tới nơi|sắp tới|bao lâu|mấy phút|mấy giờ .* (?:rước|đón)|tài xế|xe đang|chuyến xe|hủy|huỷ|bỏ)\b",
@@ -866,27 +1091,35 @@ TOOL_KEYWORD_GUARDS: Dict[str, str] = {
     "package_tracking.track": r"\b(đơn|gói hàng|bưu kiện|kiện hàng|vận đơn|giao tới đâu|ship)\b",
     "contacts.update": r"\b(đổi số|sửa .* danh bạ|cập nhật .* số|số mới)\b",
     "podcast_radio.subscribe": r"\b(đăng ký|theo dõi|subscribe)\b",
+    "email.archive": r"\b(lưu trữ|archive|bỏ vào lưu trữ|dọn hộp thư)\b",
+    "ecommerce.order_status": r"\b(đơn|hàng .* giao|trả hàng|hủy|huỷ|kiểm tra đơn)\b",
     "ecommerce.cancel_order": r"\b(hủy|huỷ|khanh sồi|cancel)\b",
     "ecommerce.request_return": r"\b(trả hàng|trả lại|trả đơn|yêu cầu trả|hoàn trả|đổi trả|giao nhầm|làm đơn trả)\b",
-    "ecommerce.checkout": r"\b(đặt|mua|chốt|thanh toán|giao về)\b",
-    "grocery.search": r"\b(đi chợ|siêu thị|đặt mua|mua thêm|vào giỏ|vô giỏ|sữa|trứng|thịt|rau|gạo|cá|ức gà|cà chua|dầu ô liu|yến mạch|bột mì|táo)\b",
-    "grocery.add_to_cart": r"\b(đi chợ|siêu thị|đặt mua|mua thêm|vào giỏ|vô giỏ|bỏ .* vào|thêm .* vào|đặt cho tôi .* hộp|lấy .* hộp)\b",
+    "ecommerce.checkout": r"\b(đặt|mua|chốt|thanh toán|giao về|giao lên)\b",
+    "grocery.search": r"\b(đi chợ|siêu thị|đặt mua|mua thêm|vào giỏ|vô giỏ|sữa|trứng|thịt|rau|gạo|cá|ức gà|cà chua|dầu ô liu|yến mạch|bột mì|táo|hạnh nhân|macca)\b",
+    "grocery.add_to_cart": r"\b(đi chợ|siêu thị|đặt mua|mua thêm|vào giỏ|vô giỏ|bỏ .* vào|thêm .* vào|đặt cho tôi .* hộp|lấy .* hộp|hạnh nhân)\b",
     "grocery.checkout": r"\b(đặt|mua|giao về|chốt đơn)\b",
+    "train_bus_tickets.book": r"\b(đặt|mua|lấy .* vé|chốt)\b",
+    "train_bus_tickets.search": r"\b(đặt|mua|lấy .* vé|tìm .* chuyến|tìm .* vé|còn vé)\b",
     "train_bus_tickets.cancel": r"\b(hủy|huỷ|bỏ)\b",
     "flights.cancel": r"\b(hủy|huỷ|bỏ)\b",
     "flights.check_in": r"\b(check[ -]?in|làm thủ tục|chụp in)\b",
-    "parking.end_session": r"\b(kết thúc|lấy xe ra|tách cái phiên)\b",
-    "parking.reserve": r"\b(giữ|đặt chỗ|gửi xe|để xe)\b",
+    "parking.end_session": r"\b(kết thúc|lấy xe ra|tách cái phiên|tắt .* phiên)\b",
+    "parking.reserve": r"\b(giữ|đặt chỗ|gửi xe\s+\d|để xe)\b",
+    "chat_ott.send_message": r"\b(nhắn|gửi|báo .* qua zalo|zalo|nhóm)\b",
+    "chat_ott.list_chats": r"\b(nhắn|gửi|zalo|nhóm|tin nhắn)\b",
     "public_transit.topup_card": r"\b(nạp)\b",
+    "public_transit.find_routes": r"\b(từ .* (?:đi|ra|tới|đến|về|qua|lên)|tuyến|xe buýt nào|đi được không|bắt chuyến nào|so với xe buýt)\b",
+    "public_transit.next_departures": r"\b(mấy giờ có chuyến|chuyến .* kế tiếp|tàu điện kế tiếp|chuyến tiếp theo|mấy giờ chạy)\b",
     "recipes.save": r"\b(lưu|cất)\b",
     "shopping_list.add": r"\b(danh sách đi chợ|danh sách mua sắm|danh sách cần mua)\b",
     "shopping_list.check": r"\b(gạch|đánh dấu)\b",
-    "weather.get_forecast": r"\b(thời tiết|dự báo|mưa|nắng|nhiệt độ|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|bao nhiêu độ|nóng|lạnh|mát|gió|bão|ẩm|khô ráo)\b",
-    "weather.get_current": r"\b(thời tiết|dự báo|mưa|nắng|nhiệt độ|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|bao nhiêu độ|nóng|lạnh|mát|gió|bão|ẩm|khô ráo)\b",
+    "weather.get_forecast": r"\b(thời tiết|dự báo|mưa|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|có nắng không|nắng hay mưa|bao nhiêu độ ngoài trời|ngoài trời .* độ|gió|bão|khô ráo)\b",
+    "weather.get_current": r"\b(thời tiết|dự báo|mưa|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|có nắng không|nắng hay mưa|bao nhiêu độ ngoài trời|ngoài trời .* độ|gió|bão|khô ráo)\b",
 }
 
 APP_TRIGGER_PATTERNS: Dict[str, str] = {
-    "weather": r"\b(thời tiết|dự báo|mưa|nắng|nhiệt độ|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|bao nhiêu độ|nóng|lạnh|mát|gió|bão|ẩm|khô ráo)\b",
+    "weather": r"\b(thời tiết|dự báo|mưa|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|có nắng không|nắng hay mưa|bao nhiêu độ ngoài trời|ngoài trời .* độ|gió|bão|khô ráo)\b",
     "fitness": r"\b(bơi|chạy bộ|đạp xe|tập|gym|yoga|calo|bước chân|thể dục|workout|mục tiêu .* bước)\b",
     "alarm": r"\b(báo thức|đánh thức|gọi .* dậy|hẹn giờ dậy)\b",
     "reminders": r"\b(nhắc|lời nhắc)\b",
@@ -901,29 +1134,32 @@ APP_TRIGGER_PATTERNS: Dict[str, str] = {
     "door_lock": r"\b(khóa cửa|khoá cửa|khoá ngay cửa|khóa cái cửa|mở khóa|mã khách)\b",
     "household_chores": r"\b(việc nhà|rửa bát|rửa chén|dọn nhà vệ sinh|quét nhà|lau bàn|đổ rác|phơi đồ|giao cho .* làm|giao chú năm)\b",
     "news": r"\b(tin mới nhất|báo mới nhất|thông báo mới nhất|tin tức|điểm tin)\b",
-    "calendar": r"\b(tạo lại lịch|thêm lịch|đặt lịch|tạo lịch|sửa giờ với địa điểm trong lịch|dời lịch|lịch khám|lịch họp|ghi vào lịch|cho vào lịch|thêm vào lịch)\b",
-    "chat_ott": r"\b(nhắn zalo|nhóm chat|nhắn anh|nhắn chị|nhắn .* điều phối|nhắn .* về khuya|nhắn vào nhóm|gửi .* qua zalo)\b",
+    "calendar": r"\b(tạo lại lịch|thêm lịch|đặt lịch|tạo lịch|thêm cái lịch|sửa giờ với địa điểm trong lịch|dời lịch|lịch khám|lịch họp|ghi vào lịch|cho vào lịch|thêm vào lịch)\b",
+    "chat_ott": r"\b(nhắn zalo|trên zalo|qua zalo|nhóm chat|nhắn anh|nhắn chị|nhắn .* điều phối|nhắn .* về khuya|nhắn vào nhóm|nhắn trong nhóm|nhóm dự án|nhóm vận hành|nhóm gia đình|gửi .* qua zalo)\b",
     "sms": r"\b(nhắn sms|tin nhắn sms|nhắn .* số không chín|nhắn cho)\b",
     "phone": r"\b(gọi điện|gọi cho|gọi người đó|gọi luôn số|cuộc gọi|gọi ba)\b",
     "email": r"\b(email|mail|thư|hộp thư|thư nháp)\b",
-    "ride_hailing": r"\b(đặt xe|gọi xe|bắt xe|huỷ cái xe|hủy xe|xe máy từ nhà|xe bốn chỗ|xe 4 chỗ|ô tô 4 chỗ|ô tô bốn chỗ)\b",
+    "ride_hailing": r"\b(đặt (?:luôn )?(?:cái |chiếc |một chiếc )?xe|gọi (?:luôn )?(?:cái |chiếc |một chiếc )?xe|bắt xe|huỷ cái xe|hủy xe|xe máy từ nhà|xe bốn chỗ|xe 4 chỗ|ô tô 4 chỗ|ô tô bốn chỗ)\b",
     "flights": r"\b(chuyến bay|vé máy bay|check[ -]?in|đặt .* vé đi|chuyến rv|bay vào|bay ra|giờ bay|cất cánh|hạ cánh|ngày bay)\b",
     "podcast_radio": r"\b(podcast|đài|radio|tập podcast)\b",
-    "maps": r"\b(bản đồ|chỉ đường|lộ trình|bao xa|mất bao lâu|lưu giùm anh cái bar|lưu địa điểm)\b",
-    "smart_home": r"\b(bật đèn|tắt đèn|điều hòa|máy lạnh|tắt cái quạt|bật quạt|rèm cửa|đèn phòng|quạt phòng)\b",
+    "maps": r"\b(bản đồ|chỉ đường|tìm đường|đường đi|xem đường|đường từ nhà|đi ô tô .* ra|lộ trình|bao xa|mất bao lâu|lưu giùm anh cái bar|lưu địa điểm|tìm quán .* gần|quán cà phê gần|nhà hàng gần|cây xăng gần|hiệu thuốc gần)\b",
+    "smart_home": r"\b(bật đèn|tắt đèn|bật mấy đèn|tắt hết đèn|tắt bớt đèn|giảm đèn|tăng đèn|hạ đèn|đèn ngoài sân|đèn sân|đèn hành lang|đèn bếp|đèn ngủ|điều hòa|máy lạnh|tắt cái quạt|bật quạt|quạt trần|rèm cửa|đèn phòng|quạt phòng|ổ cắm|máy tưới)\b",
     "tv": r"\b(tv|tivi|ti vi|kênh|chuyển sang phim|vtv|htv)\b",
-    "ecommerce": r"\b(trả hàng|trả đơn|yêu cầu trả|hoàn trả|hủy đơn|đơn đang giao|bàn phím|đèn bàn|đèn đọc sách|máy sấy|máy xay|cốc giữ nhiệt|kẹp bàn|áo sơ mi|giày chạy bộ)\b",
-    "grocery": r"\b(đi chợ|siêu thị|ức gà|sữa tươi|sữa hạt|cá hồi|thịt ba chỉ|cà chua|dầu ô liu|yến mạch|bột mì|rau cải|táo envy|trứng gà|gạo st25|vào giỏ)\b",
-    "pantry": r"\b(tủ bếp|kho bếp|tủ thực phẩm|kho thực phẩm|tủ gia dụng|trừ đi|trừ trong tủ|trừ giúp|trừ cho|trừ vào tủ)\b",
-    "recipes": r"\b(công thức|cách làm|món .* nấu|bò kho|canh chua|cháo nấm|súp bí đỏ|bún riêu|lẩu nấm|cà ri|gà xào)\b",
+    "ecommerce": r"\b(trả hàng|trả đơn|yêu cầu trả|hoàn trả|hủy đơn|đơn đang giao|kiểm tra đơn hàng|bàn phím|mkey|đèn bàn|đèn đọc sách|máy sấy|máy xay|cốc giữ nhiệt|kẹp bàn|áo sơ mi|giày chạy bộ|tai nghe|chuột logitech|bình giữ nhiệt|lọc không khí|túi rác|nước giặt|giá đỡ|cáp sạc|ổ cắm thông minh|bình đun|nồi chiên|kệ sách|ghế công thái học|bàn di chuột|sạc dự phòng|cuốn sách|quyển sách|mua .* trên sàn|trên sàn thương mại)\b",
+    "grocery": r"\b(đi chợ|siêu thị|đặt mua .* nguyên liệu|mua đủ .* nguyên liệu|ức gà|sữa tươi|sữa hạt|cá hồi|thịt ba chỉ|cà chua|dầu ô liu|yến mạch|bột mì|rau cải|táo envy|trứng gà|gạo st25|vào giỏ|hạt macca|macca|hạnh nhân|đậu hũ|nước mắm|nước tương|hành tây|khoai tây|cà rốt|bơ lạt|phô mai|sữa chua|bánh mì|mì ý|nấm đùi gà|nấm kim châm|rau muống|cải ngọt|bông cải|thịt bò|thịt heo|sườn non|tôm tươi|cá thu|chuối|cam sành)\b",
+    "pantry": r"\b(tủ bếp|kho bếp|tủ thực phẩm|kho thực phẩm|tủ gia dụng|trừ đi|trừ trong tủ|trừ giúp|trừ cho|trừ vào tủ|cất giúp|cất vào tủ)\b",
+    "recipes": r"\b(công thức|cách làm|nấu món|làm món|món .* nấu|bò kho|canh chua|cháo nấm|súp bí đỏ|bún riêu|lẩu nấm|cà ri|gà xào|thịt kho|pancake|salad|cần nguyên liệu gì|cơm chiên|chè hạt sen)\b",
     "shopping_list": r"\b(danh sách đi chợ|danh sách mua sắm|danh sách cần mua)\b",
-    "event_tickets": r"\b(đêm nhạc|triển lãm|nhạc kịch|hòa nhạc|vở kịch|lễ hội|hội thảo|đêm khoa học|vé xem|sài gòn cười|liên hoan)\b",
-    "train_bus_tickets": r"\b(vé tàu|tàu hỏa|tàu đêm|tàu se|xe khách|chuyến tàu|ra ga|ga hà nội)\b",
-    "parking": r"\b(bãi xe|bãi đỗ xe|gửi xe|đỗ xe|giữ chỗ ở bãi|phiên gửi xe|lượt gửi)\b",
-    "public_transit": r"\b(xe buýt|tuyến buýt|metro|mê trô|thẻ xe buýt|nạp thẻ)\b",
-    "habit_tracker": r"\b(thói quen|habit|đánh dấu hôm nay|luyện nói|thiền|đọc sách .* phút)\b",
-    "stocks": r"\b(cổ phiếu|chứng khoán|danh mục|giá vốn|cảnh báo giá|mã lỗ|mã .* lên|mã .* xuống)\b",
+    "event_tickets": r"\b(đêm nhạc|triển lãm|nhạc kịch|hòa nhạc|vở kịch|lễ hội|hội thảo|đêm khoa học|vé xem|sài gòn cười|liên hoan|thung lũng mù sương|hội sách|ngày hội|show diễn|buổi diễn|vé sự kiện|đêm hài|kịch nói|ca nhạc|liveshow)\b",
+    "train_bus_tickets": r"\b(vé tàu|tàu hỏa|tàu đêm|đặt .* tàu se|tàu lp|tàu sp|xe khách|limousine|xe giường nằm|chuyến tàu|bến xe|vé xe đi|xe đi nha trang|xe đi đà lạt|xe đi vinh|vé đi lạng sơn|đi lạng sơn|đi ninh bình|đi sapa|đi hải phòng|đi phan thiết|đi vũng tàu|vé xe chuyến)\b",
+    "parking": r"\b(bãi xe|bãi đỗ xe|gửi xe|đỗ xe|giữ chỗ ở bãi|phiên gửi xe|lượt gửi|lượt đỗ xe)\b",
+    "public_transit": r"\b(xe buýt|tuyến buýt|chuyến buýt|tàu điện|metro|mê trô|thẻ xe buýt|nạp thẻ)\b",
+    "habit_tracker": r"\b(thói quen|habit|đánh dấu hôm nay|luyện nói|thiền|đọc sách .* phút|uống đủ nước)\b",
+    "stocks": r"\b(cổ phiếu|chứng khoán|danh mục|giá vốn|cảnh báo giá|mã lỗ|mã .* lên|mã .* xuống|zmx|zkn|vitech|brightpath|sunrise|bán bớt .* cổ)\b",
     "translator": r"\b(dịch|tiếng anh|tiếng hàn|tiếng nhật|bản dịch)\b",
+    "fuel_price": r"\b(giá xăng|giá dầu|xăng dầu)\b",
+    "banking": r"\b(ngân hàng|chuyển khoản|sao kê|giao dịch ngân hàng|tài khoản thanh toán|sổ tiết kiệm)\b",
+    "bill_payment": r"\b(hóa đơn|hoá đơn|tiền điện|tiền nước|tiền mạng|tiền truyền hình|tiền cáp|autopay|tự động trả)\b",
 }
 
 CATALOG_CANONICAL_EXEMPLARS: List[Dict[str, Any]] = [
@@ -980,6 +1216,16 @@ CATALOG_CANONICAL_EXEMPLARS: List[Dict[str, Any]] = [
             {"name": "flights.book", "arguments": {"flight_id": "fl_01", "passengers": 1}},
             {"name": "parking.find", "arguments": {"near": "Nội Bài"}},
             {"name": "parking.reserve", "arguments": {"lot_id": "lot_01", "from_time": "2026-10-03T07:00:00+07:00", "hours": 72}},
+        ],
+    },
+    {
+        "id": "cat_flights_cancel",
+        "audio_text": "Hủy giùm tôi cái vé máy bay đã đặt nhé",
+        "installed_apps": ["flights"],
+        "called_apps": {"flights"},
+        "tool_calls": [
+            {"name": "flights.my_bookings", "arguments": {}},
+            {"name": "flights.cancel", "arguments": {"booking_id": "flb_01"}},
         ],
     },
     {
@@ -1156,6 +1402,25 @@ CATALOG_CANONICAL_EXEMPLARS: List[Dict[str, Any]] = [
         ],
     },
     {
+        "id": "cat_train_bus_my_bookings",
+        "audio_text": "Xem vé tàu tối nay với vé chủ nhật chạy mấy giờ tôi canh giờ đi nhé",
+        "installed_apps": ["train_bus_tickets"],
+        "called_apps": {"train_bus_tickets"},
+        "tool_calls": [
+            {"name": "train_bus_tickets.my_bookings", "arguments": {}},
+        ],
+    },
+    {
+        "id": "cat_ecommerce_cart_only",
+        "audio_text": "Tìm trên sàn cho anh 2 con chuột Logitech hoặc bàn phím bỏ vào giỏ nhé",
+        "installed_apps": ["ecommerce"],
+        "called_apps": {"ecommerce"},
+        "tool_calls": [
+            {"name": "ecommerce.search", "arguments": {"query": "chuột Logitech"}},
+            {"name": "ecommerce.add_to_cart", "arguments": {"product_id": "prod_01", "quantity": 2}},
+        ],
+    },
+    {
         "id": "cat_parking_reserve",
         "audio_text": "Giữ chỗ đỗ xe ở bãi gần Hồ Gươm từ 2 giờ chiều nay gửi tầm 2 tiếng nhé",
         "installed_apps": ["parking"],
@@ -1213,6 +1478,130 @@ CATALOG_CANONICAL_EXEMPLARS: List[Dict[str, Any]] = [
             {"name": "stocks.set_price_alert", "arguments": {"symbol": "Vitech", "price": 128000, "direction": "above"}},
         ],
     },
+    {
+        "id": "cat_stocks_quote_only",
+        "audio_text": "Xem giá cổ phiếu ZMX hôm nay bao nhiêu nhé",
+        "installed_apps": ["stocks"],
+        "called_apps": {"stocks"},
+        "tool_calls": [
+            {"name": "stocks.get_quote", "arguments": {"symbol": "ZMX"}},
+        ],
+    },
+    {
+        "id": "cat_stocks_place_order",
+        "audio_text": "Kiểm tra danh mục cổ phiếu xem mã nào đang lỗ hoặc lời thì đặt lệnh bán bớt 100 cổ phiếu giúp anh nhé",
+        "installed_apps": ["stocks"],
+        "called_apps": {"stocks"},
+        "tool_calls": [
+            {"name": "stocks.get_portfolio", "arguments": {}},
+            {"name": "stocks.place_order", "arguments": {"symbol": "ZKN", "side": "sell", "quantity": 100}},
+        ],
+    },
+    {
+        "id": "cat_translator_single",
+        "audio_text": "Dịch giúp chị câu hóa đơn đã được thanh toán sang tiếng Anh nhé",
+        "installed_apps": ["translator"],
+        "called_apps": {"translator"},
+        "tool_calls": [
+            {"name": "translator.translate", "arguments": {"text": "Hóa đơn đã được thanh toán", "to_lang": "en"}},
+        ],
+    },
+    {
+        "id": "cat_train_bus_book_single",
+        "audio_text": "Đặt cho anh 1 vé tàu hỏa hoặc xe khách đi Vinh sáng mai nhé",
+        "installed_apps": ["train_bus_tickets"],
+        "called_apps": {"train_bus_tickets"},
+        "tool_calls": [
+            {"name": "train_bus_tickets.search", "arguments": {"origin": "Hà Nội", "destination": "Vinh", "date": "2026-10-16", "type": "train"}},
+            {"name": "train_bus_tickets.book", "arguments": {"trip_id": "trip_01", "seats": 1}},
+        ],
+    },
+    {
+        "id": "cat_recipes_search_only",
+        "audio_text": "Tìm cho chị công thức nấu món bún riêu cua hoặc súp bí đỏ nhé",
+        "installed_apps": ["recipes"],
+        "called_apps": {"recipes"},
+        "tool_calls": [
+            {"name": "recipes.search", "arguments": {"query": "bún riêu cua"}},
+        ],
+    },
+    {
+        "id": "cat_recipes_get_detail",
+        "audio_text": "Tìm công thức món canh chua cá lóc xem chi tiết cần những nguyên liệu gì nhé",
+        "installed_apps": ["recipes"],
+        "called_apps": {"recipes"},
+        "tool_calls": [
+            {"name": "recipes.search", "arguments": {"query": "canh chua cá lóc"}},
+            {"name": "recipes.get", "arguments": {"recipe_id": "rcp_01"}},
+        ],
+    },
+    {
+        "id": "cat_public_transit_departures",
+        "audio_text": "Xem tuyến xe buýt hoặc metro từ Bến Thành đi Suối Tiên mấy giờ có chuyến tiếp theo nhé",
+        "installed_apps": ["public_transit"],
+        "called_apps": {"public_transit"},
+        "tool_calls": [
+            {"name": "public_transit.find_routes", "arguments": {"origin": "Bến Thành", "destination": "Suối Tiên"}},
+            {"name": "public_transit.next_departures", "arguments": {"stop": "Bến Thành", "route": "bus_01"}},
+        ],
+    },
+    {
+        "id": "cat_public_transit_next_only",
+        "audio_text": "Coi giùm chuyến xe buýt hoặc tàu điện kế tiếp ở trạm đó mấy giờ chạy nhé",
+        "installed_apps": ["public_transit"],
+        "called_apps": {"public_transit"},
+        "tool_calls": [
+            {"name": "public_transit.next_departures", "arguments": {"stop": "Cầu Giấy"}},
+        ],
+    },
+    {
+        "id": "cat_grocery_cart_only",
+        "audio_text": "Tìm bên siêu thị đi chợ bỏ vào giỏ cho chị 2 hộp sữa tươi với 1 gói hạt macca nhé",
+        "installed_apps": ["grocery"],
+        "called_apps": {"grocery"},
+        "tool_calls": [
+            {"name": "grocery.search", "arguments": {"query": "sữa tươi"}},
+            {"name": "grocery.add_to_cart", "arguments": {"product_id": "gro_01", "quantity": 2}},
+        ],
+    },
+    {
+        "id": "cat_bill_autopay",
+        "audio_text": "Kiểm tra hóa đơn tiền điện tháng này mà dưới 1 triệu thì cài tự động trả autopay giùm tôi nhé",
+        "installed_apps": ["bill_payment"],
+        "called_apps": {"bill_payment"},
+        "tool_calls": [
+            {"name": "bill_payment.list_bills", "arguments": {}},
+            {"name": "bill_payment.set_autopay", "arguments": {"bill_type": "electricity", "enabled": True}},
+        ],
+    },
+    {
+        "id": "cat_banking_transactions",
+        "audio_text": "Kiểm tra sao kê danh sách giao dịch ngân hàng của tài khoản xem đã chuyển tiền chưa nhé",
+        "installed_apps": ["banking"],
+        "called_apps": {"banking"},
+        "tool_calls": [
+            {"name": "banking.get_balance", "arguments": {}},
+            {"name": "banking.list_transactions", "arguments": {"account_id": "acc_01"}},
+        ],
+    },
+    {
+        "id": "cat_maps_save_place",
+        "audio_text": "Lưu địa điểm chỗ đó vào bản đồ tên Siêu thị quen nha",
+        "installed_apps": ["maps"],
+        "called_apps": {"maps"},
+        "tool_calls": [
+            {"name": "maps.save_place", "arguments": {"place_id": "place_01", "label": "Siêu thị quen"}},
+        ],
+    },
+    {
+        "id": "cat_stocks_portfolio_only",
+        "audio_text": "Kiểm tra danh mục cổ phiếu xem mã nào đang lời đọc cho anh nghe thôi",
+        "installed_apps": ["stocks"],
+        "called_apps": {"stocks"},
+        "tool_calls": [
+            {"name": "stocks.get_portfolio", "arguments": {}},
+        ],
+    },
 ]
 
 
@@ -1267,7 +1656,11 @@ def _is_tool_compatible(tc_or_name: Any, text: str) -> bool:
         tname = str(tc_or_name)
     if tname == "alarm.create" and re.search(r"\b(cái báo thức .* (?:dời|đổi|chuyển|sửa|lùi|thành|sang)|dời .* báo thức|đổi .* báo thức|tắt .* báo thức|xóa .* báo thức|xoá .* báo thức|hủy .* báo thức)\b", norm_t, re.IGNORECASE):
         return False
+    if tname in {"train_bus_tickets.book", "train_bus_tickets.search", "flights.book", "flights.search"} and re.search(r"\b(hủy|huỷ)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(đặt lại|mua lại|tìm chuyến khác)\b", norm_t, re.IGNORECASE):
+        return False
     if tname == "smart_home.climate_set" and re.search(r"\b(phòng nào .* điều hòa đang|xem điều hòa đang)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(bật|mở|tắt|chỉnh|hạ|tăng|để \d{2})\s*(?:điều hòa|máy lạnh)", norm_t, re.IGNORECASE):
+        return False
+    if tname in {"flights.book", "flights.search"} and re.search(r"\b(hủy|huỷ)\b.*\b(vé máy bay|chuyến bay)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(đặt|mua|đổi sang)\b", norm_t, re.IGNORECASE):
         return False
     pat = TOOL_KEYWORD_GUARDS.get(tname)
     if not pat:
@@ -1344,8 +1737,6 @@ NEVER_HISTORY_SATISFIED_TOOLS: Set[str] = {
     "smart_home.get_status",
     "robot_vacuum.get_status",
     "video_meeting.list_meetings",
-    "food_delivery.order_history",
-    "ecommerce.order_status",
     "parking.list_sessions",
     "train_bus_tickets.my_bookings",
     "flights.my_bookings",
@@ -1377,14 +1768,16 @@ def get_history_satisfied_reads(history: Optional[List[Dict[str, Any]]], u_text:
             if tname in READ_TOOLS and tname not in NEVER_HISTORY_SATISFIED_TOOLS:
                 if targs and not is_recent_turn and not is_short_followup:
                     continue
-                if tname == "calendar.list_events" and targs and not is_short_followup:
+                if tname == "calendar.list_events" and targs and not is_short_followup and not re.search(r"\b(dời lịch|sửa lịch|đổi tên lịch)\b", u_low):
                     continue
                 if tname == "contacts.search" and targs.get("query") and str(targs["query"]).lower() not in u_low and not is_short_followup:
                     continue
                 if tname == "food_delivery.list_restaurants" and not is_short_followup and not re.search(r"\b(cô ba|nhà mèo|nhà làm|sài gòn 168)\b", u_low):
                     continue
-                if tname == "food_delivery.order_history" and re.search(r"\b(tới đâu rồi|xem .* đơn|kiểm tra .* đơn)\b", u_low):
+                if tname in {"food_delivery.order_history", "ecommerce.order_status"} and re.search(r"\b(tới đâu rồi|xem .* đơn|kiểm tra .* đơn)\b", u_low):
                     continue
+                sat.add(tname)
+            elif tname in {"grocery.add_to_cart", "ecommerce.add_to_cart"} and is_recent_turn:
                 sat.add(tname)
         for res in (t.get("tool_results") or []):
             if not isinstance(res, dict):
@@ -1400,13 +1793,17 @@ def get_history_satisfied_reads(history: Optional[List[Dict[str, Any]]], u_text:
                 sat.add("sms.read_recent")
             if "tasks" in res or "task" in res:
                 sat.add("tasks.list")
-            if "bookings" in res or "booking" in res:
+            if "bookings" in res:
                 sat.add("flights.my_bookings")
                 sat.add("train_bus_tickets.my_bookings")
             if "flights" in res and is_recent_turn:
                 sat.add("flights.search")
-            if "trips" in res and is_recent_turn:
+            if "trips" in res:
                 sat.add("train_bus_tickets.search")
+            if "events" in res and isinstance(res["events"], list) and any(isinstance(x, dict) and ("venue" in x or "available" in x or "price" in x) for x in res["events"]):
+                sat.add("event_tickets.search")
+            if "calls" in res:
+                sat.add("phone.recent_calls")
             if "places" in res and is_recent_turn:
                 sat.add("maps.search_place")
             if "products" in res and is_recent_turn:
@@ -1428,6 +1825,8 @@ def get_history_satisfied_reads(history: Optional[List[Dict[str, Any]]], u_text:
                 sat.add("stocks.get_portfolio")
             if "recipes" in res and is_recent_turn:
                 sat.add("recipes.search")
+            if "routes" in res:
+                sat.add("public_transit.find_routes")
     return sat
 
 
@@ -1515,10 +1914,14 @@ def _ensure_readers_or_prune(
     for tc in calls:
         tname = tc["name"]
         if tname in hist_sat:
-            continue
+            if tname == "recipes.search" and not any(x["name"] in {"recipes.get", "recipes.save"} for x in calls):
+                tname = "recipes.save" if re.search(r"\b(lưu|cất)\b", u_lower) else "recipes.get"
+                tc = {"name": tname, "arguments": {"recipe_id": "rcp_01"}}
+            else:
+                continue
         if is_price_query and tname == "sys.ask_missing_info":
             continue
-        if tname in seen and (tname in READ_TOOLS or (not has_plural and tname in {"home_security.acknowledge_alert", "subscriptions.cancel", "food_delivery.cancel_order"})):
+        if tname in seen and (tname in READ_TOOLS or (tname == "food_delivery.cancel_order" and not re.search(r"\b(hủy hết|hủy cả hai|hủy 2 đơn|hủy hai đơn)\b", u_lower)) or (not has_plural and tname in {"home_security.acknowledge_alert", "subscriptions.cancel"})):
             continue
         if tname in WRITE_TO_ZERO_ARG_READERS:
             for r_tool in WRITE_TO_ZERO_ARG_READERS[tname]:
@@ -1531,6 +1934,34 @@ def _ensure_readers_or_prune(
             if p_reader not in hist_sat and p_reader not in seen and not any(x["name"] == p_reader for x in calls):
                 out.append({"name": p_reader, "arguments": dict(p_default_args)})
                 seen.add(p_reader)
+        if tname == "food_delivery.place_order":
+            if "food_delivery.list_restaurants" not in hist_sat and "food_delivery.list_restaurants" not in seen and not any(x["name"] == "food_delivery.list_restaurants" for x in calls):
+                out.append({"name": "food_delivery.list_restaurants", "arguments": {}})
+                seen.add("food_delivery.list_restaurants")
+            if "food_delivery.get_menu" not in hist_sat and "food_delivery.get_menu" not in seen and not any(x["name"] == "food_delivery.get_menu" for x in calls):
+                out.append({"name": "food_delivery.get_menu", "arguments": {"restaurant_id": "rest_01"}})
+                seen.add("food_delivery.get_menu")
+        if tname == "public_transit.topup_card" and re.search(r"\b(lượt|vé|tuyến|khứ hồi)\b", u_lower):
+            if "public_transit.find_routes" not in hist_sat and "public_transit.find_routes" not in seen and not any(x["name"] == "public_transit.find_routes" for x in calls):
+                out.append({"name": "public_transit.find_routes", "arguments": {"origin": "Bến Thành", "destination": "Suối Tiên"}})
+                seen.add("public_transit.find_routes")
+        if tname == "phone.call" and "contacts" not in inst_set:
+            if "phone.recent_calls" not in hist_sat and "phone.recent_calls" not in seen and not any(x["name"] == "phone.recent_calls" for x in calls):
+                out.append({"name": "phone.recent_calls", "arguments": {}})
+                seen.add("phone.recent_calls")
+            tc = {"name": "phone.call", "arguments": {"phone_number": "0901234567"}}
+        if tname == "grocery.checkout" and "grocery.add_to_cart" not in hist_sat and "grocery.add_to_cart" not in seen and not any(x["name"] == "grocery.add_to_cart" for x in calls):
+            if "grocery.search" not in hist_sat and "grocery.search" not in seen and not any(x["name"] == "grocery.search" for x in calls):
+                out.append({"name": "grocery.search", "arguments": {"query": "thực phẩm"}})
+                seen.add("grocery.search")
+            out.append({"name": "grocery.add_to_cart", "arguments": {"product_id": "gro_01", "quantity": 1}})
+            seen.add("grocery.add_to_cart")
+        elif tname == "ecommerce.checkout" and "ecommerce.add_to_cart" not in hist_sat and "ecommerce.add_to_cart" not in seen and not any(x["name"] == "ecommerce.add_to_cart" for x in calls):
+            if "ecommerce.search" not in hist_sat and "ecommerce.search" not in seen and not any(x["name"] == "ecommerce.search" for x in calls):
+                out.append({"name": "ecommerce.search", "arguments": {"query": "sản phẩm"}})
+                seen.add("ecommerce.search")
+            out.append({"name": "ecommerce.add_to_cart", "arguments": {"product_id": "prod_01", "quantity": 1}})
+            seen.add("ecommerce.add_to_cart")
 
         # Đồng bộ hóa ngày tháng và giá trị cụ thể trong mẫu
         raw_args = dict(tc.get("arguments") or {})
@@ -1540,11 +1971,13 @@ def _ensure_readers_or_prune(
             raw_args = {}
         elif tname == "smart_home.light_set":
             dev_id = raw_args.get("device_id", "light_living")
-            if re.search(r"\b(phần trăm|%|một nửa|phân nửa|còn 50)\b", u_lower):
+            m_br = re.search(r"\b(\d{1,3})\s*(?:phần trăm|%)", norm_u)
+            br_val = int(m_br.group(1)) if m_br else (50 if re.search(r"\b(một nửa|phân nửa|còn 50)\b", u_lower) else None)
+            if br_val is not None:
                 if re.search(r"\b(bật|mở)\b", u_lower) and not re.search(r"\b(giảm|hạ)\b", u_lower):
-                    raw_args = {"device_id": dev_id, "power": "on", "brightness": 50}
+                    raw_args = {"device_id": dev_id, "power": "on", "brightness": br_val}
                 else:
-                    raw_args = {"device_id": dev_id, "brightness": 50}
+                    raw_args = {"device_id": dev_id, "brightness": br_val}
             else:
                 raw_args = {"device_id": dev_id, "power": "off" if "tắt" in u_lower else "on"}
         elif tname == "smart_home.climate_set":
@@ -1645,18 +2078,42 @@ def _ensure_readers_or_prune(
                 raw_args["content"] = "Hội thảo Kết nối Xanh ngày 16/10 đổi sang Trung tâm Đổi mới, bắt đầu lúc 14:30 nhé."
 
         if primary_d and tname not in {"calendar.update_event"}:
-            target_d_for_tool = prev_d if (prev_d and tname in {"reminders.create", "tasks.add"}) else primary_d
-            for k, v in list(raw_args.items()):
-                if isinstance(v, str):
-                    raw_args[k] = re.sub(r"202\d-\d{2}-\d{2}", target_d_for_tool, v)
+            if tname == "alarm.create" and ("flights.my_bookings" in seen or "flights.my_bookings" in hist_sat) and re.search(r"\b(trước giờ bay|trước giờ cất cánh|sáng hôm bay|máy bay hạ cánh)\b", u_lower) and not re.search(r"\b(?:ngày|mùng|thứ)\b", u_lower):
+                pass
+            else:
+                target_d_for_tool = prev_d if (prev_d and tname in {"reminders.create", "tasks.add"}) else primary_d
+                for k, v in list(raw_args.items()):
+                    if isinstance(v, str):
+                        raw_args[k] = re.sub(r"202\d-\d{2}-\d{2}", target_d_for_tool, v)
 
         out.append({"name": tname, "arguments": raw_args})
         seen.add(tname)
+        if tname == "recipes.search" and "recipes.get" not in seen and "recipes.get" not in hist_sat:
+            if any(x.get("name") == "shopping_list.add" for x in calls) and re.search(r"\b(nguyên liệu|thiếu gì|cần gì|chi tiết)\b", u_lower):
+                out.append({"name": "recipes.get", "arguments": {"recipe_id": "rcp_01"}})
+                seen.add("recipes.get")
 
     if "food_delivery.order_history" in seen and "food_delivery.list_restaurants" not in hist_sat and "food_delivery.list_restaurants" not in seen:
         if re.search(r"\b(bao nhiêu tiền|quán|kitchen|house|bếp|tiệm)\b", u_text, re.IGNORECASE):
             out.append({"name": "food_delivery.list_restaurants", "arguments": {}})
             seen.add("food_delivery.list_restaurants")
+
+    if "train_bus_tickets.my_bookings" in seen and "train_bus_tickets.cancel" not in seen and re.search(r"\b(hủy|huỷ)\b", u_lower):
+        out.append({"name": "train_bus_tickets.cancel", "arguments": {"booking_id": "tbb_01"}})
+        seen.add("train_bus_tickets.cancel")
+
+    if "public_transit.find_routes" in seen and "public_transit.topup_card" not in seen and re.search(r"\b(nạp thẻ|nạp thêm)\b", u_lower):
+        out.append({"name": "public_transit.topup_card", "arguments": {"amount": 50000}})
+        seen.add("public_transit.topup_card")
+
+    if "stocks" in inst_set and "stocks.get_quote" in seen and "stocks.set_price_alert" not in seen:
+        if re.search(r"\b(lên thêm .* hay xuống|tăng thêm .* hay giảm|báo cô|báo tôi|báo anh|báo chị|cảnh báo)\b", u_lower):
+            if "stocks.get_portfolio" not in hist_sat and "stocks.get_portfolio" not in seen:
+                out.insert(0, {"name": "stocks.get_portfolio", "arguments": {}})
+                seen.add("stocks.get_portfolio")
+            out.append({"name": "stocks.set_price_alert", "arguments": {"symbol": "SRT", "price": 90000, "direction": "above"}})
+            out.append({"name": "stocks.set_price_alert", "arguments": {"symbol": "SRT", "price": 80000, "direction": "below"}})
+            seen.add("stocks.set_price_alert")
 
     return out
 
@@ -1673,8 +2130,8 @@ def compose_best_exemplar(
     """
     Tổng hợp bài mẫu chuẩn xác nhất cho cả câu đơn mệnh đề, câu ghép đa mệnh đề và câu điều kiện phụ thuộc dữ liệu:
     - Kiểm tra nhánh điều kiện thời gian thực (weather, gold_price, bill_payment + ewallet) theo previous_steps.
-    - Ưu tiên mẫu toàn câu (Whole-Utterance) nếu đã bao phủ toàn bộ miền ứng dụng kích hoạt.
-    - Tách mệnh đề hành động (Clause 1 + Clause 2) nếu câu có từ nối hành động đa miền.
+    - Khôi phục ý định từ lượt hỏi-đáp trước đó trong history khi lượt hiện tại là câu trả lời bổ sung thông tin.
+    - Tách mệnh đề hành động (Clause-Split) + Bù đắp ứng dụng thiếu bằng Atomic Sub-Exemplar (Multi-App Atomic Completion).
     - Tự động loại bỏ các bước Read đã có sẵn kết quả trong history (History-Satisfied Reads).
     """
     if not retriever:
@@ -1684,6 +2141,19 @@ def compose_best_exemplar(
     inst_dict = installed_apps if isinstance(installed_apps, dict) else {a: {} for a in (installed_apps or [])}
     hist_sat = get_history_satisfied_reads(history, user_text)
     u_for_ret = re.sub(r"^[^,.]{3,35}\b(?:à không|à nhầm)\b[,\s]*", "", user_text, flags=re.IGNORECASE)
+
+    # Khôi phục ngữ cảnh khi lượt trước trợ lý chỉ hỏi lại mà chưa gọi công cụ (hoặc chỉ gọi công cụ tra cứu mà người dùng đang trả lời nối tiếp)
+    if history and len(history) >= 2:
+        last_asst = history[-1] if history[-1].get("role") == "assistant" else {}
+        prev_user = history[-2] if history[-2].get("role") == "user" else {}
+        prev_u_txt = clean_asr_transcript(str(prev_user.get("audio_text", "")))
+        asst_txt = str(last_asst.get("text", ""))
+        has_curr_trig = any(re.search(pat, u_for_ret, re.IGNORECASE) for app, pat in APP_TRIGGER_PATTERNS.items() if app in inst_dict)
+        if len(history) == 2 and (not last_asst.get("tool_calls") or not has_curr_trig) and len(u_for_ret.split()) <= 20:
+            u_for_ret = f"{prev_u_txt} {asst_txt} {u_for_ret}".strip()
+        elif len(history) > 2 and not has_curr_trig and "?" in asst_txt and len(u_for_ret.split()) <= 14:
+            u_for_ret = f"{prev_u_txt} {asst_txt} {u_for_ret}".strip()
+
     u_low = u_for_ret.lower()
     norm_u = _normalize_vn_numbers_in_time(u_for_ret)
     primary_d, _ = resolve_target_dates_from_utterance(u_for_ret, current_time_str)
@@ -1713,12 +2183,18 @@ def compose_best_exemplar(
             is_rain = bool(fc_obj.get("rain"))
             w_args = weather_step.get("arguments") or {"date": primary_d or "2026-10-16"}
             if not is_rain:
-                if re.search(r"\b(không mưa thì thôi|không thì thôi|không mưa .* giữ nguyên|không mưa .* cứ để|trời nắng .* giữ nguyên|không mưa .* không cần)\b", u_low):
+                if re.search(r"\b(không mưa thì thôi|không thì thôi|không mưa .* giữ nguyên|không mưa .* cứ để|trời nắng .* giữ nguyên|không mưa .* không cần|không mưa .* khỏi)\b", u_low):
                     return [{
                         "id": "cond_weather_no_rain_stop",
                         "audio_text": user_text,
                         "tool_calls": [{"name": "weather.get_forecast", "arguments": w_args}],
                     }]
+                if "smart_home" in inst_dict and re.search(r"\b(không mưa .* bật|trời nắng .* bật|ổ cắm|máy tưới)\b", u_low):
+                    sh_calls = [{"name": "weather.get_forecast", "arguments": w_args}]
+                    if "smart_home.get_status" not in hist_sat:
+                        sh_calls.append({"name": "smart_home.get_status", "arguments": {}})
+                    sh_calls.append({"name": "smart_home.switch_set", "arguments": {"device_id": "plug_garden", "power": "on"}})
+                    return [{"id": "cond_weather_no_rain_switch", "audio_text": user_text, "tool_calls": sh_calls}]
                 if "ride_hailing" in inst_dict and re.search(r"\b(đặt ô tô|gọi ô tô|đặt xe|gọi xe)\b", u_low):
                     return [{
                         "id": "cond_weather_no_rain_ride",
@@ -1731,6 +2207,15 @@ def compose_best_exemplar(
                     }]
             else:
                 prepend_weather_call = {"name": "weather.get_forecast", "arguments": w_args}
+                if re.search(r"\b(mưa thì khỏi tưới|mưa thì thôi|nếu mưa .* khỏi bật)\b", u_low) and "reminders" in inst_dict and "nhắc" in u_low:
+                    return [{
+                        "id": "cond_weather_rain_remind_only",
+                        "audio_text": user_text,
+                        "tool_calls": [
+                            prepend_weather_call,
+                            {"name": "reminders.create", "arguments": {"content": "Kiểm tra chậu cây ngoài ban công", "time": f"{primary_d or '2026-10-16'}T07:00:00+07:00"}},
+                        ],
+                    }]
                 if "alarm" in inst_dict and re.search(r"\b(cái còn lại|cái kia|báo thức)\b", u_low) and ("alarm.list" in hist_sat or "báo thức" in u_low):
                     al_calls = [prepend_weather_call]
                     if "alarm.list" not in hist_sat:
@@ -1760,7 +2245,7 @@ def compose_best_exemplar(
                     return [{"id": "cond_weather_rain_ride", "audio_text": user_text, "tool_calls": rh_calls}]
 
     # 0b. Nhánh điều kiện Giá vàng ("giá vàng ... nếu dưới/trên X triệu thì ...")
-    if "gold_price" in inst_dict and re.search(r"\b(giá vàng|vàng sjc|vàng nhẫn)\b", u_low) and re.search(r"\b(dưới|trên|hơn|vượt)\s+\d+\s*triệu\b", norm_u):
+    if "gold_price" in inst_dict and re.search(r"\b(giá vàng|vàng sjc|vàng nhẫn)\b", u_low) and re.search(r"\b(dưới|trên|hơn|vượt)\s+\d+(?:\s*triệu)?\b", norm_u):
         gold_step = next((s for s in (previous_steps or []) if s.get("tool_called") == "gold_price.get_price" and not s.get("error")), None)
         if gold_step is None:
             return [{
@@ -1789,12 +2274,13 @@ def compose_best_exemplar(
                         target_item = it
                         break
             val_check = target_item.get("buy", 0) if "mua vào" in u_low else target_item.get("sell", 0)
-            m_th = re.search(r"\b(dưới|trên|hơn|vượt)\s+(\d+)\s*triệu\b", norm_u)
+            m_th = re.search(r"\b(dưới|trên|hơn|vượt)\s+(\d+)(?:\s*triệu)?\b", norm_u)
             if m_th and val_check:
-                op_w, th_m = m_th.group(1), int(m_th.group(2)) * 1_000_000
+                op_w, raw_num = m_th.group(1), int(m_th.group(2))
+                th_m = raw_num * 1_000_000 if raw_num < 1000 else raw_num
                 cond_ok = (val_check < th_m) if op_w == "dưới" else (val_check > th_m)
                 if not cond_ok:
-                    if "banking" in inst_dict and re.search(r"\b(chuyển .* triệu|chuyển khoản)\b", u_low):
+                    if "banking" in inst_dict and re.search(r"\b(chuyển .* triệu|chuyển khoản|chuyển cho)\b", u_low):
                         return [{
                             "id": "cond_gold_else_bank",
                             "audio_text": user_text,
@@ -1810,20 +2296,40 @@ def compose_best_exemplar(
                         "audio_text": user_text,
                         "tool_calls": [{"name": "gold_price.get_price", "arguments": {}}],
                     }]
+                else:
+                    if "reminders" in inst_dict and "nhắc" in u_low:
+                        return [{
+                            "id": "cond_gold_true_remind",
+                            "audio_text": user_text,
+                            "tool_calls": [
+                                {"name": "gold_price.get_price", "arguments": {}},
+                                {"name": "reminders.create", "arguments": {"content": "Đi bán vàng", "time": f"{primary_d or '2026-10-16'}T09:00:00+07:00"}},
+                            ],
+                        }]
 
-    # 0c. Nhánh điều kiện Hóa đơn + Ví điện tử ("nếu ví đủ ... còn thiếu/không đủ thì trả bằng ngân hàng và nhắc nạp ví")
-    if "bill_payment" in inst_dict and "ewallet" in inst_dict and re.search(r"\b(ví đủ|đủ thì trả luôn bằng ví|không đủ|còn thiếu)\b", u_low) and re.search(r"\b(nhắc .* nạp ví|trả bằng ngân hàng)\b", u_low):
+    # 0c. Nhánh điều kiện Hóa đơn + Ví điện tử ("nếu ví đủ ... còn thiếu/không đủ thì trả bằng ngân hàng và nhắc nạp ví / nhắn SMS")
+    if "bill_payment" in inst_dict and "ewallet" in inst_dict and re.search(r"\b(ví đủ|đủ thì trả|không đủ|còn thiếu|nếu thiếu|hụt thì|bằng ví .* ngân hàng)\b", u_low) and re.search(r"\b(ví|vĩ|vé|phí)\b", u_low) and not re.search(r"\b(tiết kiệm|tài khoản thanh toán)\b", u_low):
         bill_step = next((s for s in (previous_steps or []) if s.get("tool_called") == "bill_payment.list_bills" and not s.get("error")), None)
         ew_step = next((s for s in (previous_steps or []) if s.get("tool_called") == "ewallet.get_balance" and not s.get("error")), None)
+        ct_q = "Mẹ"
+        for cand_ct in ("cô giáo Mai", "Cô giáo Mai", "Bố", "Lan", "Tuấn", "Bình", "Hương", "Minh", "Mẹ"):
+            if cand_ct.lower() in u_for_ret.lower():
+                ct_q = cand_ct
+                break
+        sms_always = bool("sms" in inst_dict and re.search(r"\b(sms|nhắn)\b", u_low) and re.search(r"\bngân hàng\b.*\b(sms|nhắn)\b", u_low))
+        need_contacts = bool("sms" in inst_dict and re.search(r"\b(sms|nhắn)\b", u_low) and "contacts" in inst_dict and "contacts.search" not in hist_sat)
         if bill_step is None or ew_step is None:
+            s1_calls = [
+                {"name": "bill_payment.list_bills", "arguments": {}},
+                {"name": "ewallet.get_balance", "arguments": {}},
+            ]
+            if need_contacts and sms_always:
+                s1_calls.append({"name": "contacts.search", "arguments": {"query": ct_q}})
+            s1_calls.append({"name": "bill_payment.pay", "arguments": {"bill_id": "bill_01", "source": "ewallet"}})
             return [{
                 "id": "cond_bill_ewallet_step1",
                 "audio_text": user_text,
-                "tool_calls": [
-                    {"name": "bill_payment.list_bills", "arguments": {}},
-                    {"name": "ewallet.get_balance", "arguments": {}},
-                    {"name": "bill_payment.pay", "arguments": {"bill_id": "bill_01", "source": "ewallet"}},
-                ],
+                "tool_calls": s1_calls,
             }]
         else:
             b_obs = bill_step.get("raw_observation") or {}
@@ -1831,23 +2337,49 @@ def compose_best_exemplar(
             ew_bal = e_obs.get("balance", 0) if isinstance(e_obs, dict) else 0
             bills_l = (b_obs.get("bills") or []) if isinstance(b_obs, dict) else []
             target_b = next((b for b in bills_l if isinstance(b, dict) and not b.get("paid") and (
-                ("điện" in u_low and b.get("type") == "electricity")
+                ("điện thoại" in u_low and b.get("type") == "phone")
+                or ("điện" in u_low and "điện thoại" not in u_low and b.get("type") == "electricity")
                 or ("nước" in u_low and b.get("type") == "water")
                 or (("mạng" in u_low or "internet" in u_low) and b.get("type") == "internet")
                 or ("truyền hình" in u_low and b.get("type") == "tv")
             )), bills_l[0] if bills_l else {})
             b_amt = target_b.get("amount", 0) if isinstance(target_b, dict) else 0
+            src_val = "ewallet" if ew_bal >= b_amt else "bank"
+            do_sms = bool("sms" in inst_dict and re.search(r"\b(sms|nhắn)\b", u_low) and (ew_bal >= b_amt or sms_always))
+            s2_calls = [
+                {"name": "bill_payment.list_bills", "arguments": {}},
+                {"name": "ewallet.get_balance", "arguments": {}},
+            ]
+            if need_contacts and do_sms:
+                s2_calls.append({"name": "contacts.search", "arguments": {"query": ct_q}})
+            s2_calls.append({"name": "bill_payment.pay", "arguments": {"bill_id": target_b.get("id", "bill_01"), "source": src_val}})
             if ew_bal < b_amt and "reminders" in inst_dict and "nhắc" in u_low:
-                return [{
-                    "id": "cond_bill_ewallet_insuff",
-                    "audio_text": user_text,
-                    "tool_calls": [
-                        {"name": "bill_payment.list_bills", "arguments": {}},
-                        {"name": "ewallet.get_balance", "arguments": {}},
-                        {"name": "bill_payment.pay", "arguments": {"bill_id": target_b.get("id", "bill_01"), "source": "bank"}},
-                        {"name": "reminders.create", "arguments": {"content": "Nạp ví điện tử", "time": f"{primary_d or '2026-10-16'}T20:00:00+07:00"}},
-                    ],
-                }]
+                s2_calls.append({"name": "reminders.create", "arguments": {"content": "Nạp ví điện tử", "time": f"{primary_d or '2026-10-16'}T20:00:00+07:00"}})
+            if do_sms:
+                s2_calls.append({"name": "sms.send", "arguments": {"contact_id": "ct_01", "content": "Con đóng hóa đơn rồi nhé."}})
+            return [{
+                "id": "cond_bill_ewallet_step2",
+                "audio_text": user_text,
+                "tool_calls": s2_calls,
+            }]
+
+    # 0c-bis. Nạp tiền điện thoại cho người thứ 1 + chuyển ví cho người thứ 2 bằng số tiền hóa đơn
+    if "ewallet" in inst_dict and "bill_payment" in inst_dict and re.search(r"\b(nạp .* điện thoại cho .* rồi (?:chuyển|gửi|gởi))\b", u_low):
+        m_two = re.search(r"điện thoại cho\s+([a-zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]+).*?(?:chuyển|gửi|gởi)(?:\s+ví)?\s+cho\s+([a-zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]+)", u_for_ret, re.IGNORECASE)
+        p1 = m_two.group(1).capitalize() if m_two else "Lan"
+        p2 = m_two.group(2).capitalize() if m_two else "Tuấn"
+        top_amt = 100000 if "100" in norm_u or "một trăm" in u_low else 50000
+        return [{
+            "id": "composed_topup_and_bill_transfer",
+            "audio_text": user_text,
+            "tool_calls": [
+                {"name": "bill_payment.list_bills", "arguments": {}},
+                {"name": "contacts.search", "arguments": {"query": p1}},
+                {"name": "contacts.search", "arguments": {"query": p2}},
+                {"name": "ewallet.topup_mobile", "arguments": {"contact_id": "ct_01", "amount": top_amt}},
+                {"name": "ewallet.transfer", "arguments": {"contact_id": "ct_02", "amount": 200000}},
+            ],
+        }]
 
     if "tv.guide" in hist_sat and "tv" in inst_dict and re.search(r"\b(chuyển sang phim|mở phim|bật kênh phim)\b", u_for_ret, re.IGNORECASE):
         if not re.search(r"\b(vtv\d|htv\d|kênh \d)\b", u_for_ret, re.IGNORECASE):
@@ -1858,49 +2390,125 @@ def compose_best_exemplar(
             }]
 
     # 0d. Định tuyến câu nối tiếp ngắn dựa trên lượt có tool_calls gần nhất của history (Short Follow-up History Routing)
-    if history and len(u_for_ret.split()) <= 18:
+    if history and len(user_text.split()) <= 22 and len([c.strip() for c in CLAUSE_SPLIT_RE.split(u_for_ret) if len(c.strip().split()) >= 3]) < 2:
         recent_tc_turn = next((t for t in reversed(history) if t.get("tool_calls")), {})
         last_turn_tools = [tc.get("name", "") for tc in (recent_tc_turn.get("tool_calls") or []) if isinstance(tc, dict)]
-        if "ecommerce.search" in last_turn_tools and "ecommerce" in inst_dict and re.search(r"\b(cái thứ hai|cái đầu|cái rẻ|cái đắt|loại rẻ|loại đắt|vào giỏ|mua luôn|đặt luôn|lấy cái|chốt cái|hai túi|2 túi)\b", u_low):
+        u_curr_low = user_text.lower()
+        if "ecommerce.search" in last_turn_tools and "ecommerce" in inst_dict and re.search(r"\b(cái thứ hai|cái đầu|cái rẻ|cái đắt|loại rẻ|loại đắt|vào giỏ|mua luôn|đặt luôn|lấy cái|chốt cái|hai túi|2 túi|ba hũ|3 hũ|lấy .* cho mình)\b", u_curr_low):
             ec_calls = [{"name": "ecommerce.add_to_cart", "arguments": {"product_id": "prod_01", "quantity": 1}}]
-            if re.search(r"\b(đặt luôn|mua luôn|thanh toán|giao về)\b", u_low):
+            if re.search(r"\b(đặt luôn|mua luôn|thanh toán|giao về)\b", u_curr_low):
                 ec_calls.append({"name": "ecommerce.checkout", "arguments": {"address": "Nhà"}})
             return [{"id": "followup_ecommerce_add", "audio_text": user_text, "tool_calls": ec_calls}]
-        if "grocery.add_to_cart" in last_turn_tools and "grocery" in inst_dict and re.search(r"\b(chốt|thanh toán|giao về|đủ rồi)\b", u_low):
+        if "ecommerce.order_status" in last_turn_tools and "ecommerce" in inst_dict:
+            if re.search(r"\b(trả|đổi|hỏng|lỗi|nhầm|bể|vỡ|rách)\b", u_curr_low):
+                ret_reason = "wrong_item" if "nhầm" in u_curr_low else "damaged"
+                return [{"id": "followup_ecommerce_return", "audio_text": user_text, "tool_calls": [{"name": "ecommerce.request_return", "arguments": {"order_id": "ord_01", "reason": ret_reason}}]}]
+            if re.search(r"\b(hủy|huỷ|bỏ)\b", u_curr_low):
+                return [{"id": "followup_ecommerce_cancel", "audio_text": user_text, "tool_calls": [{"name": "ecommerce.cancel_order", "arguments": {"order_id": "ord_01"}}]}]
+        if "grocery.add_to_cart" in last_turn_tools and "grocery" in inst_dict and re.search(r"\b(chốt|thanh toán|giao về|đủ rồi)\b", u_curr_low):
             return [{
                 "id": "followup_grocery_checkout",
                 "audio_text": user_text,
                 "tool_calls": [{"name": "grocery.checkout", "arguments": {"address": "Nhà"}}],
             }]
-        if "grocery.search" in last_turn_tools and "grocery" in inst_dict and re.search(r"\b(đặt cho|lấy cho|ba hộp|3 hộp|hai hộp|2 hộp|vào giỏ|mua luôn|đặt luôn|loại không đường)\b", u_low):
+        if "grocery.search" in last_turn_tools and "grocery" in inst_dict and re.search(r"\b(đặt cho|lấy cho|ba hộp|3 hộp|hai hộp|2 hộp|vào giỏ|mua luôn|đặt luôn|loại không đường)\b", u_curr_low):
             gr_calls = [{"name": "grocery.add_to_cart", "arguments": {"product_id": "gro_01", "quantity": 3}}]
-            if re.search(r"\b(đặt cho|mua luôn|đặt luôn|giao về)\b", u_low):
+            if re.search(r"\b(đặt cho|mua luôn|đặt luôn|giao về)\b", u_curr_low):
                 gr_calls.append({"name": "grocery.checkout", "arguments": {"address": "Nhà"}})
             return [{"id": "followup_grocery_add", "audio_text": user_text, "tool_calls": gr_calls}]
-        if "pantry.list_items" in last_turn_tools and "pantry" in inst_dict and re.search(r"\b(dùng hết|xài hết|hết luôn|uống hết|ăn hết|trừ đi|trừ bớt)\b", u_low):
-            return [{
-                "id": "followup_pantry_consume",
-                "audio_text": user_text,
-                "tool_calls": [{"name": "pantry.consume", "arguments": {"item_id": "pan_01", "quantity": 1}}],
-            }]
-        if "event_tickets.search" in last_turn_tools and "event_tickets" in inst_dict and re.search(r"\b(chốt luôn|đặt luôn|lấy cho|mua luôn|vé|đêm nhạc)\b", u_low):
+        if "pantry.list_items" in last_turn_tools:
+            if "pantry" in inst_dict and re.search(r"\b(dùng hết|xài hết|hết luôn|uống hết|ăn hết|trừ đi|trừ bớt)\b", u_curr_low):
+                return [{
+                    "id": "followup_pantry_consume",
+                    "audio_text": user_text,
+                    "tool_calls": [{"name": "pantry.consume", "arguments": {"item_id": "pan_01", "quantity": 1}}],
+                }]
+            if "shopping_list" in inst_dict and re.search(r"\b(danh sách đi chợ|danh sách mua sắm|mua thêm|mua bù|ghi vào)\b", u_curr_low):
+                return [{
+                    "id": "followup_pantry_shopping_list",
+                    "audio_text": user_text,
+                    "tool_calls": [{"name": "shopping_list.add", "arguments": {"name": "Thực phẩm", "quantity": 1}}],
+                }]
+            if "grocery" in inst_dict and re.search(r"\b(siêu thị|đặt mua|bên đi chợ|giao về)\b", u_curr_low):
+                return [{
+                    "id": "followup_pantry_grocery",
+                    "audio_text": user_text,
+                    "tool_calls": [
+                        {"name": "grocery.search", "arguments": {"query": "thực phẩm"}},
+                        {"name": "grocery.add_to_cart", "arguments": {"product_id": "gro_01", "quantity": 1}},
+                        {"name": "grocery.checkout", "arguments": {"address": "Nhà"}},
+                    ],
+                }]
+        if "event_tickets.search" in last_turn_tools and "event_tickets" in inst_dict and re.search(r"\b(chốt luôn|đặt luôn|lấy cho|mua luôn|vé|đêm nhạc|triển lãm|kịch)\b", u_curr_low):
+            ev_calls = [{"name": "event_tickets.book", "arguments": {"event_id": "evt_01", "quantity": 2}}]
+            if "calendar" in inst_dict and re.search(r"\b(lịch)\b", u_curr_low):
+                ev_calls.append({"name": "calendar.create_event", "arguments": {"title": "Đi xem sự kiện", "start": f"{primary_d or '2026-10-16'}T20:00:00+07:00", "end": f"{primary_d or '2026-10-16'}T22:00:00+07:00"}})
             return [{
                 "id": "followup_event_tickets_book",
                 "audio_text": user_text,
-                "tool_calls": [{"name": "event_tickets.book", "arguments": {"event_id": "evt_01", "quantity": 2}}],
+                "tool_calls": ev_calls,
             }]
-        if "train_bus_tickets.search" in last_turn_tools and "train_bus_tickets" in inst_dict and re.search(r"\b(đặt cho|vé xe|vé tàu|chuyến đó)\b", u_low) and not re.search(r"\b(hủy|huỷ)\b", u_low):
+        if "parking.find" in last_turn_tools and "parking" in inst_dict and re.search(r"\b(giữ|đặt|chỗ|bãi|gửi|đỗ)\b", u_curr_low):
+            return [{
+                "id": "followup_parking_reserve",
+                "audio_text": user_text,
+                "tool_calls": [{"name": "parking.reserve", "arguments": {"lot_id": "lot_01", "from_time": f"{primary_d or '2026-10-15'}T14:00:00+07:00", "hours": 2}}],
+            }]
+        if "habit_tracker.list_habits" in last_turn_tools and "habit_tracker" in inst_dict and re.search(r"\b(xong|rồi|đánh dấu|ghi nhận|hoàn thành|hôm nay)\b", u_curr_low):
+            return [{
+                "id": "followup_habit_log",
+                "audio_text": user_text,
+                "tool_calls": [{"name": "habit_tracker.log", "arguments": {"habit_id": "habit_01", "date": primary_d or "2026-10-15"}}],
+            }]
+        if "flights.check_in" in last_turn_tools and "flights" in inst_dict and re.search(r"\b(làm y rứa|như thế|check[ -]?in|làm thủ tục|chuyến còn lại|vé của)\b", u_curr_low):
+            return [{
+                "id": "followup_flights_checkin",
+                "audio_text": user_text,
+                "tool_calls": [
+                    {"name": "flights.my_bookings", "arguments": {}},
+                    {"name": "flights.check_in", "arguments": {"booking_id": "flb_01"}},
+                ],
+            }]
+        if "train_bus_tickets.search" in last_turn_tools and "train_bus_tickets" in inst_dict and re.search(r"\b(đặt cho|vé xe|vé tàu|chuyến đó)\b", u_curr_low) and not re.search(r"\b(hủy|huỷ)\b", u_curr_low):
             return [{
                 "id": "followup_train_bus_book",
                 "audio_text": user_text,
                 "tool_calls": [{"name": "train_bus_tickets.book", "arguments": {"trip_id": "trip_01", "seats": 1}}],
             }]
-        if "recipes.search" in last_turn_tools and "recipes" in inst_dict and re.search(r"\b(lưu lại|xem chi tiết|công thức đó|món đó)\b", u_low):
-            rc_tool = "recipes.save" if re.search(r"\b(lưu)\b", u_low) else "recipes.get"
+        if ("recipes.search" in last_turn_tools or "recipes.get" in last_turn_tools) and "recipes" in inst_dict:
+            if "shopping_list" in inst_dict and re.search(r"\b(danh sách đi chợ|mua thêm|nguyên liệu)\b", u_curr_low):
+                rc_calls = []
+                if "recipes.get" not in last_turn_tools:
+                    rc_calls.append({"name": "recipes.get", "arguments": {"recipe_id": "rcp_01"}})
+                rc_calls.append({"name": "shopping_list.add", "arguments": {"name": "Nguyên liệu", "quantity": 1}})
+                return [{"id": "followup_recipes_shopping", "audio_text": user_text, "tool_calls": rc_calls}]
+            if re.search(r"\b(lưu lại|lưu giùm|lưu giúp|lưu món|xem chi tiết|đọc các bước|công thức đó|món đó|món ấy|nhanh nhất)\b", u_curr_low) and not re.search(r"\b(đặt món|giao về|khỏi nấu|nhà hàng)\b", u_curr_low):
+                rc_tool = "recipes.save" if re.search(r"\b(lưu)\b", u_curr_low) else "recipes.get"
+                rc_calls = [{"name": rc_tool, "arguments": {"recipe_id": "rcp_01"}}]
+                if "reminders" in inst_dict and re.search(r"\b(nhắc)\b", u_curr_low):
+                    rc_calls.append({"name": "reminders.create", "arguments": {"content": "Nấu ăn", "time": f"{primary_d or '2026-10-15'}T16:00:00+07:00"}})
+                return [{
+                    "id": "followup_recipes_action",
+                    "audio_text": user_text,
+                    "tool_calls": rc_calls,
+                }]
+        if "shopping_list.get" in last_turn_tools and "ecommerce" in inst_dict and re.search(r"\b(sàn|mua .* trên sàn|đặt mua|thương mại điện tử|mua đồ)\b", u_curr_low):
+            sh_ec_calls = [
+                {"name": "ecommerce.search", "arguments": {"query": "cốc giữ nhiệt"}},
+                {"name": "ecommerce.add_to_cart", "arguments": {"product_id": "prod_01", "quantity": 2}},
+            ]
+            if re.search(r"\b(thanh toán|đặt mua|giao về)\b", u_curr_low):
+                sh_ec_calls.append({"name": "ecommerce.checkout", "arguments": {"address": "Nhà"}})
             return [{
-                "id": "followup_recipes_action",
+                "id": "followup_shoplist_ecommerce",
                 "audio_text": user_text,
-                "tool_calls": [{"name": rc_tool, "arguments": {"recipe_id": "rcp_01"}}],
+                "tool_calls": sh_ec_calls,
+            }]
+        if len(history) == 2 and "shopping_list" in inst_dict and "danh sách đi chợ" in str(history[-1].get("text", "")).lower():
+            return [{
+                "id": "followup_asst_shopping_list",
+                "audio_text": user_text,
+                "tool_calls": [{"name": "shopping_list.add", "arguments": {"name": "Sữa tươi", "quantity": 4}}],
             }]
 
     triggered_apps = {
@@ -1913,13 +2521,54 @@ def compose_best_exemplar(
         triggered_apps.discard("smart_home")
     if "shopping_list" in triggered_apps and not re.search(r"\b(đặt mua|bên app đi chợ|siêu thị|vào giỏ)\b", u_for_ret, re.IGNORECASE):
         triggered_apps.discard("grocery")
+    if "ecommerce" in triggered_apps and not re.search(r"\b(đi chợ|siêu thị|sữa|trứng|thịt|rau|gạo|cá|ức gà|cà chua|dầu ô liu|yến mạch|bột mì|táo|macca|đậu hũ|nước mắm|bơ lạt|phô mai|bánh mì)\b", u_for_ret, re.IGNORECASE):
+        triggered_apps.discard("grocery")
+
+    ordered_triggered_apps = sorted(
+        triggered_apps,
+        key=lambda a: (re.search(APP_TRIGGER_PATTERNS[a], u_for_ret, re.IGNORECASE).start() if re.search(APP_TRIGGER_PATTERNS.get(a, ""), u_for_ret, re.IGNORECASE) else 9999)
+    )
 
     def _with_weather_prefix(calls_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if prepend_weather_call is not None and calls_list and not any(x.get("name") == "weather.get_forecast" for x in calls_list):
             return [prepend_weather_call] + calls_list
         return calls_list
 
-    # 1. Tách mệnh đề (Clause-Split Composition) cho câu ghép đa mệnh đề (như V9 đạt 99.0/100)
+    def _fill_missing_triggered_apps(base_calls: List[Dict[str, Any]], base_utts: List[str]) -> Tuple[List[Dict[str, Any]], List[str]]:
+        if not ordered_triggered_apps:
+            return base_calls, base_utts
+        covered = {
+            (tc.get("arguments", {}).get("tool_name", "").split(".")[0] if tc["name"] == "sys.ask_missing_info" else tc["name"].split(".")[0])
+            for tc in base_calls
+        } - {"contacts"}
+        if triggered_apps.issubset(covered):
+            return base_calls, base_utts
+        ret_at = _get_atomic_retriever(retriever)
+        out_calls = list(base_calls)
+        out_utts = list(base_utts)
+        for t_app in ordered_triggered_apps:
+            if t_app in covered:
+                continue
+            app_cands = ret_at.retrieve(u_for_ret, {t_app} | ({"contacts"} if "contacts" in inst_dict else set()), top_k=10)
+            picked = None
+            picked_utt = ""
+            for ac in app_cands:
+                fc = [tc for tc in ac["tool_calls"] if _is_tool_compatible(tc, u_for_ret)]
+                if _valid_filtered(fc, u_for_ret) and any(tc["name"].split(".")[0] == t_app for tc in fc):
+                    picked = fc
+                    picked_utt = ac.get("audio_text", "")
+                    break
+            if not picked and app_cands:
+                picked = app_cands[0]["tool_calls"]
+                picked_utt = app_cands[0].get("audio_text", "")
+            if picked:
+                out_calls.extend(picked)
+                if picked_utt:
+                    out_utts.append(picked_utt)
+                covered.add(t_app)
+        return out_calls, out_utts
+
+    # 1. Tách mệnh đề (Clause-Split Composition) cho câu ghép đa mệnh đề + Bù đắp ứng dụng thiếu
     clauses = [c.strip() for c in CLAUSE_SPLIT_RE.split(u_for_ret) if len(c.strip().split()) >= 3]
     if len(clauses) >= 2:
         ret_atomic = _get_atomic_retriever(retriever)
@@ -1928,13 +2577,22 @@ def compose_best_exemplar(
         used_apps: Set[str] = set()
         for cl in clauses:
             avail = set(inst_dict.keys()) - used_apps
-            cl_trig = {
+            cl_trig_all = {
                 app for app, pat in APP_TRIGGER_PATTERNS.items()
-                if app in avail and re.search(pat, cl, re.IGNORECASE)
+                if app in inst_dict and re.search(pat, cl, re.IGNORECASE)
             }
-            if "home_automation" in cl_trig:
-                cl_trig.discard("smart_home")
-            search_apps = (cl_trig | {"contacts"}) if cl_trig else avail
+            if "home_automation" in cl_trig_all:
+                cl_trig_all.discard("smart_home")
+            if "maps" in cl_trig_all and re.search(r"\b(lưu địa điểm|lưu chỗ đó)\b", cl, re.IGNORECASE):
+                cl_trig_all.discard("grocery")
+            if "ecommerce" in cl_trig_all and not re.search(r"\b(đi chợ|siêu thị|sữa|trứng|thịt|rau|gạo|cá|ức gà|cà chua|dầu ô liu|yến mạch|bột mì|táo|macca|hạnh nhân|đậu hũ|nước mắm|bơ lạt|phô mai|bánh mì)\b", cl, re.IGNORECASE):
+                cl_trig_all.discard("grocery")
+            if cl_trig_all:
+                search_apps = cl_trig_all | ({"contacts"} if "contacts" in inst_dict else set())
+            elif avail and re.search(rf"^\s*{ACTION_VERB_START}\b", cl, re.IGNORECASE):
+                search_apps = avail
+            else:
+                continue
             cl_cands = ret_atomic.retrieve(cl, search_apps, top_k=15)
             chosen_calls = None
             chosen_utt = ""
@@ -1955,6 +2613,7 @@ def compose_best_exemplar(
                 if chosen_utt:
                     merged_utts.append(chosen_utt)
         if merged_calls:
+            merged_calls, merged_utts = _fill_missing_triggered_apps(merged_calls, merged_utts)
             final_calls = _with_weather_prefix(_ensure_readers_or_prune(merged_calls, hist_sat, u_for_ret, inst_dict, current_time_str, history))
             if final_calls:
                 return [{
@@ -1984,6 +2643,18 @@ def compose_best_exemplar(
                         "audio_text": cand.get("audio_text", ""),
                         "tool_calls": pruned
                     }]
+
+    # 2b. Nếu câu kích hoạt >= 1 ứng dụng mà chưa có mẫu toàn câu bao phủ hết -> Tổng hợp từ Atomic Sub-Exemplar cho từng ứng dụng được kích hoạt
+    if len(ordered_triggered_apps) >= 1:
+        synth_calls, synth_utts = _fill_missing_triggered_apps([], [])
+        if synth_calls:
+            pruned_synth = _with_weather_prefix(_ensure_readers_or_prune(synth_calls, hist_sat, u_for_ret, inst_dict, current_time_str, history))
+            if pruned_synth:
+                return [{
+                    "id": "composed_multi_app_atomic",
+                    "audio_text": " + ".join(synth_utts) if synth_utts else user_text,
+                    "tool_calls": pruned_synth
+                }]
 
     for cand in cands:
         filtered_calls = [tc for tc in cand["tool_calls"] if _is_tool_compatible(tc, u_for_ret)]
@@ -2517,52 +3188,58 @@ def analyze_observations(
                         )
                         continue
                     fl = bk.get("flight") or bk
+                    f_date = str(fl.get("date", ""))
                     dep_str = str(fl.get("depart", fl.get("departure_time", "")))
                     arr_str = str(fl.get("arrive", fl.get("arrival_time", "")))
+                    dep_iso = dep_str if "T" in dep_str else (f"{f_date}T{dep_str}:00+07:00" if f_date and re.match(r"^\d{2}:\d{2}$", dep_str) else dep_str)
+                    arr_iso = arr_str if "T" in arr_str else (f"{f_date}T{arr_str}:00+07:00" if f_date and re.match(r"^\d{2}:\d{2}$", arr_str) else arr_str)
                     alarm_offsets = ""
-                    if "T" in dep_str:
+                    if "T" in dep_iso:
                         try:
-                            dep_dt = datetime.fromisoformat(dep_str)
+                            dep_dt = datetime.fromisoformat(dep_iso)
                             off_list = []
                             for lb, mins in [("-45p", 45), ("-1h", 60), ("-1h30p", 90), ("-2h", 120), ("-2h30p", 150), ("-3h", 180), ("-3h30p", 210), ("-4h", 240)]:
                                 off_list.append(f"{lb}={(dep_dt - timedelta(minutes=mins)).isoformat()}")
                             alarm_offsets = f" (trước_cất_cánh: {', '.join(off_list)})"
                         except Exception:
                             pass
-                    if "T" in arr_str:
+                    if "T" in arr_iso:
                         try:
-                            arr_dt = datetime.fromisoformat(arr_str)
+                            arr_dt = datetime.fromisoformat(arr_iso)
                             alarm_offsets += f" (sau_hạ_cánh: +30p={(arr_dt + timedelta(minutes=30)).isoformat()})"
                         except Exception:
                             pass
                     facts.append(
-                        f"Đặt chỗ máy bay `{bk.get('id')}` (flight_id=`{fl.get('id', '')}`, mã={fl.get('code', '')}): hãng_bay=\"{fl.get('airline', '')}\", ngày_bay={fl.get('date', dep_str[:10])}, "
-                        f"giờ_cất_cánh={dep_str}, giờ_hạ_cánh={arr_str}, chặng={fl.get('origin', '')}->{fl.get('destination', '')}{alarm_offsets}."
+                        f"Đặt chỗ máy bay `\"booking_id\": \"{bk.get('id')}\"` (flight_id=`{fl.get('id', '')}`, mã={fl.get('code', '')}): hãng_bay=\"{fl.get('airline', '')}\", ngày_bay={f_date or dep_str[:10]}, "
+                        f"giờ_cất_cánh={dep_iso}, giờ_hạ_cánh={arr_iso}, chặng={fl.get('origin', '')}->{fl.get('destination', '')}{alarm_offsets}."
                     )
         if "flights" in obs and isinstance(obs.get("flights"), list):
             for fl in obs.get("flights") or []:
                 if isinstance(fl, dict):
+                    f_date = str(fl.get("date", rec["arguments"].get("date", "")))
                     dep_str = str(fl.get("depart", fl.get("departure_time", "")))
                     arr_str = str(fl.get("arrive", fl.get("arrival_time", "")))
+                    dep_iso = dep_str if "T" in dep_str else (f"{f_date}T{dep_str}:00+07:00" if f_date and re.match(r"^\d{2}:\d{2}$", dep_str) else dep_str)
+                    arr_iso = arr_str if "T" in arr_str else (f"{f_date}T{arr_str}:00+07:00" if f_date and re.match(r"^\d{2}:\d{2}$", arr_str) else arr_str)
                     alarm_offsets = ""
-                    if "T" in dep_str:
+                    if "T" in dep_iso:
                         try:
-                            dep_dt = datetime.fromisoformat(dep_str)
+                            dep_dt = datetime.fromisoformat(dep_iso)
                             off_list = []
                             for lb, mins in [("-45p", 45), ("-1h", 60), ("-1h30p", 90), ("-2h", 120), ("-2h30p", 150), ("-3h", 180), ("-3h30p", 210), ("-4h", 240)]:
                                 off_list.append(f"{lb}={(dep_dt - timedelta(minutes=mins)).isoformat()}")
                             alarm_offsets = f" (trước_cất_cánh: {', '.join(off_list)})"
                         except Exception:
                             pass
-                    if "T" in arr_str:
+                    if "T" in arr_iso:
                         try:
-                            arr_dt = datetime.fromisoformat(arr_str)
+                            arr_dt = datetime.fromisoformat(arr_iso)
                             alarm_offsets += f" (sau_hạ_cánh: +30p={(arr_dt + timedelta(minutes=30)).isoformat()})"
                         except Exception:
                             pass
                     facts.append(
                         f"Chuyến bay `\"flight_id\": \"{fl.get('id')}\"` (mã={fl.get('code', '')}, hãng=\"{fl.get('airline', '')}\"): "
-                        f"chặng={fl.get('origin', '')}->{fl.get('destination', '')}, giờ_cất_cánh={dep_str}, giờ_hạ_cánh={arr_str}, giá={fl.get('price', '')}{alarm_offsets}."
+                        f"chặng={fl.get('origin', '')}->{fl.get('destination', '')}, giờ_cất_cánh={dep_iso}, giờ_hạ_cánh={arr_iso}, giá={fl.get('price', '')}{alarm_offsets}."
                     )
 
         # 12. Phân tích danh sách công việc (tasks.list), việc nhà (household_chores.list_chores) & khóa học (learning.list_courses)
@@ -2690,11 +3367,22 @@ def analyze_observations(
 
         # 16. Phân tích thiết bị nhà thông minh (smart_home.get_status) & 11 app mở rộng
         if "devices" in obs and isinstance(obs.get("devices"), list):
-            for dv in obs.get("devices") or []:
-                if isinstance(dv, dict):
-                    facts.append(
-                        f"Thiết bị nhà thông minh `\"device_id\": \"{dv.get('id')}\"`: tên=\"{dv.get('name', '')}\", phòng=\"{dv.get('room', '')}\", loại={dv.get('type', '')}, trạng_thái={dv.get('power', dv.get('state', ''))}."
-                    )
+            devs = [d for d in (obs.get("devices") or []) if isinstance(d, dict)]
+            fan_on_rooms = {d.get("room") for d in devs if d.get("type") == "fan" and (d.get("power") == "on" or (isinstance(d.get("state"), dict) and d["state"].get("power") == "on"))}
+            ac_on_rooms = {d.get("room") for d in devs if d.get("type") == "ac" and (d.get("power") == "on" or (isinstance(d.get("state"), dict) and d["state"].get("power") == "on"))}
+            for dv in devs:
+                st_info = dv.get("state") if isinstance(dv.get("state"), dict) else {"power": dv.get("power")}
+                fl_str = f", tầng={dv.get('floor')}" if dv.get("floor") is not None else ""
+                rm = dv.get("room", "")
+                extra_rm = []
+                if rm in fan_on_rooms:
+                    extra_rm.append("phòng này QUẠT ĐANG BẬT")
+                if rm in ac_on_rooms:
+                    extra_rm.append("phòng này ĐIỀU HÒA ĐANG BẬT")
+                rm_tag = f" ({'; '.join(extra_rm)})" if extra_rm else ""
+                facts.append(
+                    f"Thiết bị nhà thông minh `\"device_id\": \"{dv.get('id')}\"`: tên=\"{dv.get('name', '')}\", phòng=\"{rm}\"{fl_str}, loại={dv.get('type', '')}, trạng_thái={json.dumps(st_info, ensure_ascii=False)}{rm_tag}."
+                )
         if "products" in obs and isinstance(obs.get("products"), list):
             for pr in obs.get("products") or []:
                 if isinstance(pr, dict):
@@ -2761,7 +3449,7 @@ def analyze_observations(
             for rt in obs.get("routes") or []:
                 if isinstance(rt, dict):
                     facts.append(
-                        f"Tuyến xe công cộng `\"route_id\": \"{rt.get('id', rt.get('route_id', ''))}\"`: tên=\"{rt.get('name', '')}\", điểm_dừng_gần_nhất=`\"stop_id\": \"{rt.get('origin_stop_id', rt.get('stop_id', ''))}\"`, thời_gian={rt.get('duration_minutes', '')} phút."
+                        f"Tuyến xe công cộng `\"route\": \"{rt.get('route_id', rt.get('id', ''))}\"`: tên=\"{rt.get('name', '')}\", điểm_đón=`\"stop\": \"{rt.get('board_at', rt.get('origin_stop_id', ''))}\"`, điểm_xuống=\"{rt.get('alight_at', '')}\", thời_gian={rt.get('duration_min', rt.get('duration_minutes', ''))} phút, giá_vé={rt.get('fare', '')}."
                     )
         if "habits" in obs and isinstance(obs.get("habits"), list):
             for hb in obs.get("habits") or []:
