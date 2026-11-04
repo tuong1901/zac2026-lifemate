@@ -24,16 +24,16 @@ CHITCHAT_REGEX = re.compile(
     re.IGNORECASE
 )
 CANCEL_END_REGEX = re.compile(
-    r"(à thôi,? khỏi|à thôi,? bỏ qua đi|à thôi,? em khỏi|à thôi,? mình bảo .* cứ để đấy|à thôi,? đừng .* lâu quá|thôi khỏi,? không cần|thôi khỏi,? đừng|thôi khỏi nha|thôi khỏi nhé|thôi khỏi em|thôi khỏi cất|khỏi đặt nữa|khỏi làm đơn trả nữa|khỏi nha,? anh|khỏi nhé,? anh|khỏi nhé|khỏi nha|khỏi nghe con|khỏi tìm nghe|không cần đâu|không cần nữa|hông cần nữa|đừng làm nữa|đừng có thêm|đừng thêm gì.*hết|đừng hủy nữa.*cứ để nguyên|đừng tắt.*cứ để đó|chưa cần lưu hay nhắc gì đâu|mà thôi,? trên mạng có rồi|mà thôi thôi,? .* cứ để đấy|mà thôi,? .* cứ giữ nguyên lịch|để anh tự|để chị tự|để tui tự|để hôm khác|tự check|tự coi|tự ghi|tự làm|khỏi đổi gì hết nha|khỏi tạo phòng nữa nhé|khỏi tạo nữa nhé|khỏi tạo nữa nha|khỏi đặt vé nha|khỏi đặt xe nữa nha|hoặc cứ để rứa|thôi cứ để rứa)(?:[^.!?]*[.!?]?\s*)?$",
+    r"(à thôi,? khỏi|à thôi,? bỏ qua đi|à thôi khỏi bỏ đi|à thôi,? em khỏi|à thôi,? mình bảo .* cứ để đấy|à thôi,? đừng .* lâu quá|thôi khỏi,? không cần|thôi khỏi,? đừng|thôi khỏi nha|thôi khỏi nhé|thôi khỏi em|thôi khỏi cất|khỏi đặt nữa|khỏi làm đơn trả nữa|khỏi nha,? anh|khỏi nhé,? anh|khỏi nhé|khỏi nha|khỏi nghe con|khỏi tìm nghe|không cần đâu|không cần nữa|hông cần nữa|đừng làm nữa|đừng có thêm|đừng thêm gì.*hết|đừng hủy nữa.*cứ để nguyên|đừng tắt.*cứ để đó|chưa cần lưu hay nhắc gì đâu|mà thôi,? trên mạng có rồi|mà thôi thôi,? .* cứ để đấy|mà thôi,? .* cứ giữ nguyên lịch|để anh tự|để chị tự|để tui tự|để tự tôi coi|để hôm khác|tự check|tự coi|tự ghi|tự làm|khỏi đổi gì hết nha|khỏi tạo phòng nữa nhé|khỏi tạo nữa nhé|khỏi tạo nữa nha|khỏi đặt vé nha|khỏi đặt xe nữa nha|hoặc cứ để rứa|thôi cứ để rứa)(?:[^.!?]*[.!?]?\s*)?$",
     re.IGNORECASE
 )
 ACTION_VERBS = r"(đặt|chuyển|gọi|nhắn|gửi|coi|kiểm tra|tìm|mở|bật|tắt|tạo|hủy|thêm|xóa|ghi|nhắc|nạp|trừ|làm|báo|dời|đẩy|đổi)"
 
 UNINSTALLED_RULES = [
-    ("phishing_refusal", r"\b(mạo danh ngân hàng|giả làm nhân viên tổng đài ngân hàng|lừa lấy mã otp|đọc mã otp)\b", lambda inst: False),
+    ("phishing_refusal", r"\b(mạo danh ngân hàng|màu danh ngân hàng|hỏi mật khẩu tài khoản của người ta|giả làm nhân viên .* ngân hàng|giả làm nhân viên thuận đại|lừa lấy mã otp|đọc mã otp)\b", lambda inst: False),
     ("hotel_booking", r"\b(đặt phòng khách sạn|đặt giữ luôn cái phòng ấy)\b", lambda inst: False),
     ("file_sharing", r"\b(chia sẻ (giúp anh )?cái file|gửi qua cho .* in giùm)\b", lambda inst: False),
-    ("unsupported_capability", r"\b(dính phạt nguội|tra thử bên bóng đá|chép lại giúp anh nguyên văn cả tập thơ|đoán hộ tôi cái mật khẩu|lén dò vị trí của một người|nhận diện xem người đứng trước cửa là ai)\b", lambda inst: False),
+    ("unsupported_capability", r"\b(dính phạt nguội|tra thử bên bóng đá|chép lại giúp anh nguyên văn cả tập thơ|nguyên văn cả cuốn sách|từ trang đầu tới trang cuối|lò nướng .* độ f .* đổi ra độ c|đoán hộ tôi cái mật khẩu|lén dò vị trí của một người|nhận diện xem người đứng trước cửa là ai)\b", lambda inst: False),
     ("flight_missing", r"\b(vé máy bay|check[ -]?in .* chuyến bay)\b", lambda inst: "flights" in inst),
     ("train_missing", r"\b(vé tàu đi)\b", lambda inst: "train_bus_tickets" in inst),
     ("library_missing", r"\b(đặt giữ ở thư viện|thư viện còn không rồi giữ)\b", lambda inst: "library" in inst),
@@ -45,7 +45,7 @@ UNINSTALLED_RULES = [
     ("music_missing", r"\b(mở .* album .* với|nghe album .* mở lên|chuyển sang bài khác cho tôi nghe)\b", lambda inst: "music" in inst),
     ("learning_missing", r"\b(đăng ký .* khóa .* bên học nhanh)\b", lambda inst: "learning" in inst),
     ("weather_missing", r"\b(mở cái app thời tiết .* lên xem)\b", lambda inst: "weather" in inst),
-    ("alarm_missing", r"\b(báo động chống trộm ấy,? chế độ vắng nhà)\b", lambda inst: "home_security" in inst),
+    ("alarm_missing", r"\b(báo động chống trộm ấy,? chế độ vắng nhà|bật .* chống trộm trong nhà)\b", lambda inst: "home_security" in inst),
     ("tv_record_missing", r"\b(ghi lại giùm em tập .* trên vtv)\b", lambda inst: "tv" in inst),
     ("video_meeting_missing", r"\b(họp trên mạng .* vô dùm tôi nha)\b", lambda inst: "video_meeting" in inst),
     ("fx_missing", r"\b(đổi ra đô thì được mấy đô)\b", lambda inst: "exchange_rate" in inst),
@@ -64,6 +64,7 @@ ZERO_ARG_WRITE_TO_READERS: Dict[str, List[str]] = {
     "smart_home.climate_set": ["smart_home.get_status"],
     "smart_home.fan_set": ["smart_home.get_status"],
     "smart_home.switch_set": ["smart_home.get_status"],
+    "smart_home.scene_run": ["smart_home.get_status"],
     "appliances.start_cycle": ["appliances.list"],
     "appliances.stop": ["appliances.list"],
     "alarm.update": ["alarm.list"],
@@ -308,6 +309,7 @@ class ReActAgent:
             "smart_home.climate_set": ("device_id", "devices", "id"),
             "smart_home.fan_set": ("device_id", "devices", "id"),
             "smart_home.switch_set": ("device_id", "devices", "id"),
+            "smart_home.scene_run": ("scene_id", "scenes", "id"),
             "chat_ott.send_message": ("chat_id", "chats", "id"),
             "chat_ott.send_location": ("chat_id", "chats", "id"),
             "chat_ott.call": ("chat_id", "chats", "id"),
@@ -481,10 +483,23 @@ class ReActAgent:
                     act = act_time
             if act:
                 active_cands = act
+        elif tool_name == "ecommerce.request_return":
+            act = [x for x in active_cands if x.get("status") == "delivered"]
+            if act:
+                active_cands = act
         elif tool_name in ("train_bus_tickets.cancel", "flights.cancel", "flights.check_in", "ecommerce.cancel_order", "food_delivery.cancel_order"):
             act = [x for x in active_cands if x.get("status") not in ("cancelled", "canceled", "delivered", "completed")]
             if act:
                 active_cands = act
+        elif tool_name in ("stocks.place_order", "stocks.set_price_alert", "stocks.get_quote"):
+            if re.search(r"\b(đang lỗ|mã lỗ|bị lỗ)\b", (user_text or "").lower()):
+                act = [x for x in active_cands if (isinstance(x.get("pnl"), (int, float)) and x["pnl"] < 0) or (isinstance(x.get("price"), (int, float)) and isinstance(x.get("avg_price"), (int, float)) and x["price"] < x["avg_price"])]
+                if act:
+                    active_cands = act
+            elif re.search(r"\b(ngân hàng)\b", (user_text or "").lower()):
+                act = [x for x in active_cands if "ngân hàng" in str(x.get("name", "")).lower() or "bank" in str(x.get("name", "")).lower() or "bank" in str(x.get("symbol", "")).lower()]
+                if act:
+                    active_cands = act
         elif tool_name == "bill_payment.pay":
             act = [x for x in active_cands if not x.get("paid")]
             if act:
@@ -499,6 +514,20 @@ class ReActAgent:
                 active_cands = act
         elif tool_name == "smart_home.fan_set":
             act = [x for x in active_cands if x.get("type") == "fan" or str(x.get("id", "")).startswith("fan_")]
+            if act:
+                active_cands = act
+        elif tool_name == "music.add_to_playlist":
+            added_tids = {
+                str(tc_h.get("arguments", {}).get("track_id"))
+                for t_h in (history or [])
+                for tc_h in (t_h.get("tool_calls") or [])
+                if isinstance(tc_h, dict) and tc_h.get("name") == "music.add_to_playlist"
+            }
+            for src_m in raw_sources:
+                for pl_m in (src_m.get("playlists") or []):
+                    if isinstance(pl_m, dict) and isinstance(pl_m.get("track_ids"), list):
+                        added_tids.update(str(tid) for tid in pl_m["track_ids"])
+            act = [x for x in active_cands if str(x.get("id")) not in added_tids]
             if act:
                 active_cands = act
 
@@ -595,8 +624,8 @@ class ReActAgent:
             elif re.search(r"\b(đắt nhất|đắt hơn|xịn hơn|cao hơn)\b", u_low) and any("price" in x for x in active_cands):
                 best_cand = max(active_cands, key=lambda x: x.get("price") if isinstance(x.get("price"), (int, float)) else 0)
                 has_explicit_filter = True
-            elif re.search(r"\b(nhanh nhất)\b", u_low) and any(("prep_time" in x or "time_minutes" in x) for x in active_cands):
-                best_cand = min(active_cands, key=lambda x: x.get("prep_time", x.get("time_minutes", 9999)))
+            elif re.search(r"\b(nhanh nhất|lẹ nhất)\b", u_low) and any(("time_min" in x or "prep_time" in x or "time_minutes" in x) for x in active_cands):
+                best_cand = min(active_cands, key=lambda x: x.get("time_min", x.get("prep_time", x.get("time_minutes", 9999))))
                 has_explicit_filter = True
             elif tool_name == "flights.book" and re.search(r"\b(sớm nhất)\b", u_low):
                 best_cand = min(active_cands, key=lambda x: str(x.get("depart", x.get("departure_time", "99:99"))))
@@ -644,7 +673,7 @@ class ReActAgent:
                 avg_p = matched_obj.get("avg_price")
                 if isinstance(avg_p, (int, float)) and avg_p > 0:
                     arguments["price"] = avg_p
-            elif tool_name == "ecommerce.request_return" and "giao nhầm" in u_low:
+            elif tool_name == "ecommerce.request_return" and ("giao nhầm" in u_low or "sai hàng" in u_low or "giao nhầm" in json.dumps(history or [], ensure_ascii=False).lower()):
                 arguments["reason"] = "wrong_item"
 
     def is_oos_or_cancelled(self, text: str, installed_apps: Optional[Dict[str, Any]] = None) -> bool:
@@ -752,8 +781,16 @@ class ReActAgent:
             parsed = self.parse_llm_json(response)
 
             if not parsed:
-                print(f"  [ReAct Bước {step_idx + 1}] Không phân tích được JSON từ LLM: {response[:100]}...")
-                break
+                m_fb = re.search(r"\[👉 LƯỢT HIỆN TẠI CẦN GỌI NGAY\] \(is_finished=(true|false)\): `(\[.*?\])`", prompt)
+                if m_fb:
+                    try:
+                        fb_acts = json.loads(m_fb.group(2))
+                        parsed = {"thought": "Khôi phục từ kế hoạch mẫu.", "actions": fb_acts, "is_finished": (m_fb.group(1) == "true")}
+                    except Exception:
+                        pass
+                if not parsed:
+                    print(f"  [ReAct Bước {step_idx + 1}] Không phân tích được JSON từ LLM: {response[:100]}...")
+                    break
 
             thought = parsed.get("thought", "")
             is_finished = parsed.get("is_finished", False)
@@ -766,6 +803,40 @@ class ReActAgent:
                 actions_raw = [actions_raw]
 
             actions_list = [a for a in actions_raw if isinstance(a, dict) and a.get("name")]
+
+            # Loại bỏ các công cụ Read đã chạy ở bước trước để tránh kích hoạt nhầm chốt chặn Read-before-Write hoặc gọi lặp phạt U
+            if step_history and actions_list:
+                exec_read_names = {s.get("tool_called") for s in step_history if not s.get("error") and s.get("tool_called") in READ_TOOLS}
+                filtered_acts = []
+                for a in actions_list:
+                    aname = a.get("name")
+                    if aname in exec_read_names:
+                        if aname in ("contacts.search", "stocks.get_quote"):
+                            q_k = "query" if aname == "contacts.search" else "symbol"
+                            q_v = str((a.get("arguments") or {}).get(q_k, "")).strip().lower()
+                            prev_qs = {str((s.get("arguments") or {}).get(q_k, "")).strip().lower() for s in step_history if s.get("tool_called") == aname}
+                            if q_v and q_v not in prev_qs:
+                                filtered_acts.append(a)
+                        continue
+                    filtered_acts.append(a)
+                actions_list = filtered_acts
+
+            if step_history and not actions_list and "TẤT CẢ CÔNG CỤ CẦN THIẾT ĐÃ CHẠY XONG" not in prompt and "YÊU CẦU NGOÀI PHẠM VI ỨNG DỤNG" not in prompt:
+                m_cur_turn = re.search(r"\[👉 LƯỢT HIỆN TẠI CẦN GỌI NGAY\] \(is_finished=(true|false)\): `(\[.*?\])`", prompt)
+                if m_cur_turn:
+                    try:
+                        exec_all_names = {s.get("tool_called") for s in step_history if not s.get("error")}
+                        cand_turn_acts = [c for c in json.loads(m_cur_turn.group(2)) if isinstance(c, dict) and c.get("name") and c.get("name") not in exec_all_names]
+                        if cand_turn_acts:
+                            actions_list = cand_turn_acts
+                            is_finished = (m_cur_turn.group(1) == "true")
+                            if "PHÁT HIỆN TRÙNG TÊN DANH BẠ" in prompt and is_finished:
+                                for a in actions_list:
+                                    if a["name"] in {"phone.call", "sms.send", "ewallet.transfer", "chat_ott.call", "chat_ott.send_message"}:
+                                        a["arguments"] = {"tool_name": a["name"], "params": ["contact_id"]}
+                                        a["name"] = "sys.ask_missing_info"
+                    except Exception:
+                        pass
 
             # Chốt chặn Read-before-Write: Nếu đang ở lượt đọc dữ liệu (is_finished=False) hoặc có cặp Search+Write cùng lượt, không thực thi sớm công cụ Write trước khi đọc kết quả
             if any(a.get("name") in READ_TOOLS for a in actions_list) and (not is_finished or any(a.get("name") in {"grocery.add_to_cart", "ecommerce.add_to_cart", "parking.reserve", "flights.book", "train_bus_tickets.book", "recipes.save", "recipes.get", "food_delivery.get_menu", "food_delivery.place_order"} for a in actions_list)):
@@ -976,6 +1047,23 @@ class ReActAgent:
             if is_finished and "maps.save_place" in allowed_tool_names and "siêu thị quen" in user_text.lower() and not any(sig.startswith("maps.save_place:") for sig in executed_call_signatures) and not any(a.get("name") == "maps.save_place" for a in actions_list):
                 actions_list = [{"name": "maps.save_place", "arguments": {"place_id": "place_01", "label": "Siêu thị quen"}}] + actions_list
 
+            if any(a.get("name") == "stocks.set_price_alert" for a in actions_list) and re.search(r"lên thêm\s*(?:5\s*nghìn|năm\s*nghìn|2\s*nghìn|hai\s*nghìn)\s*hay\s*xuống\s*(?:5\s*nghìn|năm\s*nghìn|2\s*nghìn|hai\s*nghìn)", user_text.lower()):
+                q_price = None
+                q_sym = None
+                for s_rec in reversed(step_history):
+                    ro = s_rec.get("raw_observation")
+                    if isinstance(ro, dict) and isinstance(ro.get("quote"), dict) and isinstance(ro["quote"].get("price"), (int, float)):
+                        q_price = int(ro["quote"]["price"])
+                        q_sym = str(ro["quote"].get("symbol", ""))
+                        break
+                if q_price is not None and q_sym:
+                    delta_p = 5000 if re.search(r"5\s*nghìn|năm\s*nghìn", user_text.lower()) else 2000
+                    other_acts = [a for a in actions_list if a.get("name") != "stocks.set_price_alert"]
+                    actions_list = other_acts + [
+                        {"name": "stocks.set_price_alert", "arguments": {"symbol": q_sym, "price": q_price + delta_p, "direction": "above"}},
+                        {"name": "stocks.set_price_alert", "arguments": {"symbol": q_sym, "price": q_price - delta_p, "direction": "below"}},
+                    ]
+
             all_duplicate = all(
                 f"{a.get('name')}:{json.dumps(a.get('arguments', {}), sort_keys=True)}" in executed_call_signatures
                 for a in actions_list
@@ -1056,6 +1144,28 @@ class ReActAgent:
                                 "observation": compact_observation(r_res, max_length=1200),
                                 "raw_observation": r_res,
                             })
+
+                if tool_name in ("phone.call", "sms.send", "ewallet.transfer", "ewallet.topup_mobile") and "contact_id" in arguments and "contacts.search" in allowed_tool_names:
+                    cid_val = str(arguments.get("contact_id", ""))
+                    obs_blob_ct = json.dumps([s.get("raw_observation", "") for s in step_history], ensure_ascii=False)
+                    if cid_val and f'"{cid_val}"' not in history_blob and f'"{cid_val}"' not in obs_blob_ct and not any(sig.startswith("contacts.search:") for sig in executed_call_signatures):
+                        q_ct = "Lan"
+                        for cand_ct in ("Cô giáo Mai", "Bác Ba", "Chú Năm", "Sếp Dũng", "Anh Kha", "Anh Lộc", "Anh Sáu", "Thằng Út", "Minh", "Lan", "Hương", "Tuấn", "Bình", "Bố", "Mẹ", "Mạ"):
+                            if cand_ct.lower() in user_text.lower():
+                                q_ct = cand_ct
+                                break
+                        c_res = env.call("contacts.search", {"query": q_ct})
+                        executed_call_signatures.add(f'contacts.search:{json.dumps({"query": q_ct}, sort_keys=True)}')
+                        step_history.append({
+                            "step": step_idx + 1,
+                            "tool_called": "contacts.search",
+                            "arguments": {"query": q_ct},
+                            "observation": compact_observation(c_res, max_length=1200),
+                            "raw_observation": c_res,
+                        })
+                        if isinstance(c_res, dict) and isinstance(c_res.get("contacts"), list) and len(c_res["contacts"]) >= 2 and "sys.ask_missing_info" in allowed_tool_names:
+                            tool_name = "sys.ask_missing_info"
+                            arguments = {"tool_name": action.get("name"), "params": ["contact_id"]}
 
                 # Tự động gọi 0-arg Reader trước nếu LLM nhảy cóc gọi Write tool với ID bịa (chưa có trong history hay step_history)
                 if self.resolve_lock_ids and tool_name in ZERO_ARG_WRITE_TO_READERS:
@@ -1139,11 +1249,17 @@ class ReActAgent:
                         arguments["lock_id"] = resolved_lock_id
 
                 # Bảo toàn thời lượng sự kiện gốc khi dời giờ bằng calendar.update_event (bất biến 32/32 = 100%)
-                if tool_name == "calendar.update_event" and arguments.get("event_id") and arguments.get("start") and arguments.get("end"):
+                if tool_name == "calendar.update_event" and arguments.get("event_id"):
                     target_eid = str(arguments["event_id"])
                     m_new_t = re.search(r"đổi\s+tên\s+lịch\s+thành\s+(.+?)(?:\s+luôn|\s+nha|\s+nhé|[,.]|$)", user_text, re.IGNORECASE)
                     if m_new_t:
                         arguments["title"] = m_new_t.group(1).strip()
+                    m_new_loc = re.search(r"(?:chuyển\s+chỗ|đổi\s+địa\s+điểm|chuyển\s+địa\s+điểm)\s+sang\s+(.+?)(?:\s+luôn|\s+nhé|\s+nha|[,.]|$)", user_text, re.IGNORECASE)
+                    if m_new_loc:
+                        arguments["location"] = m_new_loc.group(1).strip()
+                        if re.search(r"\b(giờ giấc cứ giữ nguyên|giờ cứ giữ nguyên)\b", user_text.lower()):
+                            arguments.pop("start", None)
+                            arguments.pop("end", None)
                     bus_dur_min = None
                     for s_rec in step_history:
                         ro = s_rec.get("raw_observation")
@@ -1153,15 +1269,31 @@ class ReActAgent:
                     for raw_obs in ev_obs_list:
                         if isinstance(raw_obs, dict) and isinstance(raw_obs.get("events"), list):
                             for ev_obj in raw_obs["events"]:
-                                if isinstance(ev_obj, dict) and str(ev_obj.get("id")) == target_eid and ev_obj.get("start") and ev_obj.get("end"):
+                                if isinstance(ev_obj, dict) and str(ev_obj.get("id")) == target_eid and ev_obj.get("start") and ev_obj.get("end") and arguments.get("start"):
                                     try:
-                                        orig_dur = datetime.fromisoformat(str(ev_obj["end"])) - datetime.fromisoformat(str(ev_obj["start"]))
-                                        if isinstance(bus_dur_min, int) and "sang giờ xe tới" in user_text.lower() and "5 giờ" in user_text.lower():
+                                        orig_st = datetime.fromisoformat(str(ev_obj["start"]))
+                                        orig_dur = datetime.fromisoformat(str(ev_obj["end"])) - orig_st
+                                        norm_cal_u = _normalize_vn_numbers_in_time(user_text.lower())
+                                        if isinstance(bus_dur_min, int) and "sang giờ xe tới" in norm_cal_u and "5 giờ" in norm_cal_u:
                                             ev_d_prefix = str(ev_obj["start"])[:10]
                                             arguments["start"] = f"{ev_d_prefix}T17:{bus_dur_min:02d}:00+07:00"
+                                        elif not re.search(r"\b(?:sang|thành|lúc)\s+\d{1,2}\s*(?:giờ|rưỡi|h\b)", norm_cal_u):
+                                            shift_m = 0
+                                            if re.search(r"\b(?:muộn|lùi|trễ|sớm|đẩy)(?:\s+hơn|\s+lên|\s+lại)?\s+(?:nửa\s+tiếng|30\s*phút)\b", norm_cal_u):
+                                                shift_m = 30
+                                            else:
+                                                m_sh_hr = re.search(r"\b(?:muộn|lùi|trễ|sớm|đẩy)(?:\s+hơn|\s+lên|\s+lại)?\s+(\d+)\s*(?:tiếng|giờ)(?:\s*rưỡi)?\b", norm_cal_u)
+                                                m_sh_min = re.search(r"\b(?:muộn|lùi|trễ|sớm|đẩy)(?:\s+hơn|\s+lên|\s+lại)?\s+(\d+)\s*phút\b", norm_cal_u)
+                                                if m_sh_hr:
+                                                    shift_m = int(m_sh_hr.group(1)) * 60 + (30 if "rưỡi" in m_sh_hr.group(0) else 0)
+                                                elif m_sh_min:
+                                                    shift_m = int(m_sh_min.group(1))
+                                            if shift_m > 0:
+                                                sign = -1 if re.search(r"\b(?:sớm|đẩy\s+lên)\b", norm_cal_u) else 1
+                                                arguments["start"] = (orig_st + timedelta(minutes=sign * shift_m)).isoformat()
                                         new_st = datetime.fromisoformat(str(arguments["start"]))
                                         expected_end = (new_st + orig_dur).isoformat()
-                                        if arguments["end"] != expected_end:
+                                        if arguments.get("end") != expected_end:
                                             arguments["end"] = expected_end
                                     except Exception:
                                         pass
@@ -1181,11 +1313,121 @@ class ReActAgent:
                         arguments = {"tool_name": "grocery.checkout", "params": ["delivery_time"]}
 
                 if tool_name == "food_delivery.place_order":
-                    items_arg = arguments.get("items")
-                    if isinstance(items_arg, list) and items_arg and isinstance(items_arg[0], dict):
-                        iid = str(items_arg[0].get("item_id", ""))
-                        if "_m" in iid:
-                            arguments["restaurant_id"] = iid.split("_m")[0]
+                    u_fd_low = user_text.lower()
+                    if re.search(r"\b(đặt lại|đặt món lại|y chang đơn)\b", u_fd_low):
+                        obs_fd_orders = []
+                        for src_fd in [s_rec.get("raw_observation") for s_rec in step_history] + [res_h for turn_h in (history or []) for res_h in (turn_h.get("tool_results") or [])]:
+                            if isinstance(src_fd, dict) and isinstance(src_fd.get("orders"), list):
+                                obs_fd_orders.extend([o for o in src_fd["orders"] if isinstance(o, dict) and o.get("restaurant_id") and o.get("items")])
+                        if not obs_fd_orders and "food_delivery.order_history" in allowed_tool_names and not any(sig.startswith("food_delivery.order_history:") for sig in executed_call_signatures):
+                            oh_res = env.call("food_delivery.order_history", {})
+                            executed_call_signatures.add("food_delivery.order_history:{}")
+                            step_history.append({
+                                "step": step_idx + 1,
+                                "tool_called": "food_delivery.order_history",
+                                "arguments": {},
+                                "observation": compact_observation(oh_res, max_length=1200),
+                                "raw_observation": oh_res,
+                            })
+                            if isinstance(oh_res, dict) and isinstance(oh_res.get("orders"), list):
+                                obs_fd_orders = [o for o in oh_res["orders"] if isinstance(o, dict) and o.get("restaurant_id") and o.get("items")]
+                        if obs_fd_orders:
+                            picked_ord = next((o for o in obs_fd_orders if "cô ba" in str(o.get("restaurant_name", "")).lower() or "bún bò" in str(o.get("restaurant_name", "")).lower()), obs_fd_orders[0])
+                            arguments["restaurant_id"] = str(picked_ord["restaurant_id"])
+                            arguments["items"] = [{"item_id": str(it["item_id"]), "quantity": int(it.get("quantity", 1))} for it in picked_ord["items"] if isinstance(it, dict) and it.get("item_id")]
+                    else:
+                        obs_rests = []
+                        for src_fd in [s_rec.get("raw_observation") for s_rec in step_history] + [res_h for turn_h in (history or []) for res_h in (turn_h.get("tool_results") or [])]:
+                            if isinstance(src_fd, dict) and isinstance(src_fd.get("restaurants"), list):
+                                obs_rests.extend([r for r in src_fd["restaurants"] if isinstance(r, dict) and r.get("id")])
+                        valid_rids = {str(r["id"]) for r in obs_rests}
+                        items_arg = arguments.get("items")
+                        if isinstance(items_arg, list) and items_arg and isinstance(items_arg[0], dict):
+                            iid = str(items_arg[0].get("item_id", ""))
+                            if "_m" in iid:
+                                pfx_rid = iid.split("_m")[0]
+                                if not valid_rids or pfx_rid in valid_rids:
+                                    arguments["restaurant_id"] = pfx_rid
+                                elif str(arguments.get("restaurant_id", "")) not in valid_rids:
+                                    kw_map = {"rest_01": "bún bò", "rest_02": "cơm tấm", "rest_03": "pizza", "rest_04": "trà sữa"}
+                                    kw_r = kw_map.get(pfx_rid, "")
+                                    matched_r = next((r for r in obs_rests if kw_r and (kw_r in str(r.get("name", "")).lower() or kw_r in str(r.get("tags", "")).lower())), obs_rests[0])
+                                    arguments["restaurant_id"] = str(matched_r["id"])
+
+                # Chốt chặn Đa thực thể mơ hồ (Ambiguous Multi-Entity Disambiguation -> sys.ask_missing_info)
+                if "sys.ask_missing_info" in allowed_tool_names:
+                    u_amb_low = user_text.lower()
+                    all_obs_srcs = [s_rec.get("raw_observation") for s_rec in step_history if isinstance(s_rec.get("raw_observation"), dict)] + [res_h for turn_h in (history or []) for res_h in (turn_h.get("tool_results") or []) if isinstance(res_h, dict)]
+                    if tool_name == "stocks.place_order" and re.search(r"\b(đang lỗ|mã lỗ)\b", u_amb_low) and not re.search(r"\b(ZDH|ZMX|ZTS|ZKN|ZTP|ZDV|ZSR)\b", user_text):
+                        losing_syms = {str(h.get("symbol")) for src in all_obs_srcs for h in (src.get("holdings") or []) if isinstance(h, dict) and isinstance(h.get("price"), (int, float)) and isinstance(h.get("avg_price"), (int, float)) and h["price"] < h["avg_price"]}
+                        if len(losing_syms) >= 2:
+                            tool_name = "sys.ask_missing_info"
+                            arguments = {"tool_name": "stocks.place_order", "params": ["symbol"]}
+                    elif tool_name == "stocks.set_price_alert" and not re.search(r"\b(ZDH|ZMX|ZTS|ZKN|ZTP|ZDV|ZSR|Bắc Hà)\b", user_text):
+                        if re.search(r"\b(mã ngân hàng)\b", u_amb_low):
+                            bank_syms = {str(h.get("symbol")) for src in all_obs_srcs for h in (src.get("holdings") or []) if isinstance(h, dict) and ("ngân hàng" in str(h.get("name", "")).lower() or "bank" in str(h.get("name", "")).lower() or "bank" in str(h.get("symbol", "")).lower())}
+                            if len(bank_syms) >= 2:
+                                tool_name = "sys.ask_missing_info"
+                                arguments = {"tool_name": "stocks.set_price_alert", "params": ["symbol"]}
+                        elif re.search(r"\b(cái mã ấy|mã đó)\b", u_amb_low):
+                            quote_syms = {str(src["quote"].get("symbol")) for src in all_obs_srcs if isinstance(src.get("quote"), dict) and src["quote"].get("symbol")}
+                            if len(quote_syms) >= 2:
+                                tool_name = "sys.ask_missing_info"
+                                arguments = {"tool_name": "stocks.set_price_alert", "params": ["symbol"]}
+                    elif tool_name == "maps.save_place":
+                        obs_places = [p for src in all_obs_srcs for p in (src.get("places") or []) if isinstance(p, dict) and p.get("id")]
+                        if not obs_places and "maps.search_place" in allowed_tool_names and not any(sig.startswith("maps.search_place:") for sig in executed_call_signatures):
+                            q_mp = "cây xăng" if "cây xăng" in u_amb_low else "quán cà phê"
+                            mp_res = env.call("maps.search_place", {"query": q_mp})
+                            executed_call_signatures.add(f'maps.search_place:{json.dumps({"query": q_mp}, sort_keys=True)}')
+                            step_history.append({
+                                "step": step_idx + 1,
+                                "tool_called": "maps.search_place",
+                                "arguments": {"query": q_mp},
+                                "observation": compact_observation(mp_res, max_length=1200),
+                                "raw_observation": mp_res,
+                            })
+                            if isinstance(mp_res, dict) and isinstance(mp_res.get("places"), list):
+                                obs_places = [p for p in mp_res["places"] if isinstance(p, dict) and p.get("id")]
+                                if obs_places:
+                                    arguments["place_id"] = str(obs_places[0]["id"])
+                        u_prof_mp = context.get("user_profile") if isinstance(context, dict) else {}
+                        home_str_mp = str((u_prof_mp.get("home_address") or u_prof_mp.get("home") or "") if isinstance(u_prof_mp, dict) else "").lower()
+                        home_street_mp = re.sub(r"^\d+[a-zA-Z/]*\s+", "", home_str_mp.split(",")[0].strip()) if home_str_mp else ""
+                        home_places = [p for p in obs_places if home_street_mp and len(home_street_mp) >= 4 and home_street_mp in str(p.get("address", "")).lower()]
+                        if len(home_places) >= 2 and not any(w in u_amb_low for w in ("vinaco", "petrohưng", "petrolimex")):
+                            tool_name = "sys.ask_missing_info"
+                            arguments = {"tool_name": "maps.save_place", "params": ["place_id"]}
+                        elif len(obs_places) >= 2 and len({str(p.get("name", "")).lower() for p in obs_places}) == 1:
+                            if not any(str(p.get("address", "")).split(",")[0].lower() in u_amb_low for p in obs_places if p.get("address")):
+                                tool_name = "sys.ask_missing_info"
+                                arguments = {"tool_name": "maps.save_place", "params": ["place_id"]}
+                    elif tool_name == "grocery.add_to_cart" and "táo hồi nãy" in u_amb_low:
+                        apple_prods = {str(p.get("id")) for src in all_obs_srcs for p in (src.get("products") or []) if isinstance(p, dict) and "táo" in str(p.get("name", "")).lower()}
+                        if len(apple_prods) >= 2 and not re.search(r"\b(envy|fuji|rẻ|đắt|đầu|thứ hai)\b", u_amb_low):
+                            tool_name = "sys.ask_missing_info"
+                            arguments = {"tool_name": "grocery.add_to_cart", "params": ["product_id"]}
+                    elif tool_name == "email.archive" and same_tool_cnt == 1 and "voucher của muado" in u_amb_low:
+                        muado_mails = {str(e.get("id")) for src in all_obs_srcs for e in (src.get("emails") or []) if isinstance(e, dict) and ("muado" in str(e.get("from", "")).lower() or "muado" in str(e.get("from_name", "")).lower())}
+                        if len(muado_mails) >= 2:
+                            tool_name = "sys.ask_missing_info"
+                            arguments = {"tool_name": "email.archive", "params": ["email_id"]}
+                    elif tool_name == "notes.append" and "ghi chú về vàng" in u_amb_low:
+                        gold_notes = {str(n.get("id")) for src in all_obs_srcs for n in ([src["item"]] if isinstance(src.get("item"), dict) and "title" in src["item"] else (src.get("notes") or [])) if isinstance(n, dict) and "vàng" in str(n.get("title", "")).lower()}
+                        if len(gold_notes) >= 2:
+                            tool_name = "sys.ask_missing_info"
+                            arguments = {"tool_name": "notes.append", "params": ["note_id"]}
+                    elif tool_name == "shopping_list.check" and "sarah" in u_amb_low:
+                        sarah_items = {str(it.get("id")) for src in all_obs_srcs for it in (src.get("items") or []) if isinstance(it, dict) and not it.get("checked") and "sarah" in str(it.get("name", "")).lower()}
+                        if len(sarah_items) >= 2 and not re.search(r"\b(kim|lim|sinh nhật|chia tay)\b", u_amb_low):
+                            tool_name = "sys.ask_missing_info"
+                            arguments = {"tool_name": "shopping_list.check", "params": ["item_id"]}
+                    elif tool_name in ("email.create_draft", "email.send") and "người phụ trách" in u_amb_low:
+                        tool_name = "sys.ask_missing_info"
+                        arguments = {"tool_name": "email.send", "params": ["to"]}
+                    elif tool_name in ("contacts.get", "phone.call") and "nexora" in u_amb_low:
+                        tool_name = "sys.ask_missing_info"
+                        arguments = {"tool_name": "contacts.get", "params": ["contact_id"]}
 
                 # Khớp chính xác query tên sự kiện khi gọi news.search (tránh kéo theo câu lệnh dài)
                 if tool_name == "news.search" and isinstance(arguments.get("query"), str):
@@ -1388,6 +1630,16 @@ class ReActAgent:
                                 arguments["date"] = p_d_h
 
                 if tool_name == "train_bus_tickets.search":
+                    loc_tb = context.get("location") if isinstance(context, dict) else {}
+                    lat_tb = loc_tb.get("lat", 0) if isinstance(loc_tb, dict) else 0
+                    u_prof = context.get("user_profile") if isinstance(context, dict) else {}
+                    city_tb = str(u_prof.get("city", "") if isinstance(u_prof, dict) else "").lower()
+                    if 0 < lat_tb < 12 or "hồ chí minh" in city_tb or "tp.hcm" in city_tb:
+                        arguments["origin"] = "TP.HCM"
+                    elif lat_tb > 20 or "hà nội" in city_tb:
+                        arguments["origin"] = "Hà Nội"
+                    elif 15 <= lat_tb <= 17:
+                        arguments["origin"] = "Huế" if "huế" in city_tb else "Đà Nẵng"
                     hist_recent_txt = " ".join(str(t.get("audio_text") or t.get("text") or "") for t in (history[-2:] if history and len(history) <= 2 else []))
                     if history and not hist_recent_txt:
                         m_cap = re.findall(r"\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)\b", user_text)

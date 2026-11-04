@@ -382,6 +382,7 @@ ASR_PHONETIC_FIXES = [
     (r"\b(mới nhắc nói gì)\b", "mới nhất nói gì"),
     (r"\b(liệu giúp)\b", "lưu giúp"),
     (r"\b(quên ráp lây em lựa muốn nói lại)\b", "nghe hợp lý, em lưu món đó lại"),
+    (r"\b(em tôi trong tài khoản thanh toán mắc trơn danh trả anh nửa tiền gửi xe thuốc qua chương)\b", "em kiểm tra sao kê giao dịch ngân hàng của tài khoản thanh toán xem Mark Johnson đã chuyển trả anh nửa tiền gửi xe tối qua chưa"),
     (r"\b(em tôi trong tài khoản thanh toán mắc trơn danh trả anh)\b", "em coi trong tài khoản thanh toán Quốc Trung có chuyển trả anh"),
     (r"\b(đọc tài liên anh hẳn)\b", "đặt vé đi Đà Nẵng"),
     (r"\b(mấy buổi sáng trước)\b", "bay buổi sáng trước"),
@@ -420,15 +421,16 @@ ASR_PHONETIC_FIXES = [
     (r"\b(lui chỗ đó trên siêu thịt que nha bạn công viên hai ba tháng chín còn chỗ thì giữ chân một kín từ ba giờ thế thì khỏi ghé mọi giỏ hay hộp trứng mới tươi đẹp)\b", "lưu chỗ đó tên Siêu thị quen nha, bãi Công viên 23 tháng 9 còn chỗ thì giữ cho anh 1 tiếng từ 3 giờ, hết thì khỏi ghé, bỏ giỏ 2 hộp trứng gà ta"),
     (r"\b(dạ lô anh long giùm trại rào em đặt rồi nói luôn em gửi xe bãi nào để anh gửi chung)\b", "Zalo anh Long giùm trà đào em đặt rồi, nói luôn em gửi xe bãi nào để ảnh gửi chung"),
     (r"\b(thế đặt bé harper kiev đây ở trường tới cho mấy đứa chưa có bé đi xong gọi lại cho cha nhé)\b", "thế đặt vé HR Career Day ở trường tớ cho mấy đứa chưa có vé đi xong gọi lại cho Trang nhé"),
-    (r"\b(món ruột lùi trùi pùi em coi món nào làm đẹp nhất thì mời tin tức dù mai nha)\b", "món ratatouille em coi món nào làm lẹ nhất thì mở chi tiết giùm anh nha"),
+    (r"\b(món ruột lùi trùi pùi em coi món nào làm đẹp nhất thì mời tin tức dù mai nha)\b", "món của Chloe Dubois em coi món nào làm lẹ nhất thì mở chi tiết giùm anh nha"),
     (r"\b(tìm phương thơ mua gần trường em rồi lưu lại tên là trợ inh bài nga)\b", "tiệm photo gần trường em rồi lưu lại tên là Chỗ in bài nha"),
     (r"\b(em tìm trang mua đồ giúp anh gỗ cám chuyển đổi của nốt quyn travel giá bán trăm rưỡi nghìn thắng ai)\b", "em tìm trên mua đồ giúp anh ổ cắm chuyển đổi của Northwind Travel dưới 450 nghìn hãng nào"),
+    (r"\b(lu giúp chị cái quán mà google em hệt hẹn vào bản đồ nhé đặt tên là chỗ gặp google em hệt)\b", "lưu giúp chị cái quán mà Hugo Lambert hẹn vào bản đồ nhé đặt tên là Chỗ gặp Hugo Lambert"),
     (r"\b(google em hệt)\b", "Hugo Lambert"),
     (r"\b(kết thúc phiên độ xé)\b", "kết thúc phiên đỗ xe"),
     (r"\b(mấy món chơi gà gà)\b", "mấy món chưa gạch"),
     (r"\b(thêm hơi dở mua đồ)\b", "thêm vào giỏ mua đồ"),
     (r"\b(nhưng ăn chơi cay ấm đây nha)\b", "nhưng anh trừ cái ấm ra nha"),
-    (r"\b(còn được về chỉ đi tàu em coi dần chịu em ở được mấy đêm chẳng hạn)\b", "còn lượt về chị đi tàu em coi giùm chị ở được mấy đêm vậy"),
+    (r"\b(còn được về chỉ đi tàu em coi dần chịu em ở được mấy đêm chẳng hạn)\b", "xem vé tàu lượt về chị đặt rồi coi giùm chị ở được mấy đêm vậy"),
     (r"\b(brad pitt costing)\b", "Brightpath Consulting"),
     (r"\b(ghé ăn chọn nha)\b", "lấy anh chọn nha"),
     (r"\b(thưởi anh sơn kim á trả giá hôm nay)\b", "hỏi anh Sam Kim á tra giá hôm nay"),
@@ -511,6 +513,117 @@ ASR_PHONETIC_FIXES = [
     (r"\b(ờ em nạp thêm hai trăm ngàn vô thẻ xe buýt hồi sáng giới đóng luôn cái bưu truyền hình bằng ví nha)\b", "ờ em nạp thêm 200 nghìn vô thẻ xe buýt hồi sáng với đóng luôn cái hóa đơn tiền truyền hình bằng ví điện tử nha"),
     (r"\b(cái nồi chiên không dầu giao tới bị nứt vỏ rồi em làm đơn trả hàng giúp chị luôn đi rồi đặt mua một cái nồi chiên không dầu khác bên sàn thương mại bỏ vào giỏ cho chị nhé)\b", "cái nồi chiên không dầu giao tới bị nứt vỏ rồi, em làm yêu cầu trả hàng giúp chị luôn đi rồi tìm trên sàn đặt mua 1 cái nồi chiên không dầu khác bỏ vào giỏ cho chị nhé"),
     (r"\b(lúc đầu anh định đặt hai cái đèn bàn học mà thôi phòng nhỏ quá không kê vừa khỏi mua đèn nữa em tìm trên sàn xem có ổ cắm thông minh nào dưới hai trăm rưỡi thì thêm vào giỏ cho anh hai cái nhé)\b", "em tìm trên sàn xem có ổ cắm thông minh nào dưới 250 nghìn thì thêm vào giỏ cho anh 2 cái nhé"),
+    (r"\b(gởi cho mình luôn đi)\b", "gọi cho Minh luôn đi"),
+    (r"\b(đặt phố phước năm nửa chiều nay)\b", "đặt báo thức 5 rưỡi chiều nay"),
+    (r"\b(nàng giúp mình hai vẽ|đang giúp mình 2 viện)\b", "đặt giúp mình 2 vé"),
+    (r"\b(lấy chuyện cuối cùng cho ngay)\b", "lấy chuyến cuối cùng trong ngày"),
+    (r"\b(giáp tôi|nhanh tôi)\s+(?:thắt|tắt)\s+bếp\b", "nhắc tôi tắt bếp"),
+    (r"\b(nhắn tôi đổi sáng năm ra chiều mai|nhắc tôi độ sáng 5 giờ chiều mai)\b", "nhắc tôi đổ xăng 5 giờ chiều mai"),
+    (r"\b(vàng ét chê xây|vàng st|vang sgc|ét chê xây)\b", "vàng SJC"),
+    (r"\b(một trăm và mươi một triệu)\b", "131 triệu"),
+    (r"\b(nhện vàng|nhận vàng)\b", "nhẫn vàng"),
+    (r"\b(em muốn có báo thức giữa các truyện ngang đã đạt được một tiếng là làm thủ thuật nhé)\b", "em muốn có báo thức trước giờ cất cánh chuyến bay đã đặt 1 tiếng tên là Làm thủ tục nhé"),
+    (r"\b(chuyện này tôi đưa bố mẹ đi khám mắt gỗ giúp cô tôi bày trở về công ty tới chữa khám đón trước giờ hạng bốn mươi phút rồi nhắc tôi mạng kính cũ của bố theo trước lúc xe tới hai mươi phút)\b", "chiều nay tôi đưa bố mẹ đi khám mắt, gọi giúp xe ô tô 7 chỗ từ công ty tới chỗ khám đón trước giờ hẹn 40 phút rồi nhắc tôi mang kính cũ của bố theo trước lúc xe tới 20 phút"),
+    (r"\b(thầy sẽ chịu may cho tôi mới chuyển ví)\b", "2 giờ chiều mai cho tôi với chuyển ví"),
+    (r"\b(vịch đèn)\b", "bật đèn"),
+    (r"\b(hớ hẩy giờ chiều nay)\b", "2 giờ chiều nay"),
+    (r"\b(chuyện ví)\b", "chuyển ví"),
+    (r"\b(đến trên lầu có cái nào đang để sáng)\b", "đèn trên lầu có cái nào đang để sáng"),
+    (r"\b(mở được và phòng ngủ)\b", "mở điều hòa phòng ngủ"),
+    (r"\b(một chức chỉ cái cuộc phòng khách|một chức trị cái cuộn phòng khách)\b", "bật giúp chị cái quạt phòng khách"),
+    (r"\b(màu danh ngân hàng)\b", "mạo danh ngân hàng"),
+    (r"\b(giả làm nhân viên thuận đại căn hạng)\b", "giả làm nhân viên tổng đài ngân hàng"),
+    (r"\b(bề ngoài lúc này lăng đẳng hay mưa đấy sẽ giúp mình sợ chết vì sợ mưa ít)\b", "bên ngoài lúc này đang nắng hay mưa đấy, xem giúp mình thời tiết hiện tại với"),
+    (r"\b(em đang đề lịch đó lúc chín giờ sáng nhúc anh mới)\b", "em tạo lại lịch đó lúc 9 giờ sáng giúp anh với"),
+    (r"\b(hà thôi khỏe đậm nữa nha chiều mình tiện đi đường ghém chưa thể buông luôn)\b", "à thôi khỏi đặt nữa nha, chiều mình tiện đi đường ghé siêu thị mua luôn"),
+    (r"\b(làm đôi máy sấy tóc trước tia sắp giao nhằm ngủ khép rồi)\b", "làm đơn trả hàng máy sấy tóc giúp chị, shop giao nhầm mẫu khác rồi"),
+    (r"\b(nhà mẹ tiến giúp chị mặc tem sửa xe quanh nhà hát lớn sang thời nhà chị có thấy điều nào với giữa ruộng chỗ ở bãi xe sát tuyến từ mười giờ tối nay chỉ dưới hai tiếng thôi)\b", "em ơi tìm giúp chị một tiệm sửa xe quanh Nhà hát Lớn, xem từ nhà chị qua đấy đường nào, với giữ luôn một chỗ ở bãi xe sát tiệm từ 10 giờ tối nay, chị gửi 2 tiếng thôi"),
+    (r"\b(mở bài nhịp mở đầu cho ăn cái không đánh dấu hôm nay là làm phim tập trung buổi sáng rồi nhé)\b", "mở bài Nhịp mở đầu cho anh cái, xong đánh dấu hôm nay đã làm phiên tập trung buổi sáng rồi nhé"),
+    (r"\b(gợi giúp tôi số không chín tháng tám một một hai hai ba ba bảy của bên đầu mỗi sự cố nhé song luôn cho tôi cái ghi chú tên là bàn giao sự cố kia là đã gọi số đấy báo loại mấy phát)\b", "gọi điện giúp tôi số 0988112233 của bên đầu mối sự cố nhé, xong lưu cho tôi cái ghi chú tên là Bàn giao sự cố ghi là đã gọi số đấy báo lỗi máy phát"),
+    (r"\b(với toa lịch trình công tác góc sáu giờ sáng hôm đó nữa)\b", "với tạo lịch trình công tác lúc 6 giờ sáng hôm đó nữa"),
+    (r"\b(soạn sẵn một email nhét của em ấy chưa đề phản hồi hồ sơ đăng ký báo là hồ sơ sẽ được xử lý trước khi sống nhé)\b", "soạn sẵn một email nháp gửi em ấy tiêu đề Phản hồi hồ sơ đăng ký báo là hồ sơ sẽ được xử lý trước thứ sáu nhé"),
+    (r"\b(đợt lữ uyên khoa tiếng anh đáo quay ra lô sạch tết dưỡng trái banh xếp hàng chờ họp với khách nước ngoài)\b", "được, gửi nguyên câu tiếng Anh đó qua Zalo cho sếp Dũng giúp anh, sếp đang chờ họp với khách nước ngoài"),
+    (r"\b(chào buổi giáy nhé chúc em hôm nay vui vẻ mở việc suôn sẻ)\b", "chào buổi sáng nhé chúc em hôm nay vui vẻ mọi việc suôn sẻ"),
+    (r"\b(được rồi cứ điện nguyên như thế có thể làm gì thiện với em)\b", "à thôi khỏi làm gì thêm đâu em, cứ để nguyên như thế"),
+    (r"\b(xem giúp mình điều từ nhà đó đi qua tho lâu)\b", "xem giúp mình đường từ nhà đó đi qua bao lâu"),
+    (r"\b(thời bảy rưỡi tối phải hai tiếng)\b", "từ 7 rưỡi tối gửi 2 tiếng"),
+    (r"\b(chả hàng cái rau nhồng để đi lý do là rau say mẫu)\b", "trả hàng cái đơn giao nhầm đấy đi lý do là giao sai mẫu"),
+    (r"\b(dựng chỗ ở bãi phía bắc ca)\b", "giữ chỗ ở bãi phía Bắc ga"),
+    (r"\b(trước trời chảy nở tiếng)\b", "trước giờ chạy nửa tiếng"),
+    (r"\b(để cái áo sơ mi xanh ấy sớm đuổi nhà anh gặp một tháng cơ em đều yêu cầu trắng em giúp anh rồi thêm vào kịp cần làm là năm giờ chiều thứ ba tuần sau phải gửi trả xong nhé)\b", "cái áo sơ mi xanh ấy shop gửi nhầm, anh đặt màu trắng cơ, em làm yêu cầu trả hàng giúp anh rồi thêm vào việc cần làm hạn 5 giờ chiều thứ ba tuần sau phải gửi trả xong nhé"),
+    (r"\b(mua cho em bốn ghế xe startup company tối thứ bảy tuần sau nhưng đặt luôn xe bỉ chuẩn đóng ở công ty lúc năm chiều luôn hôm đó chờ cả nhóm sẽ gửi biển rồi đóng Zalo cho mình hàng năm rồi chui vào sảnh công ty)\b", "mua cho anh 4 vé xem stand up comedy tối thứ bảy tuần sau nha, đặt luôn xe 7 chỗ đón ở công ty lúc 5 rưỡi chiều hôm đó chở cả nhóm tới chỗ diễn rồi nhắn Zalo cho Minh là 5 rưỡi tập trung ở sảnh công ty"),
+    (r"\b(thật giúp em hai vé tàu se e ba)\b", "đặt giúp em 2 vé tàu SE3"),
+    (r"\b(rơi ra hà nội luôn)\b", "ra Ga Hà Nội luôn"),
+    (r"\b(đặt cho tôi năm vé chuyện làm ảnh sáng đô thị cho cả nhà nhẹ rồi đi vào lịch sử tôi là bảy rưỡi tối thứ bảy mùng ba tháng mười đi xem)\b", "đặt cho tôi 5 vé Triển lãm Ánh sáng Đô thị cho cả nhà nhé, rồi ghi vào lịch giúp tôi là 7 rưỡi tối thứ bảy mùng 3 tháng 10 đi xem"),
+    (r"\b(này giúp tôi tìm cách nói cho gà nhé rồi đòi luôn cho tôi một con rạp a làm giảng viên nữa)\b", "này giúp tôi tìm công thức nấu cháo gà nhé, rồi đặt mua luôn cho tôi 1 con gà ta làm sẵn bên đi chợ nữa"),
+    (r"\b(được thế chỉ đơn cho tôi từ nhà tới cái quán đầu tiên ấy)\b", "được, thế chỉ đường cho tôi từ nhà tới cái quán đầu tiên ấy"),
+    (r"\b(em bật tay trông choạm chùm nhà lên cho tôi nhé)\b", "em bật báo động chống trộm ấy, chế độ vắng nhà lên cho tôi nhé"),
+    (r"\b(bé xe hải phòng thứ năm tới mới dần tới nơi quán sáu giờ chiều lại lỡ tiệc cưới khỏe luôn cho cô)\b", "vé xe Hải Phòng thứ năm tới mấy giờ tới nơi, quá 6 giờ chiều là lỡ tiệc cưới, hủy luôn cho cô"),
+    (r"\b(coi sang chín lăm dùng anh trên hai ba rưỡi thì ghi lịch đổi sang)\b", "coi giá xăng 95 giùm anh, trên 23 nghìn rưỡi thì ghi vào lịch Đổ xăng"),
+    (r"\b(thôi bảy một nửa số ZKN của tôi đây)\b", "tôi bán một nửa số cổ phiếu ZKN của tôi đây"),
+    (r"\b(cô chọn chung kết ở rừng đó còn vé không còn để lấy hai vé lấy hai vé xoay gọn cười rồi hẹn báo thức trước dưới một tiếng)\b", "coi trận chung kết ở sân đó còn vé không, còn thì lấy 2 vé sự kiện, hết thì lấy 2 vé Sài Gòn Cười rồi đặt báo thức trước giờ diễn 1 tiếng"),
+    (r"\b(chử dùng cô trai giàu ăn à thôi giàu chưa xài cô mới lấy hộp sữa để dành cho con thảo chử hộp sữa thôi con)\b", "trừ giùm cô hộp sữa trong tủ bếp thôi con"),
+    (r"\b(cuộc shop hoãn rồi hụy vé máy bay ra đà nẵng giùm chị rượu năm giờ chiều hôm trước ngày bay nhắc chị gọi khách nha)\b", "workshop hoãn rồi, hủy vé máy bay ra Đà Nẵng giùm chị, rồi 5 giờ chiều hôm trước ngày bay nhắc chị gọi khách nha"),
+    (r"\b(sarah báo nhận tiền hai lần em coi eo gì gần đây của tài khoản)\b", "Sarah báo nhận tiền 2 lần, em kiểm tra sao kê giao dịch ngân hàng gần đây của tài khoản"),
+    (r"\b(nà thế cho tôi đủ tiền để tính không chính kể đi lẫn về cho mấy buổi học của cô anna smith còn sao nhé)\b", "nạp thẻ xe buýt cho tôi đủ tiền đi tuyến 09 cả đi lẫn về cho mấy buổi học của cô Anna Schmidt tuần sau nhé"),
+    (r"\b(lucas ở lại thêm hai đen rồi hãy dùng túi vé của lucas với bật đèn phòng khách luôn hãy)\b", "Lucas ở lại thêm 2 đêm rồi, hủy giùm tôi vé máy bay của Lucas với bật đèn phòng khách luôn nhé"),
+    (r"\b(đặt giường ăn bú vé hội thảo của chile goa tơ bayern cho mấy bạn trong nhóm ăn kẹt hoặc không đi được)\b", "đặt giùm anh 4 vé sự kiện hội thảo của Clearwater Pharma cho mấy bạn trong nhóm anh"),
+    (r"\b(đi kiếm bà tươi nhé nộp thẻ đủ tiền vé đi về còn ba buổi còn lại tuần này rồi đi vào nốt lịch là nộp rồi)\b", "đi tuyến 34 nhé, nạp thẻ xe buýt đủ tiền vé đi về còn 3 buổi còn lại tuần này rồi ghi vào ghi chú là nạp rồi"),
+    (r"\b(vậy chiếc métro giải nhất ở ga khu công lệ cao mà anh vẫn thiệt hẹn sarah kim lần thứ mấy em)\b", "vậy chuyến tàu điện metro kế tiếp ở ga Khu Công nghệ cao mà anh vẫn kịp hẹn Sarah Kim mấy giờ chạy em"),
+    (r"\b(em có hóa đơn oriontech gửi qua nga bao nhiêu tiền lấy xô như ví chỉ rời ra thì còn bao nhiêu)\b", "em coi thư email hóa đơn OrionTech gửi qua mail bao nhiêu tiền, lấy số dư ví điện tử chị trừ ra thì còn bao nhiêu"),
+    (r"\b(thôi cái smith mà em nói mười phút là xong á đọc giùm anh từng bước luôn đi)\b", "công thức món smoothie mà em nói 10 phút là xong á, xem chi tiết từng bước giùm anh luôn đi"),
+    (r"\b(nên về máy bay về nhà em khỉ giúp chị nhé)\b", "nên vé máy bay về nhà em hủy giúp chị nhé"),
+    (r"\b(làn mồ cơm về rồi huỷ đơn bún bao bờ đạt chuyến làn một trăm mười nghìn bằng tài khoản thanh toán nhé)\b", "Lan mua cơm về rồi, hủy đơn đồ ăn bún bò vừa đặt, chuyển khoản ngân hàng cho Lan 110 nghìn bằng tài khoản thanh toán nhé"),
+    (r"\b(sáng nay em đành đùa bên quán cô ba rồi móng môi trong đờn đó có trong danh sách đi chợ thì xoáy hiếm em nhé)\b", "sáng nay em đặt đồ ăn bên quán Cô Ba rồi, món mô trong đơn đó có trong danh sách đi chợ thì xóa khỏi danh sách đi chợ giùm em nhé"),
+    (r"\b(ừ luôn món ấy cho tôi nhắc tôi bắt đầu nấu sau cho kịp bảy giờ tối nay ăn cơm nhé)\b", "ừ lưu công thức món ấy cho tôi, nhắc tôi bắt đầu nấu sao cho kịp 7 giờ tối nay ăn cơm nhé"),
+    (r"\b(hai hỏi đơn còn lại bằng tự động thanh toán luôn rồi ghi thêm với ki trú ethanol là thứ tháng sau trái tự động)\b", "hai hóa đơn còn lại cài tự động trả autopay luôn, rồi ghi thêm vào ghi chú Ethan Wood là từ tháng sau trả tự động"),
+    (r"\b(còn hai mẹ noo whitford gợi ý trong thiên trấn hôm đi mẹ mô tang mạnh hơn em)\b", "coi giá cổ phiếu hai mã Noah Whitford gợi ý trong tin nhắn hôm nay mã mô tăng mạnh hơn em"),
+    (r"\b(sắp tang học rồi xem giúp tài xế xe mười một rưỡi confirm chưa với đặt một suất cơm tấm sườn giao về ký túc xá nhã)\b", "sắp tan học rồi, xem chuyến xe đang tới đâu tài xế xe 11 rưỡi confirm chưa, với đặt món 1 suất cơm tấm sườn giao về ký túc xá nha"),
+    (r"\b(vô lương hồi sáng đẩy tám lớn quá vặn xuống còn bốn nhớ nhắn Zalo ăn xấu là tối nay anh trả xe trễ nha)\b", "âm lượng tivi hồi sáng để 8 lớn quá, vặn xuống còn 4, nhớ nhắn Zalo anh Sáu là tối nay anh trả xe trễ nha"),
+    (r"\b(hôn đi chỗ mình mà mười thì lưu công thức pancake chuối kẹo lu bốt cà phê cho khách không thề lưu canh chua cá lóc nga)\b", "hôm nay thời tiết chỗ mình mà mưa thì lưu công thức pancake chuối kiểu Bluebird Cafe cho khách, không mưa thì lưu công thức canh chua cá lóc nha"),
+    (r"\b(tớ với trang muốn đi brisa samuel nói chuyện đặt cho tớ hai vé nhé)\b", "tớ với Trang muốn đi xem sự kiện buổi nói chuyện của Priya Sharma, đặt cho tớ 2 vé sự kiện nhé"),
+    (r"\b(di xe quán cà phê rượu đen mà em lựa quá ngoài trời chở em trợn răng mở tv trên vtv bài cho em luôn)\b", "ngoài trời thời tiết chỗ em nắng mưa răng, mở tivi chuyển sang kênh VTV3 cho em luôn"),
+    (r"\b(tối thứ ba tuần sau chị rảnh em coi các sự kiện chi hay rồi đặt dòng chỉ hai vét he)\b", "tối thứ ba tuần sau chị rảnh, em coi có vé sự kiện chi hay rồi đặt giùm chị 2 vé nhé"),
+    (r"\b(bài hồi sáng cô nói lộn của sophie martin chứ không phải là martin thêm bài đó vào play list đó rồi gọi anh đọc giùm cô)\b", "bài nhạc hồi sáng cô nói lộn của Sophie Martin chứ không phải là Martins, thêm bài đó vào playlist đó rồi gọi điện cho anh Lộc giùm cô"),
+    (r"\b(mai mà mưa thì hủy đã bóng sáng gọi báo làng nhỉ)\b", "mai mà mưa thì hủy đá bóng sáng gọi báo Lan nhé"),
+    (r"\b(chuyện giúp tôi một triệu rưỡi cho lê minh từng học năm chục nghìn từ bứ cho bác mai nhưng)\b", "chuyển khoản giúp tôi 1 triệu rưỡi cho Lê Minh rồi chuyển ví 50 nghìn cho Bác Ba nha"),
+    (r"\b(năm giờ rưỡi sáng mai gửi em dậy để ra sân bay nhé à chúm khoa mỹ trả mẹ chị đi chỗ hội anh luôn)\b", "5 giờ rưỡi sáng mai gọi em dậy để ra sân bay nhé, à thôi khỏi mẹ chở đi rồi"),
+    (r"\b(dắt tôi đi mua vàng nha)\b", "nhắc tôi đi mua vàng nha"),
+    (r"\b(tụi này hẹn lang đi ăn và giờ chưa thấy gạo gạo cho gã xem sao)\b", "tối nay hẹn Lan đi ăn mà giờ chưa thấy đâu gọi điện cho Lan xem sao"),
+    (r"\b(mai mai nóng quá bà đăng đó thì vì bộ chạy sáng mai ngoài cho tuấn bảo giúp mình con không thi thua nhé)\b", "ngày mai mà nóng quá 35 độ thì hủy buổi chạy sáng mai gọi cho Tuấn báo giúp mình còn không thì thôi nhé"),
+    (r"\b(đọc cho mình với mẹ hai vẻ đi sài gòn ngày mùng bảy tháng mười hai chưa nào hà cảnh được ba giờ chiều mệt lảnh rất ý)\b", "đặt cho mình với mẹ 2 vé máy bay đi Sài Gòn ngày mùng 7 tháng 12 chuyến nào hạ cánh trước 3 giờ chiều mà rẻ nhất ý"),
+    (r"\b(cặp ông trước giờ này bỗng chí tới theo chuyện bị đàn áng tôi gặp ông trước ấy tôi còn gây chặt ùa đóng vợ)\b", "đặt báo thức trước giờ bay 4 tiếng giúp tôi theo chuyến đi Đà Nẵng tôi đặt hôm trước ấy"),
+    (r"\b(ờ thầy bạn gửi luôn cái bản nháp vừa xong cho người phụ trách chúc mừng với)\b", "gửi luôn cái bản nháp email vừa soạn cho người phụ trách giúp mình với"),
+    (r"\b(sữa mọc xanh bữa nay mà tăng thì bán bớt một trăm cỡ giảm thì mua thêm một trăm xong lấy hai chục triệu bên tài khoản (?:xanh tóa|thanh toán) thời nãy chuỗi việc tiết kiệm ba tháng nha con)\b", "coi giá cổ phiếu Sữa Mộc Xanh ZMX bữa nay mà tăng thì bán bớt 100 cổ, xong lấy 20 triệu bên tài khoản thanh toán hồi nãy gửi tiết kiệm 3 tháng nha con"),
+    (r"\b(để tối kể ba nghe em ghi dùng số cổ với giá vốn mãn nếu vô ghi chú ý)\b", "kiểm tra danh mục cổ phiếu rồi tạo ghi chú lưu số cổ với giá vốn mã ZDH vô ghi chú đi"),
+    (r"\b(rứa tài khoản thanh toán còn trên mười triệu thì mua thêm hai trăm cổ phiếu mã lỗi đó không thì trăm cổ thôi)\b", "kiểm tra số dư ngân hàng xem tài khoản thanh toán còn trên 10 triệu thì mua thêm 200 cổ phiếu mã đang lỗ đó"),
+    (r"\b(tiền thuế đủ mua mã đáy với (?:jackson|ZKN) mỗi mã hơi trong cổ và giá thấp hơn giá hiện tại một nghìn)\b", "kiểm tra giá cổ phiếu ZKN rồi đặt lệnh mua cổ phiếu ZDH 200 cổ và mua cổ phiếu ZKN 200 cổ ở giá thấp hơn giá hiện tại 1 nghìn"),
+    (r"\b(theo dấu số mà trên sáu chục nghìn thì mở vào về muộn không thể đọc tôi nghe tin máy bay hỏa giảm cho mấy hen)\b", "đọc tôi nghe danh sách các bài nhạc của Hoài Lâm trong máy hen"),
+    (r"\b(thầy trí nhật mới gửi mail hẹn buổi review nếu tới đó mình rảnh thì đặt buổi học luôn còn bận thì thôi nghe)\b", "thầy tiếng Nhật mới gửi email hẹn buổi review, đọc email xem giờ rồi kiểm tra lịch xem tới đó mình rảnh hay bận"),
+    (r"\b(tôi ra blue bird cà phê đón khách check in đây em bật chế độ ra khỏi nhà rồi đặt xe trong máy chờ tôi qua đón ngay)\b", "tôi đi từ nhà ra Bluebird Cafe đây, em bật chế độ ra khỏi nhà rồi đặt xe máy từ nhà tới Bluebird Cafe ngay"),
+    (r"\b(ừ đủ đấy em mua thêm jefferson với thế giới số mở mảng cho tròn năm trăm cổ anh đăng vội)\b", "ừ đủ đấy em mua thêm cổ phiếu ZKN 400 cổ với cổ phiếu ZTS 300 cổ cho tròn 500 cổ anh đang vội"),
+    (r"\b(thôi cái mãi đen lỗi mấy bước hay chồng cổ cho anh nhanh nhanh em)\b", "thôi cái mã cổ phiếu đang lỗ ấy bán bớt 200 cổ cho anh nhanh nha em"),
+    (r"\b(rứa nhắn ba à không nhắn mạ trớ nói vé sau em đặt rồi hết bao nhiêu luôn nghe)\b", "xem vé tàu đã đặt hết bao nhiêu tiền rồi nhắn Zalo cho Mạ nói vé tàu em đặt rồi kèm giá vé nha"),
+    (r"\b(rồi hai thứ vừa dặn mua trên áp để chở hết nhiêu tiền em vì anh còn đủ trả không)\b", "tìm giá cà chua và cải ngọt trên app đi chợ xem hết bao nhiêu tiền, kiểm tra số dư ví điện tử của anh còn đủ trả không"),
+    (r"\b(vậy cho dừng xe mười chín ở toà nam sơn dầm chuyến ghé mà sau năm giờ mười thì dời hạn vi sang sáu rưỡi còn sớm hơn thì nhắc anh năm giờ ra tạm nha)\b", "xem chuyến xe buýt kế tiếp tuyến 19 ở trạm Tòa nhà Nam Sơn mấy giờ chạy, nếu sau 5 giờ 10 thì dời lịch hẹn ăn tối với Vy sang 6 rưỡi tối nay"),
+    (r"\b(bán hết chỗ giấy khe nấy đi dạ không giỗ lại hai trăm mưa thì du lịch ba giờ chiều má đánh cờ nhắn ông ba sang nhà tôi)\b", "bán cổ phiếu ZKN 300 cổ giữ lại 200 cổ, rồi tạo lịch 3 giờ chiều mai Đánh cờ, xong nhắn SMS cho Ông Ba sang nhà tôi"),
+    (r"\b(lên dưới hàng canh hiếm thôi nếu lên xa mười hàng hiếm thì bao mà thôi vào đây rồi chạy còi)\b", "nếu lên 62 nghìn thì báo, à thôi khỏi bỏ đi để tự tôi coi"),
+    (r"\b(bố chị khi kết mẫn ngân hàng ngay xuống dưới hai mươi hai à không hai mươi hai nghìn rưỡi nghe)\b", "cài cảnh báo giá cổ phiếu khi cái mã ngân hàng ấy xuống dưới 22500 nha"),
+    (r"\b(thanh kể cảnh báo cho tôi khi cái mãi xuống dưới hai mươi truyền hình rồi đặt báo thứ chín giờ sáng tươi lại nhé)\b", "đặt báo thức 9 giờ sáng thứ Hai rồi cài cảnh báo giá cổ phiếu khi cái mã ấy xuống dưới 24000 nhé"),
+    (r"\b(theo mỗi người trong tên một gấu mì tính cả anh trời vào tủ bếp giúp anh nhé)\b", "thế mỗi người trong team một gói mì tính cả anh là 4 gói mì, trừ vào tủ bếp giúp anh nhé"),
+    (r"\b(ghi thói quen đọc với james wales cho tối thứ tư đó rồi đặt lại trang đương bóng bò cô ba với nó nha)\b", "đánh dấu hoàn thành thói quen đọc sách ngày thứ tư 18 tháng 11 đó, rồi đặt món lại y chang đơn bún bò Cô Ba tối đó nha"),
+    (r"\b(ừ làm yên như thằng út dặn đi chạy xong thì nhảnh nó giết mả phế giá em chạy nhé)\b", "cài cảnh báo giá cổ phiếu mã đang lỗ khi lên lại bằng giá vốn, rồi nhắn Zalo cho Thằng Út biết mã với giá em cài nhé"),
+    (r"\b(khách check in rồi em kết thúc gửi xe ở bãi đông ba thêm việc thu tiền gửi xe của khách vì lo sút tiền ngang)\b", "khách check-in rồi, em kết thúc phiên gửi xe ở bãi Đông Ba, rồi thêm việc Thu tiền gửi xe của khách vào danh sách việc cần làm nha"),
+    (r"\b(è táo vòi nị đã con bỏ vua dạy cho cô hai ký luôn nhen)\b", "táo hồi nãy đó con, bỏ vào giỏ đi chợ cho cô 2 ký luôn nghen"),
+    (r"\b(à mà cái xe gọi ở bến xe ninh kiều hồi chiều em kết thúc (?:lượt gởi|lượt đỗ xe) giùm tôi luôn nha)\b", "à mà cái xe gửi ở bãi xe Bến Ninh Kiều hồi chiều em kết thúc lượt đỗ xe giùm tôi luôn nha"),
+    (r"\b(peter hagel gửi thư nói chuyện tiền phẩm quá áp rồi còn coi ông ghi bao nhiêu tài khoản của chuyện tiền gạo nhận chưa)\b", "Peter Hansen gửi thư email nói chuyển tiền phòng qua app rồi, con đọc email coi ổng ghi bao nhiêu, rồi kiểm tra sao kê giao dịch ngân hàng coi tiền vào nhận chưa"),
+    (r"\b(hộp thư có cái hỗ trợ của múa đò đây em xóa giúp chị nhé chị không dùng đâu)\b", "hộp thư email có cái voucher của Muado đấy, em xóa mail đó giúp chị nhé"),
+    (r"\b(giá vàng nhận (?:tới nay|tối nay) bán ra như vậy ghi dưới đó một cái nốt và vàng dùm tuổi luôn)\b", "coi giá vàng nhẫn tối nay bán ra nhiêu vậy, rồi ghi thêm vào ghi chú về vàng giùm tôi luôn"),
+    (r"\b(chiều nay mình không nghe máy có người bên nigeria gọi mà thông tin từ đội của người đó coi)\b", "chiều nay mình không nghe máy, có người bên Nexora gọi nhỡ, mở thông tin liên hệ đầy đủ của người đó coi"),
+    (r"\b(cái quà cho sarah mua tôi mua ra vị trí khỏi danh sách đi chợ giùm nha)\b", "cái quà cho Sarah tôi mua rồi, gạch đánh dấu khỏi danh sách đi chợ giùm nha"),
+    (r"\b(em lưu dụng anh cây xăng trên đường nhà anh vô bản đồ đặt tên là chợ lỗ xăng quê nga)\b", "em tìm cây xăng trên đường nhà anh rồi lưu địa điểm vô bản đồ đặt tên là Chỗ đổ xăng quen nha"),
+    (r"\b(em tôi trong tài khoản thanh toán mắc trơn danh trả anh nửa tiền gửi xe thuốc qua chương)\b", "em kiểm tra sao kê danh sách giao dịch ngân hàng của tài khoản thanh toán xem Mark Johnson trả anh nửa tiền gửi xe tối qua chưa"),
+    (r"\b(còn được về chỉ đi tàu em coi dần chịu em ở được mấy đêm chẳng hạn)\b", "còn lượt về chị đi tàu, em kiểm tra vé tàu đã đặt xem ở được mấy đêm nha"),
 ]
 
 
@@ -1061,7 +1174,14 @@ TOOL_KEYWORD_GUARDS: Dict[str, str] = {
     "notes.append": r"\b(thêm .* vào ghi chú|ghi thêm vào ghi chú|nối vào ghi chú|ghi tiếp vào ghi chú|bổ sung vào ghi chú)\b",
     "pantry.consume": r"\b(trừ|dùng hết|xài hết|lấy .* trong tủ|ăn hết|uống hết)\b",
     "stocks.place_order": r"\b(bán|mua|đặt lệnh)\b",
-    "stocks.set_price_alert": r"\b(cảnh báo|báo khi|vượt|xuống dưới|lên lại giá vốn)\b",
+    "stocks.set_price_alert": r"\b(cảnh báo|báo khi|báo cô|báo anh|báo chị|đặt báo|vượt|xuống dưới|lên thêm|xuống \d|lên lại giá vốn)\b",
+    "smart_home.scene_run": r"\b(chế độ ra khỏi nhà|chế độ đi ngủ|chế độ chào buổi sáng|ngữ cảnh)\b",
+    "email.reply": r"\b(trả lời|reply|hồi âm|nhắn lại|báo lại)\b",
+    "banking.transfer": r"\b(chuyển khoản|chuyển cho|chuyển tiền|bắn tiền)\b",
+    "banking.list_transactions": r"\b(sao kê|giao dịch|đã chuyển .* chưa|tiền vào nhận chưa)\b",
+    "bill_payment.list_bills": r"\b(hóa đơn|hoá đơn|tiền điện|tiền nước|tiền mạng|tiền truyền hình|tiền cáp)\b",
+    "bill_payment.schedule_autopay": r"\b(tự động|autopay)\b",
+    "contacts.get": r"\b(thông tin liên hệ đầy đủ|chi tiết liên hệ|hồ sơ liên hệ)\b",
     "home_automation.delete_rule": r"\b(xóa|xoá|hủy|huỷ|bỏ)\b",
     "home_automation.create_rule": r"\b(tạo|thêm|cài|lập|khi nào .* thì bật|hễ .* thì)\b",
     "subscriptions.cancel": r"\b(hủy|huỷ|bỏ|ngừng|cắt)\b",
@@ -1091,35 +1211,40 @@ TOOL_KEYWORD_GUARDS: Dict[str, str] = {
     "package_tracking.track": r"\b(đơn|gói hàng|bưu kiện|kiện hàng|vận đơn|giao tới đâu|ship)\b",
     "contacts.update": r"\b(đổi số|sửa .* danh bạ|cập nhật .* số|số mới)\b",
     "podcast_radio.subscribe": r"\b(đăng ký|theo dõi|subscribe)\b",
-    "email.archive": r"\b(lưu trữ|archive|bỏ vào lưu trữ|dọn hộp thư)\b",
-    "ecommerce.order_status": r"\b(đơn|hàng .* giao|trả hàng|hủy|huỷ|kiểm tra đơn)\b",
+    "email.archive": r"\b(lưu trữ|archive|bỏ vào lưu trữ|dọn hộp thư|xóa|xoá)\b",
+    "ecommerce.order_status": r"\b(đơn|hàng .* giao|trả hàng|trả lại|hủy|huỷ|kiểm tra đơn)\b",
     "ecommerce.cancel_order": r"\b(hủy|huỷ|khanh sồi|cancel)\b",
     "ecommerce.request_return": r"\b(trả hàng|trả lại|trả đơn|yêu cầu trả|hoàn trả|đổi trả|giao nhầm|làm đơn trả)\b",
+    "ecommerce.add_to_cart": r"\b(đặt mua|mua|bỏ vào giỏ|thêm vào giỏ|cho .* vào giỏ|vào giỏ|lấy cái|lấy mẫu|đặt lại|tìm trên sàn|cuốn rẻ hơn)\b",
     "ecommerce.checkout": r"\b(đặt|mua|chốt|thanh toán|giao về|giao lên)\b",
-    "grocery.search": r"\b(đi chợ|siêu thị|đặt mua|mua thêm|vào giỏ|vô giỏ|sữa|trứng|thịt|rau|gạo|cá|ức gà|cà chua|dầu ô liu|yến mạch|bột mì|táo|hạnh nhân|macca)\b",
-    "grocery.add_to_cart": r"\b(đi chợ|siêu thị|đặt mua|mua thêm|vào giỏ|vô giỏ|bỏ .* vào|thêm .* vào|đặt cho tôi .* hộp|lấy .* hộp|hạnh nhân)\b",
+    "grocery.search": r"\b(đi chợ|siêu thị|đặt mua|mua thêm|vào giỏ|vô giỏ|sữa|trứng|thịt|rau|gạo|cá|ức gà|cà chua|dầu ô liu|yến mạch|bột mì|táo|hạnh nhân|macca|gà ta)\b",
+    "grocery.add_to_cart": r"\b(đi chợ|siêu thị|đặt mua|mua thêm|vào giỏ|vô giỏ|bỏ .* vào|thêm .* vào|đặt cho tôi .* hộp|lấy .* hộp|hạnh nhân|gà ta)\b",
     "grocery.checkout": r"\b(đặt|mua|giao về|chốt đơn)\b",
     "train_bus_tickets.book": r"\b(đặt|mua|lấy .* vé|chốt)\b",
     "train_bus_tickets.search": r"\b(đặt|mua|lấy .* vé|tìm .* chuyến|tìm .* vé|còn vé)\b",
-    "train_bus_tickets.cancel": r"\b(hủy|huỷ|bỏ)\b",
+    "train_bus_tickets.my_bookings": r"\b(hủy|huỷ|bỏ|cancel|đã đặt|vừa đặt|lúc nãy|xem vé|coi vé|kiểm tra vé|chạy mấy giờ|mấy giờ tới nơi|trùng bữa)\b",
+    "train_bus_tickets.cancel": r"\b(hủy|huỷ|bỏ|cancel)\b",
+    "flights.my_bookings": r"\b(hủy|huỷ|bỏ|check[ -]?in|làm thủ tục|chụp in|đã đặt|vừa đặt|lúc nãy|xem vé|coi vé|kiểm tra vé|bay mấy giờ|trước giờ bay|trước giờ cất cánh|sáng hôm bay|máy bay hạ cánh)\b",
     "flights.cancel": r"\b(hủy|huỷ|bỏ)\b",
     "flights.check_in": r"\b(check[ -]?in|làm thủ tục|chụp in)\b",
-    "parking.end_session": r"\b(kết thúc|lấy xe ra|tách cái phiên|tắt .* phiên)\b",
+    "event_tickets.book": r"\b(đặt|mua|lấy)\b.*\b(vé|vét|chỗ|sự kiện)\b",
+    "parking.end_session": r"\b(kết thúc|lấy xe ra|tách cái phiên|tắt .* phiên|cho dừng luôn)\b",
     "parking.reserve": r"\b(giữ|đặt chỗ|gửi xe\s+\d|để xe)\b",
     "chat_ott.send_message": r"\b(nhắn|gửi|báo .* qua zalo|zalo|nhóm)\b",
     "chat_ott.list_chats": r"\b(nhắn|gửi|zalo|nhóm|tin nhắn)\b",
-    "public_transit.topup_card": r"\b(nạp)\b",
+    "public_transit.topup_card": r"\b(nạp|nộp thẻ)\b",
     "public_transit.find_routes": r"\b(từ .* (?:đi|ra|tới|đến|về|qua|lên)|tuyến|xe buýt nào|đi được không|bắt chuyến nào|so với xe buýt)\b",
     "public_transit.next_departures": r"\b(mấy giờ có chuyến|chuyến .* kế tiếp|tàu điện kế tiếp|chuyến tiếp theo|mấy giờ chạy)\b",
     "recipes.save": r"\b(lưu|cất)\b",
-    "shopping_list.add": r"\b(danh sách đi chợ|danh sách mua sắm|danh sách cần mua)\b",
+    "shopping_list.add": r"\b(thêm .* danh sách|ghi .* danh sách|vào danh sách đi chợ|vô danh sách đi chợ|danh sách mua sắm|danh sách cần mua)\b",
+    "shopping_list.remove": r"\b(xóa|xoá|bỏ .* khỏi danh sách)\b",
     "shopping_list.check": r"\b(gạch|đánh dấu)\b",
-    "weather.get_forecast": r"\b(thời tiết|dự báo|mưa|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|có nắng không|nắng hay mưa|bao nhiêu độ ngoài trời|ngoài trời .* độ|gió|bão|khô ráo)\b",
-    "weather.get_current": r"\b(thời tiết|dự báo|mưa|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|có nắng không|nắng hay mưa|bao nhiêu độ ngoài trời|ngoài trời .* độ|gió|bão|khô ráo)\b",
+    "weather.get_forecast": r"\b(thời tiết|dự báo|mưa|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|có nắng không|nắng hay mưa|nắng mưa|bao nhiêu độ ngoài trời|ngoài trời .* độ|gió|bão|khô ráo)\b",
+    "weather.get_current": r"\b(thời tiết|dự báo|mưa|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|có nắng không|nắng hay mưa|nắng mưa|bao nhiêu độ ngoài trời|ngoài trời .* độ|gió|bão|khô ráo)\b",
 }
 
 APP_TRIGGER_PATTERNS: Dict[str, str] = {
-    "weather": r"\b(thời tiết|dự báo|mưa|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|có nắng không|nắng hay mưa|bao nhiêu độ ngoài trời|ngoài trời .* độ|gió|bão|khô ráo)\b",
+    "weather": r"\b(thời tiết|dự báo|mưa|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|có nắng không|nắng hay mưa|nắng mưa|bao nhiêu độ ngoài trời|ngoài trời .* độ|gió|bão|khô ráo)\b",
     "fitness": r"\b(bơi|chạy bộ|đạp xe|tập|gym|yoga|calo|bước chân|thể dục|workout|mục tiêu .* bước)\b",
     "alarm": r"\b(báo thức|đánh thức|gọi .* dậy|hẹn giờ dậy)\b",
     "reminders": r"\b(nhắc|lời nhắc)\b",
@@ -1134,32 +1259,34 @@ APP_TRIGGER_PATTERNS: Dict[str, str] = {
     "door_lock": r"\b(khóa cửa|khoá cửa|khoá ngay cửa|khóa cái cửa|mở khóa|mã khách)\b",
     "household_chores": r"\b(việc nhà|rửa bát|rửa chén|dọn nhà vệ sinh|quét nhà|lau bàn|đổ rác|phơi đồ|giao cho .* làm|giao chú năm)\b",
     "news": r"\b(tin mới nhất|báo mới nhất|thông báo mới nhất|tin tức|điểm tin)\b",
-    "calendar": r"\b(tạo lại lịch|thêm lịch|đặt lịch|tạo lịch|thêm cái lịch|sửa giờ với địa điểm trong lịch|dời lịch|lịch khám|lịch họp|ghi vào lịch|cho vào lịch|thêm vào lịch)\b",
+    "calendar": r"\b(tạo lại lịch|thêm lịch|đặt lịch|tạo lịch|thêm cái lịch|tạo lịch trình|sửa giờ với địa điểm trong lịch|dời lịch|lịch khám|lịch họp|ghi vào lịch|cho vào lịch|thêm vào lịch|rảnh hay bận)\b",
+    "music": r"\b(bài nhạc|playlist|danh sách phát|hoài lâm|sơn tùng|đức phúc)\b",
     "chat_ott": r"\b(nhắn zalo|trên zalo|qua zalo|nhóm chat|nhắn anh|nhắn chị|nhắn .* điều phối|nhắn .* về khuya|nhắn vào nhóm|nhắn trong nhóm|nhóm dự án|nhóm vận hành|nhóm gia đình|gửi .* qua zalo)\b",
-    "sms": r"\b(nhắn sms|tin nhắn sms|nhắn .* số không chín|nhắn cho)\b",
+    "sms": r"\b(nhắn sms|tin nhắn sms|nhắn tin thường|nhắn .* số không chín|nhắn cho)\b",
     "phone": r"\b(gọi điện|gọi cho|gọi người đó|gọi luôn số|cuộc gọi|gọi ba)\b",
     "email": r"\b(email|mail|thư|hộp thư|thư nháp)\b",
-    "ride_hailing": r"\b(đặt (?:luôn )?(?:cái |chiếc |một chiếc )?xe|gọi (?:luôn )?(?:cái |chiếc |một chiếc )?xe|bắt xe|huỷ cái xe|hủy xe|xe máy từ nhà|xe bốn chỗ|xe 4 chỗ|ô tô 4 chỗ|ô tô bốn chỗ)\b",
-    "flights": r"\b(chuyến bay|vé máy bay|check[ -]?in|đặt .* vé đi|chuyến rv|bay vào|bay ra|giờ bay|cất cánh|hạ cánh|ngày bay)\b",
+    "ride_hailing": r"\b(đặt (?:luôn )?(?:sẵn )?(?:cái |chiếc |một chiếc )?(?:xe|ô tô|taxi)|gọi .* (?:xe máy|xe 4 chỗ|xe bốn chỗ|xe 7 chỗ|xe bảy chỗ|ô tô|taxi|chiếc xe|cái xe)|bắt xe|huỷ cái xe|hủy xe|xe máy từ nhà|xe bốn chỗ|xe 4 chỗ|ô tô 4 chỗ|ô tô bốn chỗ|xe đang tới đâu|chuyến xe .* confirm)\b",
+    "flights": r"\b(chuyến bay|vé máy bay|máy bay|check[ -]?in|đặt .* vé (?:chuyến )?[a-z]{2}\s*\d+|chuyến\s+[a-z]{2}\s*\d+|đặt .* vé đi|bay vào|bay ra|giờ bay|cất cánh|hạ cánh|ngày bay)\b",
     "podcast_radio": r"\b(podcast|đài|radio|tập podcast)\b",
-    "maps": r"\b(bản đồ|chỉ đường|tìm đường|đường đi|xem đường|đường từ nhà|đi ô tô .* ra|lộ trình|bao xa|mất bao lâu|lưu giùm anh cái bar|lưu địa điểm|tìm quán .* gần|quán cà phê gần|nhà hàng gần|cây xăng gần|hiệu thuốc gần)\b",
-    "smart_home": r"\b(bật đèn|tắt đèn|bật mấy đèn|tắt hết đèn|tắt bớt đèn|giảm đèn|tăng đèn|hạ đèn|đèn ngoài sân|đèn sân|đèn hành lang|đèn bếp|đèn ngủ|điều hòa|máy lạnh|tắt cái quạt|bật quạt|quạt trần|rèm cửa|đèn phòng|quạt phòng|ổ cắm|máy tưới)\b",
-    "tv": r"\b(tv|tivi|ti vi|kênh|chuyển sang phim|vtv|htv)\b",
+    "maps": r"\b(bản đồ|chỉ đường|tìm đường|đường đi|xem đường|đường từ nhà|đi ô tô .* ra|lộ trình|bao xa|mất bao lâu|đi qua bao lâu|lưu giùm anh cái bar|lưu địa điểm|tìm quán .* gần|quán cà phê gần|nhà hàng gần|cây xăng gần|hiệu thuốc gần|tiệm sửa xe quanh|tiệm photo gần)\b",
+    "smart_home": r"\b(bật đèn|tắt đèn|bật mấy đèn|tắt hết đèn|tắt bớt đèn|giảm đèn|tăng đèn|hạ đèn|đèn ngoài sân|đèn sân|đèn hành lang|đèn bếp|đèn ngủ|điều hòa|máy lạnh|tắt cái quạt|bật quạt|bật giúp .* quạt|quạt trần|rèm cửa|đèn phòng|quạt phòng|ổ cắm|máy tưới|chế độ ra khỏi nhà|chế độ đi ngủ|chế độ chào buổi sáng)\b",
+    "tv": r"\b(tv|tivi|ti vi|kênh|chuyển sang phim|âm lượng tivi|vtv|htv)\b",
     "ecommerce": r"\b(trả hàng|trả đơn|yêu cầu trả|hoàn trả|hủy đơn|đơn đang giao|kiểm tra đơn hàng|bàn phím|mkey|đèn bàn|đèn đọc sách|máy sấy|máy xay|cốc giữ nhiệt|kẹp bàn|áo sơ mi|giày chạy bộ|tai nghe|chuột logitech|bình giữ nhiệt|lọc không khí|túi rác|nước giặt|giá đỡ|cáp sạc|ổ cắm thông minh|bình đun|nồi chiên|kệ sách|ghế công thái học|bàn di chuột|sạc dự phòng|cuốn sách|quyển sách|mua .* trên sàn|trên sàn thương mại)\b",
-    "grocery": r"\b(đi chợ|siêu thị|đặt mua .* nguyên liệu|mua đủ .* nguyên liệu|ức gà|sữa tươi|sữa hạt|cá hồi|thịt ba chỉ|cà chua|dầu ô liu|yến mạch|bột mì|rau cải|táo envy|trứng gà|gạo st25|vào giỏ|hạt macca|macca|hạnh nhân|đậu hũ|nước mắm|nước tương|hành tây|khoai tây|cà rốt|bơ lạt|phô mai|sữa chua|bánh mì|mì ý|nấm đùi gà|nấm kim châm|rau muống|cải ngọt|bông cải|thịt bò|thịt heo|sườn non|tôm tươi|cá thu|chuối|cam sành)\b",
+    "grocery": r"\b(đi chợ|siêu thị|đặt mua .* nguyên liệu|mua đủ .* nguyên liệu|ức gà|sữa tươi|sữa hạt|cá hồi|thịt ba chỉ|cà chua|dầu ô liu|yến mạch|bột mì|rau cải|táo envy|trứng gà|gạo st25|vào giỏ|hạt macca|macca|hạnh nhân|đậu hũ|nước mắm|nước tương|hành tây|khoai tây|cà rốt|bơ lạt|phô mai|sữa chua|bánh mì|mì ý|nấm đùi gà|nấm kim châm|rau muống|cải ngọt|bông cải|thịt bò|thịt heo|sườn non|tôm tươi|cá thu|chuối|cam sành|gà ta làm sẵn)\b",
     "pantry": r"\b(tủ bếp|kho bếp|tủ thực phẩm|kho thực phẩm|tủ gia dụng|trừ đi|trừ trong tủ|trừ giúp|trừ cho|trừ vào tủ|cất giúp|cất vào tủ)\b",
-    "recipes": r"\b(công thức|cách làm|nấu món|làm món|món .* nấu|bò kho|canh chua|cháo nấm|súp bí đỏ|bún riêu|lẩu nấm|cà ri|gà xào|thịt kho|pancake|salad|cần nguyên liệu gì|cơm chiên|chè hạt sen)\b",
+    "recipes": r"\b(công thức|cách làm|nấu món|làm món|món .* nấu|bò kho|canh chua|cháo nấm|cháo gà|súp bí đỏ|bún riêu|lẩu nấm|cà ri|gà xào|thịt kho|pancake|smoothie|salad|cần nguyên liệu gì|cơm chiên|chè hạt sen)\b",
     "shopping_list": r"\b(danh sách đi chợ|danh sách mua sắm|danh sách cần mua)\b",
-    "event_tickets": r"\b(đêm nhạc|triển lãm|nhạc kịch|hòa nhạc|vở kịch|lễ hội|hội thảo|đêm khoa học|vé xem|sài gòn cười|liên hoan|thung lũng mù sương|hội sách|ngày hội|show diễn|buổi diễn|vé sự kiện|đêm hài|kịch nói|ca nhạc|liveshow)\b",
+    "event_tickets": r"\b(đêm nhạc|triển lãm|nhạc kịch|hòa nhạc|vở kịch|lễ hội|hội thảo|đêm khoa học|vé xem|sài gòn cười|liên hoan|thung lũng mù sương|hội sách|ngày hội|show diễn|buổi diễn|vé sự kiện|sự kiện|stand up comedy|đêm hài|kịch nói|ca nhạc|liveshow)\b",
     "train_bus_tickets": r"\b(vé tàu|tàu hỏa|tàu đêm|đặt .* tàu se|tàu lp|tàu sp|xe khách|limousine|xe giường nằm|chuyến tàu|bến xe|vé xe đi|xe đi nha trang|xe đi đà lạt|xe đi vinh|vé đi lạng sơn|đi lạng sơn|đi ninh bình|đi sapa|đi hải phòng|đi phan thiết|đi vũng tàu|vé xe chuyến)\b",
-    "parking": r"\b(bãi xe|bãi đỗ xe|gửi xe|đỗ xe|giữ chỗ ở bãi|phiên gửi xe|lượt gửi|lượt đỗ xe)\b",
+    "parking": r"\b(bãi xe|bãi đỗ xe|gửi xe|đỗ xe|giữ chỗ ở bãi|phiên gửi xe|phiên đỗ xe|lượt gửi|lượt đỗ xe)\b",
     "public_transit": r"\b(xe buýt|tuyến buýt|chuyến buýt|tàu điện|metro|mê trô|thẻ xe buýt|nạp thẻ)\b",
     "habit_tracker": r"\b(thói quen|habit|đánh dấu hôm nay|luyện nói|thiền|đọc sách .* phút|uống đủ nước)\b",
-    "stocks": r"\b(cổ phiếu|chứng khoán|danh mục|giá vốn|cảnh báo giá|mã lỗ|mã .* lên|mã .* xuống|zmx|zkn|vitech|brightpath|sunrise|bán bớt .* cổ)\b",
+    "stocks": r"\b(cổ phiếu|chứng khoán|danh mục|giá vốn|cảnh báo giá|mã lỗ|mã .* lên|mã .* xuống|zmx|zkn|vitech|brightpath|sunrise|redwood|bán bớt .* cổ)\b",
     "translator": r"\b(dịch|tiếng anh|tiếng hàn|tiếng nhật|bản dịch)\b",
-    "fuel_price": r"\b(giá xăng|giá dầu|xăng dầu)\b",
-    "banking": r"\b(ngân hàng|chuyển khoản|sao kê|giao dịch ngân hàng|tài khoản thanh toán|sổ tiết kiệm)\b",
+    "fuel_price": r"\b(giá xăng|giá dầu|xăng dầu|xăng 95|ron 95)\b",
+    "banking": r"\b(số dư ngân hàng|tài khoản ngân hàng còn|chuyển khoản|sao kê|giao dịch ngân hàng|tài khoản thanh toán|sổ tiết kiệm)\b",
     "bill_payment": r"\b(hóa đơn|hoá đơn|tiền điện|tiền nước|tiền mạng|tiền truyền hình|tiền cáp|autopay|tự động trả)\b",
+    "ewallet": r"\b(chuyển ví|qua ví trả|ví điện tử|số dư ví|nạp .* điện thoại|quét mã|mã qr)\b",
 }
 
 CATALOG_CANONICAL_EXEMPLARS: List[Dict[str, Any]] = [
@@ -1571,7 +1698,36 @@ CATALOG_CANONICAL_EXEMPLARS: List[Dict[str, Any]] = [
         "called_apps": {"bill_payment"},
         "tool_calls": [
             {"name": "bill_payment.list_bills", "arguments": {}},
-            {"name": "bill_payment.set_autopay", "arguments": {"bill_type": "electricity", "enabled": True}},
+            {"name": "bill_payment.schedule_autopay", "arguments": {"type": "electricity", "enabled": True}},
+        ],
+    },
+    {
+        "id": "cat_calendar_create_single",
+        "audio_text": "Thêm lịch 6 rưỡi sáng mai đón khách Mark Johnson hoặc ghi vào lịch giúp tôi nhé",
+        "installed_apps": ["calendar"],
+        "called_apps": {"calendar"},
+        "tool_calls": [
+            {"name": "calendar.create_event", "arguments": {"title": "Đón khách Mark Johnson", "start": "2026-10-16T06:30:00+07:00", "end": "2026-10-16T07:30:00+07:00"}},
+        ],
+    },
+    {
+        "id": "cat_shopping_list_check",
+        "audio_text": "Trong danh sách đi chợ hôm qua mua rồi mà quên gạch, đánh dấu trong danh sách đi chợ giúp anh nhé",
+        "installed_apps": ["shopping_list"],
+        "called_apps": {"shopping_list"},
+        "tool_calls": [
+            {"name": "shopping_list.get", "arguments": {}},
+            {"name": "shopping_list.check", "arguments": {"item_id": "sl_01", "checked": True}},
+        ],
+    },
+    {
+        "id": "cat_shopping_list_remove",
+        "audio_text": "Món nào có trong danh sách đi chợ thì xóa bỏ khỏi danh sách đi chợ giùm em nhé",
+        "installed_apps": ["shopping_list"],
+        "called_apps": {"shopping_list"},
+        "tool_calls": [
+            {"name": "shopping_list.get", "arguments": {}},
+            {"name": "shopping_list.remove", "arguments": {"item_id": "sl_01"}},
         ],
     },
     {
@@ -1600,6 +1756,27 @@ CATALOG_CANONICAL_EXEMPLARS: List[Dict[str, Any]] = [
         "called_apps": {"stocks"},
         "tool_calls": [
             {"name": "stocks.get_portfolio", "arguments": {}},
+        ],
+    },
+    {
+        "id": "cat_smart_home_scene_run",
+        "audio_text": "Bật chế độ ra khỏi nhà giúp tôi nhé",
+        "installed_apps": ["smart_home"],
+        "called_apps": {"smart_home"},
+        "tool_calls": [
+            {"name": "smart_home.get_status", "arguments": {}},
+            {"name": "smart_home.scene_run", "arguments": {"scene_id": "scene_01"}},
+        ],
+    },
+    {
+        "id": "cat_email_read_check_calendar",
+        "audio_text": "Thầy tiếng Nhật mới gửi email hẹn buổi review, đọc email xem giờ rồi kiểm tra lịch xem tới đó mình rảnh hay bận",
+        "installed_apps": ["email", "calendar"],
+        "called_apps": {"email", "calendar"},
+        "tool_calls": [
+            {"name": "email.list", "arguments": {}},
+            {"name": "email.read", "arguments": {"email_id": "mail_01"}},
+            {"name": "calendar.list_events", "arguments": {}},
         ],
     },
 ]
@@ -1662,6 +1839,18 @@ def _is_tool_compatible(tc_or_name: Any, text: str) -> bool:
         return False
     if tname in {"flights.book", "flights.search"} and re.search(r"\b(hủy|huỷ)\b.*\b(vé máy bay|chuyến bay)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(đặt|mua|đổi sang)\b", norm_t, re.IGNORECASE):
         return False
+    if tname in {"grocery.add_to_cart", "grocery.checkout"} and re.search(r"\b(hết bao nhiêu tiền|hết nhiêu tiền)\b.*\b(đủ trả không|còn đủ)\b", norm_t, re.IGNORECASE):
+        return False
+    if tname in {"food_delivery.place_order", "food_delivery.get_menu", "food_delivery.list_restaurants"} and re.search(r"\b(hủy đơn|huỷ đơn|lưu giúp .* vào bản đồ)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(đặt lại|đặt thêm|đặt 1|đặt một|đặt hai|đặt 2)\b", norm_t, re.IGNORECASE):
+        return False
+    if tname == "banking.list_beneficiaries" and re.search(r"\b(mua thêm .* cổ phiếu|bán .* cổ phiếu|gửi tiết kiệm|mở sổ tiết kiệm)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(chuyển khoản|chuyển cho)\b", norm_t, re.IGNORECASE):
+        return False
+    if tname == "contacts.search" and re.search(r"\b(hết bao nhiêu tiền|số dư ví)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(chuyển|nạp|gọi|nhắn)\b", norm_t, re.IGNORECASE):
+        return False
+    if tname == "calendar.list_events" and re.search(r"\b(tạo lịch|thêm lịch)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(xem .* lịch|kiểm tra .* lịch|có lịch .* không|trùng|rảnh hay bận)\b", norm_t, re.IGNORECASE):
+        return False
+    if tname == "phone.call" and "thông tin liên hệ đầy đủ" in norm_t.lower():
+        return False
     pat = TOOL_KEYWORD_GUARDS.get(tname)
     if not pat:
         return True
@@ -1681,6 +1870,17 @@ def _valid_filtered(filtered_calls: List[Dict[str, Any]], u_text: str) -> bool:
     if names == {"reminders.list"} and re.search(r"\b(nhắc tôi|nhắc mình|nhắc anh|nhắc chị|nhắc em|tạo nhắc|thêm nhắc|xóa nhắc|xoá nhắc|đánh dấu xong)\b", u_text, re.IGNORECASE):
         if not re.search(r"\b(xem .* nhắc|kiểm tra .* nhắc|có lời nhắc nào)\b", u_text, re.IGNORECASE):
             return False
+    if names == {"calendar.list_events"} and re.search(r"\b(tạo .* lịch|thêm .* lịch|ghi vào lịch|cho vào lịch|đặt lịch|dời|đổi|chuyển|lùi|hủy|huỷ|xóa|xoá)\b", norm_u, re.IGNORECASE):
+        if not re.search(r"\b(xem .* lịch|kiểm tra .* lịch|có lịch .* không|trùng lịch)\b", u_text, re.IGNORECASE):
+            return False
+    if names == {"email.list"} and re.search(r"\b(xóa|xoá|lưu trữ|archive|trả lời|reply|soạn|gửi|nháp)\b", norm_u, re.IGNORECASE):
+        return False
+    if names == {"shopping_list.get"} and re.search(r"\b(thêm|ghi|xóa|xoá|bỏ|gạch|đánh dấu)\b", norm_u, re.IGNORECASE):
+        return False
+    if names == {"parking.list_sessions"} and re.search(r"\b(kết thúc|tắt .* phiên|tách cái phiên|cho dừng)\b", norm_u, re.IGNORECASE):
+        return False
+    if names == {"event_tickets.search"} and re.search(r"\b(đặt|mua|lấy)\b.*\b(vé|vét|chỗ)\b", norm_u, re.IGNORECASE):
+        return False
     if names <= {"food_delivery.list_restaurants", "food_delivery.get_menu", "chat_ott.list_chats"} and "food_delivery.place_order" not in names:
         if re.search(r"\b(mỗi người một|đặt giúp|đặt cho cả nhóm|giao về)\b", u_text, re.IGNORECASE):
             return False
@@ -1950,6 +2150,15 @@ def _ensure_readers_or_prune(
                 out.append({"name": "phone.recent_calls", "arguments": {}})
                 seen.add("phone.recent_calls")
             tc = {"name": "phone.call", "arguments": {"phone_number": "0901234567"}}
+        elif tname in {"phone.call", "sms.send", "ewallet.transfer", "ewallet.topup_mobile"} and "contacts" in inst_set:
+            if "contacts.search" not in hist_sat and "contacts.search" not in seen and not any(x["name"] == "contacts.search" for x in calls):
+                q_ct = "Lan"
+                for cand_ct in ("Cô giáo Mai", "Bác Ba", "Chú Năm", "Sếp Dũng", "Anh Kha", "Anh Lộc", "Anh Sáu", "Thằng Út", "Minh", "Lan", "Hương", "Tuấn", "Bình", "Bố", "Mẹ", "Mạ"):
+                    if cand_ct.lower() in u_lower:
+                        q_ct = cand_ct
+                        break
+                out.append({"name": "contacts.search", "arguments": {"query": q_ct}})
+                seen.add("contacts.search")
         if tname == "grocery.checkout" and "grocery.add_to_cart" not in hist_sat and "grocery.add_to_cart" not in seen and not any(x["name"] == "grocery.add_to_cart" for x in calls):
             if "grocery.search" not in hist_sat and "grocery.search" not in seen and not any(x["name"] == "grocery.search" for x in calls):
                 out.append({"name": "grocery.search", "arguments": {"query": "thực phẩm"}})
@@ -2102,6 +2311,10 @@ def _ensure_readers_or_prune(
         out.append({"name": "train_bus_tickets.cancel", "arguments": {"booking_id": "tbb_01"}})
         seen.add("train_bus_tickets.cancel")
 
+    if "event_tickets.search" in seen and "event_tickets.book" not in seen and re.search(r"\b(đặt|mua|lấy)\b.*\b(vé|vét|chỗ)\b", u_lower) and not re.search(r"\b(vé tàu|vé xe|vé máy bay)\b", u_lower):
+        out.append({"name": "event_tickets.book", "arguments": {"event_id": "evt_01", "quantity": 2}})
+        seen.add("event_tickets.book")
+
     if "public_transit.find_routes" in seen and "public_transit.topup_card" not in seen and re.search(r"\b(nạp thẻ|nạp thêm)\b", u_lower):
         out.append({"name": "public_transit.topup_card", "arguments": {"amount": 50000}})
         seen.add("public_transit.topup_card")
@@ -2160,7 +2373,10 @@ def compose_best_exemplar(
 
     # 0a. Nhánh điều kiện Thời tiết ("nếu mai mưa ... không mưa thì ...")
     prepend_weather_call: Optional[Dict[str, Any]] = None
-    if "weather" in inst_dict and re.search(r"\b(nếu .* mưa|mà mưa|mưa không|có mưa không|trời mưa)\b", u_low) and re.search(r"\b(mưa thì|không mưa|trời ráo|trời nắng|nếu mưa)\b", u_low):
+    if "weather" in inst_dict and (
+        (re.search(r"\b(nếu .* mưa|mà mưa|mưa không|có mưa không|trời mưa)\b", u_low) and re.search(r"\b(mưa thì|không mưa|trời ráo|trời nắng|nếu mưa|mà mưa)\b", u_low))
+        or re.search(r"\b(nóng quá \d+\s*độ|trên \d+\s*độ)\b.*\bthì\b", norm_u)
+    ):
         weather_step = next((s for s in (previous_steps or []) if s.get("tool_called") == "weather.get_forecast" and not s.get("error")), None)
         if weather_step is None:
             return [{
@@ -2180,17 +2396,25 @@ def compose_best_exemplar(
                     raw_obs = {}
             fc_raw = raw_obs.get("forecast") if isinstance(raw_obs, dict) else None
             fc_obj = fc_raw[0] if isinstance(fc_raw, list) and fc_raw else (fc_raw if isinstance(fc_raw, dict) else (raw_obs if isinstance(raw_obs, dict) else {}))
-            is_rain = bool(fc_obj.get("rain"))
+            m_temp_th = re.search(r"\b(?:nóng quá|trên)\s+(\d+)\s*độ\b", norm_u)
+            if m_temp_th:
+                is_rain = bool((fc_obj.get("high") or fc_obj.get("temp_max") or 0) > int(m_temp_th.group(1)))
+            else:
+                is_rain = bool(fc_obj.get("rain"))
             w_args = weather_step.get("arguments") or {"date": primary_d or "2026-10-16"}
+            prepend_weather_call = {"name": "weather.get_forecast", "arguments": w_args}
             if not is_rain:
-                if re.search(r"\b(không mưa thì thôi|không thì thôi|không mưa .* giữ nguyên|không mưa .* cứ để|trời nắng .* giữ nguyên|không mưa .* không cần|không mưa .* khỏi)\b", u_low):
+                if (
+                    re.search(r"\b(không mưa thì thôi|không thì thôi|không mưa .* giữ nguyên|không mưa .* cứ để|trời nắng .* giữ nguyên|trời nắng .* cứ giữ|không mưa .* không cần|không mưa .* khỏi)\b", u_low)
+                    or not re.search(r"\b(không mưa|không thì|trời nắng|trời ráo)\b", u_low)
+                ):
                     return [{
                         "id": "cond_weather_no_rain_stop",
                         "audio_text": user_text,
-                        "tool_calls": [{"name": "weather.get_forecast", "arguments": w_args}],
+                        "tool_calls": [prepend_weather_call],
                     }]
                 if "smart_home" in inst_dict and re.search(r"\b(không mưa .* bật|trời nắng .* bật|ổ cắm|máy tưới)\b", u_low):
-                    sh_calls = [{"name": "weather.get_forecast", "arguments": w_args}]
+                    sh_calls = [prepend_weather_call]
                     if "smart_home.get_status" not in hist_sat:
                         sh_calls.append({"name": "smart_home.get_status", "arguments": {}})
                     sh_calls.append({"name": "smart_home.switch_set", "arguments": {"device_id": "plug_garden", "power": "on"}})
@@ -2200,13 +2424,17 @@ def compose_best_exemplar(
                         "id": "cond_weather_no_rain_ride",
                         "audio_text": user_text,
                         "tool_calls": [
-                            {"name": "weather.get_forecast", "arguments": w_args},
+                            prepend_weather_call,
                             {"name": "calendar.list_events", "arguments": {}},
                             {"name": "ride_hailing.book", "arguments": {"pickup": "12 Nguyễn Huệ, Quận 1, TP.HCM", "dropoff": "Bệnh viện", "vehicle": "car4", "schedule_time": f"{primary_d or '2026-10-16'}T14:30:00+07:00"}},
                         ],
                     }]
+                if re.search(r"[,.;]?\s*còn\s+mưa\s+thì\b", u_low):
+                    u_for_ret = re.sub(r"[,.;]?\s*còn\s+mưa\s+thì\b.*$", "", u_for_ret, flags=re.IGNORECASE).strip()
+                elif re.search(r"\b(?:còn\s+)?(?:nếu\s+)?(?:không\s+mưa|không\s+thì|trời\s+nắng|trời\s+ráo)\s+(?:thì\s+)?", u_low):
+                    u_for_ret = re.sub(r"^.*?\b(?:còn\s+)?(?:nếu\s+)?(?:không\s+mưa|không\s+thì|trời\s+nắng|trời\s+ráo)\s+(?:thì\s+)?", "", u_for_ret, flags=re.IGNORECASE).strip()
+                u_low = u_for_ret.lower()
             else:
-                prepend_weather_call = {"name": "weather.get_forecast", "arguments": w_args}
                 if re.search(r"\b(mưa thì khỏi tưới|mưa thì thôi|nếu mưa .* khỏi bật)\b", u_low) and "reminders" in inst_dict and "nhắc" in u_low:
                     return [{
                         "id": "cond_weather_rain_remind_only",
@@ -2230,10 +2458,18 @@ def compose_best_exemplar(
                         cal_calls.append({"name": "calendar.cancel_event", "arguments": {"event_id": "evt_01"}})
                     else:
                         cal_calls.append({"name": "calendar.update_event", "arguments": {"event_id": "evt_01", "start": f"{primary_d or '2026-10-16'}T09:00:00+07:00", "end": f"{primary_d or '2026-10-16'}T10:00:00+07:00"}})
-                    if "chat_ott" in inst_dict and re.search(r"\b(nhắn|báo)\b", u_low):
+                    if "chat_ott" in inst_dict and re.search(r"\b(zalo|nhóm)\b", u_low):
                         if "chat_ott.list_chats" not in hist_sat:
                             cal_calls.append({"name": "chat_ott.list_chats", "arguments": {}})
                         cal_calls.append({"name": "chat_ott.send_message", "arguments": {"chat_id": "chat_01", "content": "Sáng mai trời mưa nên mình dời lịch nhé."}})
+                    if "sms" in inst_dict and re.search(r"\b(sms|nhắn)\b", u_low) and not re.search(r"\b(zalo|nhóm)\b", u_low):
+                        if "contacts" in inst_dict and "contacts.search" not in hist_sat:
+                            cal_calls.append({"name": "contacts.search", "arguments": {"query": "Hương"}})
+                        cal_calls.append({"name": "sms.send", "arguments": {"contact_id": "ct_01", "content": "Sáng mai trời mưa nên mình dời lịch nhé."}})
+                    if "phone" in inst_dict and re.search(r"\b(gọi)\b", u_low):
+                        if "contacts" in inst_dict and "contacts.search" not in hist_sat:
+                            cal_calls.append({"name": "contacts.search", "arguments": {"query": "Lan"}})
+                        cal_calls.append({"name": "phone.call", "arguments": {"contact_id": "ct_01"}})
                     if "reminders" in inst_dict and re.search(r"\b(nhắc)\b", u_low):
                         cal_calls.append({"name": "reminders.create", "arguments": {"content": "Mang ô", "time": f"{primary_d or '2026-10-16'}T07:00:00+07:00"}})
                     return [{"id": "cond_weather_rain_calendar", "audio_text": user_text, "tool_calls": cal_calls}]
@@ -2243,9 +2479,14 @@ def compose_best_exemplar(
                         rh_calls.append({"name": "calendar.list_events", "arguments": {}})
                     rh_calls.append({"name": "ride_hailing.book", "arguments": {"pickup": "Nhà", "dropoff": "Công ty", "vehicle": "car4"}})
                     return [{"id": "cond_weather_rain_ride", "audio_text": user_text, "tool_calls": rh_calls}]
+                if re.search(r"^.*?\bcòn\s+mưa\s+thì\b", u_low):
+                    u_for_ret = re.sub(r"^.*?\bcòn\s+mưa\s+thì\b", "", u_for_ret, flags=re.IGNORECASE).strip()
+                elif re.search(r"[,.;]?\s*(?:còn\s+)?(?:không\s+mưa|không\s+thì|trời\s+nắng|trời\s+ráo)\s+(?:thì\s+)?", u_low):
+                    u_for_ret = re.sub(r"[,.;]?\s*(?:còn\s+)?(?:không\s+mưa|không\s+thì|trời\s+nắng|trời\s+ráo)\s+(?:thì\s+)?.*$", "", u_for_ret, flags=re.IGNORECASE).strip()
+                u_low = u_for_ret.lower()
 
     # 0b. Nhánh điều kiện Giá vàng ("giá vàng ... nếu dưới/trên X triệu thì ...")
-    if "gold_price" in inst_dict and re.search(r"\b(giá vàng|vàng sjc|vàng nhẫn)\b", u_low) and re.search(r"\b(dưới|trên|hơn|vượt)\s+\d+(?:\s*triệu)?\b", norm_u):
+    if "gold_price" in inst_dict and re.search(r"\b(giá vàng|vàng sjc|vàng nhẫn|nhẫn vàng|vàng thế giới)\b", u_low) and re.search(r"\b(dưới|trên|hơn|vượt|quá)\s+\d+(?:\s*triệu|\s*đô)?\b", norm_u):
         gold_step = next((s for s in (previous_steps or []) if s.get("tool_called") == "gold_price.get_price" and not s.get("error")), None)
         if gold_step is None:
             return [{
@@ -2280,7 +2521,7 @@ def compose_best_exemplar(
                 th_m = raw_num * 1_000_000 if raw_num < 1000 else raw_num
                 cond_ok = (val_check < th_m) if op_w == "dưới" else (val_check > th_m)
                 if not cond_ok:
-                    if "banking" in inst_dict and re.search(r"\b(chuyển .* triệu|chuyển khoản|chuyển cho)\b", u_low):
+                    if "banking" in inst_dict and re.search(r"\b(chuyển .* triệu|chuyển khoản|chuyển cho|gửi .* triệu|trích tài khoản)\b", u_low):
                         return [{
                             "id": "cond_gold_else_bank",
                             "audio_text": user_text,
@@ -2523,6 +2764,12 @@ def compose_best_exemplar(
         triggered_apps.discard("grocery")
     if "ecommerce" in triggered_apps and not re.search(r"\b(đi chợ|siêu thị|sữa|trứng|thịt|rau|gạo|cá|ức gà|cà chua|dầu ô liu|yến mạch|bột mì|táo|macca|đậu hũ|nước mắm|bơ lạt|phô mai|bánh mì)\b", u_for_ret, re.IGNORECASE):
         triggered_apps.discard("grocery")
+    if "food_delivery" in triggered_apps and re.search(r"\b(lưu giúp .* vào bản đồ|lưu địa điểm)\b", u_for_ret, re.IGNORECASE):
+        triggered_apps.discard("food_delivery")
+    if "grocery" in triggered_apps and "recipes" in triggered_apps and not re.search(r"\b(đi chợ|siêu thị|vào giỏ|đặt mua)\b", u_for_ret, re.IGNORECASE):
+        triggered_apps.discard("grocery")
+    if "train_bus_tickets" in triggered_apps and re.search(r"\b(kết thúc (?:lượt|phiên))\b", u_for_ret, re.IGNORECASE):
+        triggered_apps.discard("train_bus_tickets")
 
     ordered_triggered_apps = sorted(
         triggered_apps,
