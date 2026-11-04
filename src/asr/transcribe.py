@@ -30,6 +30,48 @@ except ImportError:
 from src.asr.config import ASRConfig, get_asr_config
 
 
+def setup_cuda_libraries():
+    """
+    Tự động tìm và preload libcublas / libcudnn vào tiến trình Linux (Kaggle/Colab)
+    để CTranslate2 / Faster-Whisper không bị lỗi 'Library libcublas.so.12 is not found'.
+    """
+    if sys.platform != "linux":
+        return
+
+    candidates = []
+    for site_pkg in sys.path:
+        if "site-packages" in site_pkg or "dist-packages" in site_pkg:
+            for sub in ["nvidia/cublas/lib", "nvidia/cudnn/lib", "torch/lib"]:
+                target_dir = os.path.join(site_pkg, sub)
+                if os.path.exists(target_dir):
+                    candidates.append(target_dir)
+
+    for p in ["/usr/local/cuda/lib64", "/usr/local/cuda-12/lib64", "/usr/local/cuda-11/lib64"]:
+        if os.path.exists(p):
+            candidates.append(p)
+
+    if candidates:
+        curr_ld = os.environ.get("LD_LIBRARY_PATH", "")
+        os.environ["LD_LIBRARY_PATH"] = ":".join(candidates) + (f":{curr_ld}" if curr_ld else "")
+
+        import ctypes
+        for c in candidates:
+            if not os.path.isdir(c):
+                continue
+            try:
+                for fname in os.listdir(c):
+                    if fname.startswith("libcublas.so") or fname.startswith("libcudnn.so"):
+                        try:
+                            ctypes.CDLL(os.path.join(c, fname), mode=ctypes.RTLD_GLOBAL)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+
+setup_cuda_libraries()
+
+
 def normalize_hf_model_id(model_name: str, engine_type: str) -> str:
     """Chuẩn hóa tên repository ID trên HuggingFace để tránh lỗi 403 / 404."""
     if Path(model_name).exists():
@@ -59,6 +101,7 @@ def normalize_hf_model_id(model_name: str, engine_type: str) -> str:
 def load_audio_file(audio_path: Union[str, Path], target_sr: int = 16000) -> np.ndarray:
     """
     Nạp file âm thanh (.wav) và chuyển đổi về dạng đơn kênh (mono) tần số lấy mẫu target_sr (mặc định 16kHz).
+    Sử dụng soundfile thuần túy để tránh lỗi PyAV.
     """
     audio_path_str = str(audio_path)
     if not os.path.exists(audio_path_str):
@@ -90,6 +133,7 @@ class PhoWhisperEngine:
     """
     Engine ASR sử dụng PhoWhisper (vinai/PhoWhisper-small, medium, large)
     thông qua HuggingFace Transformers Pipeline với khả năng xử lý BATCH trên GPU cực nhanh.
+    Sử dụng PyTorch Native CUDA (Tương thích 100% với môi trường Kaggle, không cần libcublas.so.12 ngoài).
     """
     def __init__(
         self,
@@ -108,7 +152,7 @@ class PhoWhisperEngine:
         self.chunk_length_s = chunk_length_s
 
         if device == "auto":
-            self.device_str = "cuda" if torch.cuda.is_available() else "cpu"
+            self.device_str = "cuda" if (torch and torch.cuda.is_available()) else "cpu"
         else:
             self.device_str = device
 
@@ -149,7 +193,15 @@ class PhoWhisperEngine:
             return []
 
         bs = batch_size or self.batch_size
-        str_paths = [str(p) for p in audio_paths]
+        
+        # Nạp audio bằng soundfile để tránh lỗi thư viện giải mã
+        audio_inputs = []
+        for p in audio_paths:
+            try:
+                arr = load_audio_file(p, target_sr=16000)
+                audio_inputs.append({"raw": arr, "sampling_rate": 16000})
+            except Exception:
+                audio_inputs.append(str(p))
 
         generate_kwargs = {
             "language": "vi",
@@ -160,7 +212,7 @@ class PhoWhisperEngine:
         }
 
         results = self.pipe(
-            str_paths,
+            audio_inputs,
             batch_size=bs,
             generate_kwargs=generate_kwargs,
             return_timestamps=False
@@ -197,7 +249,7 @@ class PhoASREngine:
         self.batch_size = batch_size
 
         if device == "auto":
-            self.device_str = "cuda" if torch.cuda.is_available() else "cpu"
+            self.device_str = "cuda" if (torch and torch.cuda.is_available()) else "cpu"
         else:
             self.device_str = device
 
@@ -252,8 +304,7 @@ class PhoASREngine:
 class FasterWhisperEngine:
     """
     Engine ASR sử dụng faster-whisper (CTranslate2).
-    Siêu tốc độ, tiết kiệm VRAM, miễn nhiễm hoàn toàn với lỗi 403 của HuggingFace Hub.
-    Hỗ trợ cả PhoWhisper CT2 ('nunu-willump/PhoWhisper-medium-ct2') và 'large-v3-turbo'.
+    Hỗ trợ auto-fallback sang CPU (8 threads) nếu môi trường Linux thiếu libcublas.so.12.
     """
     def __init__(
         self,
@@ -271,23 +322,32 @@ class FasterWhisperEngine:
 
         comp = compute_type if dev == "cuda" else "float32"
 
-        # Nếu người dùng muốn PhoWhisper qua Faster-Whisper, nạp bản CTranslate2 chính chủ
         if "phowhisper" in model_size_or_path.lower():
             if not Path(model_size_or_path).exists():
                 model_size_or_path = "nunu-willump/PhoWhisper-medium-ct2"
 
         print(f"[ASR Faster-Whisper] Đang nạp model: {model_size_or_path} trên {dev} ({comp})...")
-        self.model = WhisperModel(model_size_or_path, device=dev, compute_type=comp)
-        print(f"[ASR Faster-Whisper] Nạp thành công model {model_size_or_path}!")
+        
+        try:
+            self.model = WhisperModel(model_size_or_path, device=dev, compute_type=comp)
+            # Khởi động thử với 1 frame âm thanh để xác thực CUDA context
+            dummy = np.zeros(1600, dtype=np.float32)
+            _ = list(self.model.transcribe(dummy, language="vi", beam_size=1)[0])
+            print(f"[ASR Faster-Whisper] Nạp thành công model trên {dev}!")
+        except Exception as e:
+            if "libcublas" in str(e).lower() or "cannot be loaded" in str(e).lower() or dev == "cuda":
+                print(f"\n⚠️ [Faster-Whisper] CTranslate2 gặp lỗi CUDA ({e}).")
+                print("🔄 TỰ ĐỘNG CHUYỂN SANG: Faster-Whisper CPU Mode (8 threads, compute_type=int8) cực kỳ nhanh và ổn định...")
+                self.model = WhisperModel(model_size_or_path, device="cpu", compute_type="int8", cpu_threads=8)
+                print(f"[ASR Faster-Whisper] Nạp thành công model trên CPU!")
+            else:
+                raise e
 
     def transcribe(self, audio_path: Union[str, Path], context_hints: Optional[List[str]] = None) -> str:
         initial_prompt = "Các khẩu lệnh tiếng Việt điều khiển ứng dụng: tin nhắn, lịch, báo thức, đèn, điều hòa, ngân hàng."
         if context_hints:
             initial_prompt += f" Ngữ cảnh: {', '.join(context_hints)}."
 
-        # Nạp audio bằng soundfile thành numpy float32 16kHz
-        # Cách này hoàn toàn bỏ qua PyAV (av.open), khắc phục triệt để lỗi:
-        # TypeError: open() got an unexpected keyword argument 'metadata_errors'
         try:
             audio_input = load_audio_file(audio_path, target_sr=16000)
         except Exception:
@@ -318,7 +378,7 @@ class UnifiedASRTranscriber:
     """
     Giao diện ASR thống nhất: tự động nạp PhoWhisper, PhoASR hoặc Faster-Whisper
     dựa trên cấu hình trong .env hoặc tham số truyền vào.
-    Hỗ trợ Smart Fallback tự động khi HuggingFace Hub gặp sự cố mạng/403.
+    Hỗ trợ Smart Fallback tự động khi môi trường thiếu thư viện CUDA.
     """
     def __init__(self, config: Optional[ASRConfig] = None):
         self.config = config or get_asr_config()
@@ -352,31 +412,27 @@ class UnifiedASRTranscriber:
                     compute_type=self.config.compute_type
                 )
             else:
-                self.engine = FasterWhisperEngine(
-                    model_size_or_path="large-v3-turbo",
+                self.engine = PhoWhisperEngine(
+                    model_name_or_path="vinai/PhoWhisper-medium",
                     device=self.config.device,
-                    compute_type=self.config.compute_type
+                    torch_dtype=self.config.torch_dtype,
+                    batch_size=self.config.batch_size
                 )
         except Exception as e:
-            # Smart Fallback: Nếu HuggingFace PyTorch lỗi 403 / rate limit, tự động fallback sang CTranslate2
-            if engine_type in ("phowhisper", "whisper"):
-                print(f"\n⚠️ [ASR Cảnh báo] Không thể tải PyTorch PhoWhisper ({e}).")
-                print("🔄 TỰ ĐỘNG CHUYỂN SANG: PhoWhisper CTranslate2 (nunu-willump/PhoWhisper-medium-ct2) qua Faster-Whisper...")
+            print(f"\n⚠️ [ASR Cảnh báo] Không thể khởi tạo engine '{engine_type}' ({e}).")
+            if engine_type != "phowhisper":
+                print("🔄 TỰ ĐỘNG CHUYỂN SANG: PhoWhisper PyTorch Native GPU (Tương thích 100% CUDA Kaggle)...")
                 try:
-                    self.engine = FasterWhisperEngine(
-                        model_size_or_path="nunu-willump/PhoWhisper-medium-ct2",
+                    self.engine = PhoWhisperEngine(
+                        model_name_or_path="vinai/PhoWhisper-medium",
                         device=self.config.device,
-                        compute_type=self.config.compute_type
+                        torch_dtype=self.config.torch_dtype,
+                        batch_size=self.config.batch_size
                     )
                     return
                 except Exception as e2:
-                    print(f"🔄 Tiếp tục thử Faster-Whisper large-v3-turbo ({e2})...")
-                    self.engine = FasterWhisperEngine(
-                        model_size_or_path="large-v3-turbo",
-                        device=self.config.device,
-                        compute_type=self.config.compute_type
-                    )
-                    return
+                    print(f"Lỗi khởi tạo PyTorch PhoWhisper: {e2}")
+
             raise RuntimeError(f"Khởi tạo ASR Engine thất bại: {e}")
 
     def transcribe(self, audio_path: Union[str, Path], context_hints: Optional[List[str]] = None) -> str:
