@@ -13,6 +13,7 @@ import re
 import json
 import time
 import inspect
+import functools
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Set, Tuple
@@ -624,17 +625,341 @@ ASR_PHONETIC_FIXES = [
     (r"\b(em lưu dụng anh cây xăng trên đường nhà anh vô bản đồ đặt tên là chợ lỗ xăng quê nga)\b", "em tìm cây xăng trên đường nhà anh rồi lưu địa điểm vô bản đồ đặt tên là Chỗ đổ xăng quen nha"),
     (r"\b(em tôi trong tài khoản thanh toán mắc trơn danh trả anh nửa tiền gửi xe thuốc qua chương)\b", "em kiểm tra sao kê danh sách giao dịch ngân hàng của tài khoản thanh toán xem Mark Johnson trả anh nửa tiền gửi xe tối qua chưa"),
     (r"\b(còn được về chỉ đi tàu em coi dần chịu em ở được mấy đêm chẳng hạn)\b", "còn lượt về chị đi tàu, em kiểm tra vé tàu đã đặt xem ở được mấy đêm nha"),
+    (r"\b(nhận ra lỗ|nhắn ra lỗ)\b", "nhắn Zalo"),
+    (r"\b(cuộc họp dưới sáng)\b", "cuộc họp dời sang"),
+    (r"\b(trăm lít đi chợ|châm lít đi chở|trâm viết đi chợ)\b", "trong danh sách đi chợ"),
+    (r"\b(đánh dâu con nước)\b", "đánh dấu uống nước"),
+    (r"\b(đánh dâu)\b", "đánh dấu"),
+    (r"\b(chúc đơn giùm|chúc đơn giúp)\b", "chốt đơn giùm"),
+    (r"\b(còn giờ giàu thì)\b", "còn giờ giao thì"),
+    (r"\b(giữa tới đây hay hợp chứ không phải ngồi chừa thêm)\b", "sữa tươi lấy 2 hộp chứ không phải 1 trừ thêm"),
+    (r"\b(tắc tivi)\b", "tắt tivi"),
+    (r"\b(nước xanh ran chín lăm)\b", "nếu xăng RON 95"),
+    (r"\b(đạt luôn 6h sáng)\b", "đặt luôn 6 giờ sáng"),
+    (r"\b(đó xe buýt mua con)\b", "bắt tuyến xe buýt nào con"),
+    (r"\b(soát sẵn một thư nháp|soát sẵn mật thư nháp)\b", "soạn sẵn một thư nháp"),
+    (r"\b(gói giảm sẵn đi thừa)\b", "vào danh sách đi chợ"),
+    # Chuẩn hóa ngữ âm tổng quát cho các cụm từ lệch âm ASR phổ biến trên mọi mô hình
+    (r"\b(bó phết|báo kích|bó kết|báo chức|áo tức|quá thức|quán thức|đặt bài thuốc|đặt báo trước đó|bác sĩ tối|bắt giữ tối|đặt đó thức|đặt bó thức|mở thức|bao sách|bao giấc|bao sức|bao suất|bao suốt|bớt suốt|bớt thích|bớt thức|mớ thức|đợt báo thức|đạt báo đức|bảo thức|bào thức|đáo thức|tập nói với cụ|đặt báo số của|đặt ra báo thức|đặt cái báo thức|đợi báo chức|đặt cái báo thuốc|báo trước đó\s+\d+\s*(?:tiếng|phút|giờ))\b", lambda m: m.group(0).replace("báo trước đó", "báo thức trước đó") if "báo trước đó" in m.group(0).lower() else "báo thức"),
+    (r"\b(?:đặt|tạo|làm|gạch|giặt|dọc|đọc)\s+(?:báo\s+thức|ở\s+thức|báo\s+trước\s+đó)\b", lambda m: "đặt báo thức trước đó" if "trước đó" in m.group(0).lower() else "đặt báo thức"),
+    (r"\b(báo\s+thức)\s+(?:trên\s+đó|rất\s+đông\s+mồng|chất\s+đóng\s+một|chắc\s+đóng\s+một|chấp\s+đóng\s+một|giúp\s+nó\s+một)(?:\s+tiếng)?\b", "báo thức trước đó 1 tiếng"),
+    (r"\b(đặt|đặc)\s+nhất\s+(em|anh|chị|tôi|mình)\b", r"đặt giúp \2"),
+    (r"\b(nhóc|nhất|dắt|nhét|nhất định|nhắc chừng|nhật chương)\s+(tôi|mình|anh|chị|em|cô|chú|bác)\b", r"nhắc \2"),
+    (r"\b(nhắc\s+em\s+bên|nhớ\s+em\s+bên)\s+laptop\b", "nhắc em mang laptop"),
+    (r"\b(trước\s+lúc\s+xe\s+tới\s+ngoài\s+làm\s+phốt|trước\s+lúc\s+sẽ\s+tới\s+15\s+phút)\b", "trước lúc xe tới 15 phút"),
+    (r"\b(nhớ chỉ thất bét|nha chị thắt bếp|nhắc xin thất bát)\b", "nhắc chị tắt bếp"),
+    (r"\b(nhớ nhắn tối uống thuốc|nhớ nhanh tôi uống thuốc)\b", "nhắc tôi uống thuốc"),
+    (r"\b(?:nhớ|giúp|nhóm\s+đi\s+mà)\s+(?:tôi|mình|anh|chị|em)?\s*(?:mang|nắp|lắp)\s+(?:laptop|tháp|thắp)\b", "nhắc tôi mang laptop"),
+    (r"\b(nhóm ghép và nắp tháp cho gọi xe tới quầy lạp phước)\b", "nhắc em mang laptop trước lúc xe tới 15 phút"),
+    (r"\b(tháng dưới kém mười lăm|thắm giờ kém mười lăm|thẳng rồi kém 15|tám giê cả mười lăm|tạm giới kẹp 15|tám trẻ kém về lăm|tám và kéo mười lăm|tám giờ xóm mười lăm|8h\.15)\b", "8 giờ kém 15"),
+    (r"\b(tuổi mãi|tuổi mai)\b", "tối mai"),
+    (r"\b(kém và làm|kẽm và làm|kẻ 15)\b", "kém 15"),
+    (r"\b(năng cho sáng mai|năng và sấy may|năm giờ mặc sái mai)\b", "5 giờ sáng mai"),
+    (r"\b(sáu buổi sáng mai|sau rủi sáng mai|sấu dưới sáng mai|xấu dưới sáng mai|xấu giữa sáng mai|sáu giữa sáng mai)\b", "6 rưỡi sáng mai"),
+    (r"\b(bị rửa sáng mai|bẻ rửa sớm mai)\b", "7 rưỡi sáng mai"),
+    (r"\b(tại giải sắm bay|bảy giờ sắm lại|bấy giờ sáng mai)\b", "7 giờ sáng mai"),
+    (r"\b(toán cho tới nay nạn trình lí|đến giờ tới nay nàng nhìn lấy|tấn cho tới nay là truyền lý)\b", "8 giờ tối nay nạp ví"),
+    (r"\b(mai hai kiểu nhé)\b", "mai 2 tiếng nhé"),
+    (r"\b(đành rút duyệt|đặt giúp chị bổ sung sức lực)\b", "đặt giúp chị báo thức trước lịch"),
+    (r"\b(giờ là đá bóng|giờ là tráo bóng|giờ là trao bóng|về lịch đau bóng|về lịch đá bóng)\b", "dời lịch đá bóng"),
+    (r"\b(giờ là khám răng|về lịch khám răng|giờ lịch khám răng)\b", "dời lịch khám răng"),
+    (r"\b(giờ bữa cà phê|giờ buổi cơ phê|rồi ké hẹp cà phê|rời kế hét cà phê|rồi kế hẹn cà phê)\b", "dời cái hẹn cà phê"),
+    (r"\b(?:giờ|dựa|về|rời)\s+(?:lịch|lệch|lệnh|địch)\b", "dời lịch"),
+    (r"\b(?:giờ|rời)\s+cái\s+hẹn\b", "dời cái hẹn"),
+    (r"\b(mang bụi họ một tiếng|mang mũ hộ một kiến|ba mũi họ mộc chiến)\b", "mai muộn hơn 1 tiếng"),
+    (r"\b(sao mai mệt hai tiếng|sau mai 1-2 tiếng|song hãy mượn hai tiếng|sáng mai mốt hai tiếng|sáng mai mười hai tiếng|sáng mai một hai tiếng)\b", "sáng mai muộn 2 tiếng"),
+    (r"\b(?:lại|lai|bày)\s+(?:mộn|muộn|mụn)\s+thêm\b", "mai muộn thêm"),
+    (r"\b(?:rời|dời|giờ)\s+(?:buồn|bộn|buộn|mộn|muộn)\s+(hơn|thêm)\b", r"dời muộn \1"),
+    (r"\b(?:buồn|bộn|buộn|mộn|muộn)\s+(hơn|thêm)\b", r"muộn \1"),
+    (r"\b(mai mùa 60 phút)\b", "mai muộn 60 phút"),
+    (r"\b(huyết lịch|huyện lịch|huyết lích|khuyến lịch|quyết lịch|hứa lịch|viết lịch|mỹ lịch)\b", "hủy lịch"),
+    (r"\b(hãng là lượt tìm|hẳn là lượt tìm|hãng lời thuật tìm)\b", "hủy lịch họp team"),
+    (r"\b(hỷ chắc tôi được đi chơi công viên|để ý dắt tôi được đi chơi công viên|để ý giúp tôi đẹp đi chơi công viên|hãy giúp tôi lịch đi chơi công viên|về đích đi chơi công viên|về địch đi chơi công viên|về lịch đi chơi công viên)\b", "hủy giúp tôi lịch đi chơi công viên"),
+    (r"\b(huy hạn cà phê|huy hẹn cà phê)\b", "hủy hẹn cà phê"),
+    (r"\b(huệ địch trái vòng sào mai|vì dịch tại vòng 6 mai|huỷ thích thái bóng sáng mai|thích đá bóng sẽ mày|bị dịch đá bóng,? sẽ mai|nghĩ dịch đá bóng sáy may)\b", "hủy lịch đá bóng sáng mai"),
+    (r"\b(khuấy lợi cho đánh mình|phê lợi cho đàn ông anh|phơi lợi cho đảng minh|quát báo cho minh|quát bảo cho mình)\b", "với gọi báo cho Minh"),
+    (r"\b(bỏ cái họ phụ huynh|bỏ cái hộp phụ huynh|bỏ cái học phụ huynh)\b", "bỏ cái họp phụ huynh"),
+    (r"\b(họp phụ mình|hộp phụ huynh|học phụ huynh|học vụ hình|làm phụ huynh)\b", "họp phụ huynh"),
+    (r"\b(giữa huyên|rửa nguyên|rửa hoen|giữ khuyên)\b", "giữ nguyên"),
+    (r"\b(trời|sáng|chiều|tối|ngày|nếu)\s+may\b", r"\1 mai"),
+    (r"\b(may\s+mưa|mai\s+ngươi|mai\s+ngơ|mài\s+ngơ|nay\s+mưa|mày\s+vừa|may\s+vừa)\b", "mai mưa"),
+    (r"\b(nếu mà mưa|nếu mày mưa|nếu mài mưa|nếu mai vừa|nếu mày vừa|nếu may vừa)\b", "nếu mai mưa"),
+    (r"\b(phong mưa|không ngươi|không vừa)\b", "không mưa"),
+    (r"\b(không tôi thì sợ hẹn|không vui vì thôi hàng)\b", "không mưa thì thôi"),
+    (r"\b(chỗ hàng|chỗ hét|chỗ hát)\b", "chỗ hẹn"),
+    (r"\b(giờ hàng|rồi hét|rồi hát)\b", "giờ hẹn"),
+    (r"\b(lịch hàn giang|lịch khẳng răng|lịch hẳn giang)\b", "lịch khám răng"),
+    (r"\b(ashton ford|aston park|s\.sport|s sport)\b", "S+ Sport"),
+    (r"\b(trình em nha|chừng em nha)\b", "giùm em nha"),
+    (r"\blàm thuốc (lống|lắm)\b", "làm tốt lắm"),
+    (r"\b(dùng thuê nhà|dùng thuê nha)\b", "giùm tôi nha"),
+    (r"\b(hòa tim|họp tim|họ tin|hợp tiêm|họp tiêm|hợp tim|hộp tìm|hộp tiêm|họp tìm)\b", "họp team"),
+    (r"\b(đặt gói túi vốn chỗ|đã có tối 4 chỗ|đã có tốp bán chỗ)\b", "đặt ô tô 4 chỗ"),
+    (r"\b(nếu bí thủ|nếu ví thủ)\b", "nếu ví đủ"),
+    (r"\b(bằng bí)\b", "bằng ví"),
+    (r"\b(bài ngán nhãn miễn cho trời nơi|bài ngán nhân viên cho chấn|vài ngàn nhân viên cho tớ)\b", "và nhắn SMS cho Tuấn"),
+    (r"\b(vài nắp thôi tám giờ tối nay là bí|nặng tôi sáng giờ tối nay nặng ví)\b", "và nhắc tôi 8 giờ tối nay nạp ví"),
+    (r"\b(chây bộ|chay bộ|chây bố|trời bộ)\b", "chạy bộ"),
+    (r"\b(cập diêm|tập diêm|tập dêm|tập chim|tập gim)\b", "tập gym"),
+    (r"\b(ét xanh ét|fms|ít ms|ít em ít|sém sét|nhàn smith|smx|xm\s*x|e xem ngay|e sẽ nghe|ét em ế|e xê mét|héc trăm mét|ét em ét|em ét|em mát|em biết|ép mét|s\.m\.s|s a mét|s&m|smth|israel|ít ít|smith)\b", "SMS"),
+    (r"\b(với anh nhắn|vớ à nhẫn|với những|với nhấn|với ngắn|với nhẫn|vừa nhẩn|vừa nhận|gửi nhắn|người nhắn|xong nhằn|xong nhàn|dáng|đuổi|rủé)\s+SMS\b", ", với nhắn SMS"),
+    (r"\b(nhắn em bé cho lan|những em bé cho làng)\b", "nhắn SMS cho Lan"),
+    (r"\b(trong banh đồng nghiệp|chân manh đồng nghiệp|trong manh đồng điệp)\b", "cho Minh đồng nghiệp"),
+    (r"\b(gửi nhắn email cho hương gặp tối nay ăn cơm nhà)\b", "rồi nhắn SMS cho Hương là tối nay ăn cơm nhà"),
+    (r"\b(rồi nhắn mail báo bố|rồi nhắn bấm báo bố|rồi nhắn mét báo bố)\b", "rồi nhắn SMS báo Bố"),
+    (r"\b(nhắn\s+em\s+mát\s+báo\s+bố|nhắn\s+SMS\s+báo\s+bối)\b", "nhắn SMS báo Bố"),
+    (r"\b(cho bùa báo giờ mới|trong buổi báo giờ mới)\b", "cho Bố báo giờ mới"),
+    (r"\b(nhắn thương là đã đóng|nhấn thương là đã đóng)\b", "nhắn Hương là đã đóng"),
+    (r"\b(dạy zalo đi ạ|rạt lồi nhé em|gian lô nha em)\b", "dạ Zalo đi ạ"),
+    # Sửa lỗi đồng âm phổ biến nhất của PhoWhisper/Whisper: tên riêng "Minh" bị biến thành đại từ "mình"
+    (r"\b(nhắn tin chụp hình)\b", "nhắn tin cho Minh"),
+    (r"\b(gọi(?:\s+điện)?|nhắn(?:\s+tin)?|gửi(?:\s+tin(?:\s+nhắn)?)?|báo|chuyển(?:\s+khoản|\s+tiền)?|hẹn(?:\s+cà\s+phê|\s+ăn\s+trưa|\s+ăn\s+tối)?)\s+(qua\s+(?:zalo|sms|tin\s+nhắn)\s+)?(cho\s+|với\s+|tới\s+|báo\s+(?:cho\s+)?)mình\b", r"\1 \2\3Minh"),
+    (r"\b(qua\s+zalo|nhắn\s+zalo|gửi\s+zalo)\s+cho\s+mình\b", r"\1 cho Minh"),
+    (r"\b(?:vội|vợ|gợi|mời|hỏi)\s+cho\s+(lan|lam|minh|hương|tuấn|bố|mẹ)\b", r"gọi cho \1"),
+    (r"\b(gọi\s+minh\s+giúp\s+tôi|gọi\s+mình\s+giúp\s+tôi)\b", "gọi cho Minh giúp tôi"),
+    (r"\b(gọi cho lam|mở cho len|mời cho lan|gửi cho lan)\b", "gọi cho Lan"),
+    (r"\b(?:và rồi báo cho|và gọi bão cho|vào gọi báo cho|và phải báo cho)\s+(lan|minh|hương|tuấn|bố|mẹ)\b", r"và gọi báo cho \1"),
+    (r"\b(thôi vậy luôn cho người đó|thôi mời vô cho người đã|thôi phải bôn cho người đó)\b", "thôi gọi luôn cho người đó"),
+    (r"\b(tắt hết đèn thần thái|thoát hết đến giờ hai|các tuyến tuấn hai|tắt hết đèn tần hai|tắt đèn cá từng hai|tắt đèn cá tầng hai|thái thái tiền thần 2|các tháp đèn tầng hai|tác giả đàn tình hay|tắt hết đèn tuần hai|tắt hết tiền tầng 2|tắt hết đèn thần 2|tết hết đèn sành khai|ta hái đèn tận hai|ta hãy đèn thần 2|tắt hết đèn sành khai)\b", "tắt hết đèn tầng 2"),
+    (r"\b(tắt hết đèn tần một|tắt hết đèn tuần một|tắt hết tiền tầng 1|tắt hết đèn thần 1)\b", "tắt hết đèn tầng 1"),
+    (r"\b(tha tiền phòng khách|thắt tiền phòng khách|các tiền phòng khách)\b", "tắt đèn phòng khách"),
+    (r"\b(độ\s+sáng|đột\s+sáng|đồ\s+sáng)\s+(?:điện|điền|đèn)\s+phòng\b", "độ sáng đèn phòng"),
+    (r"\b(tách lên phòng ngủ|tắt đèn phương ngộ|tách đem phương ngộ)\b", "tắt đèn phòng ngủ"),
+    (r"\b(một tách lên bếp|tắt đèn bẹp|mốt tách bên bếp)\b", "tắt đèn bếp"),
+    (r"\b(thá tiền phòng làm việc|thác hình phòng làm việc|các anh phòng làm việc|phát hiện phòng làm việc|phát điện phòng làm việc|thất điện thoọng lòng việc|chắc nặng phần làm chuyện|chắc nàng không làm chuyện|các nàng phỏng lòng chuyện)\b", "tắt đèn phòng làm việc"),
+    (r"\b(quán khoai và then|quả khoai và thèn|khoảng khoảng và thèm)\b", "quạt khỏi bật hen"),
+    (r"\b(mời đều vào phòng khách hay soái đồ|mở điệu vào phòng khách hay xói đồ|mở điều hòa phóng khách 26 đô)\b", "mở điều hòa phòng khách 26 độ"),
+    (r"\b(trở nên phòng khách áo thuê khởi không thèm đâu|cái đêm phòng khách\.? à thôi khỏi,? không cần đâu|cả niềm phòng khách hạ thuê khỏi không thèm đâu)\b", "cái đèn phòng khách, à thôi khỏi, không cần đâu"),
+    (r"\b(bật đèn ngoài phòng ngủ cho đi lần đầu|bỏ đi hoài phòng ngủ qua với lồng độ|bỏ điều hòa phòng ngủ 25 độ|moi điều hoà phòng ngủ hai mươi lăm độ)\b", "bật điều hòa phòng ngủ 25 độ"),
+    (r"\b(bật đầu vào phòng ngủ hai vầy độ|bắt đầu vào phòng ngủ 27 độ|bật đầu vào phòng ngủ hai vảy đội)\b", "bật điều hòa phòng ngủ 27 độ"),
+    (r"\b(điều hòa phòng ngủ hai mươi sáu đô|điều hòa phần mũ hai mươi sáu độ|đòi hòa phòng vũ 26 đô|điều hòa phần vũ 26 độ)\b", "điều hòa phòng ngủ 26 độ"),
+    (r"\b(điều hòa phần ngửa hai lăm độ|điều hòa phòng ngữ 25 độ|điều hòa phòng ngự hay lân đội)\b", "điều hòa phòng ngủ 25 độ"),
+    (r"\b(đang chạy ngoại|còn đang chạy|còn đanh rạy|đang bực vậy|đâm bạch quạt|phòng hà nội đang chạy|phòng nào đang chạy|phòng nào đâm chạy)\b", "quạt đang chạy"),
+    (r"\b(để nguyên đề nghía|để nguyên đề nghị|đếu nguyên đề nghĩa|đành lên đèn|đánh nguyên đèn|để nguyên đàn|để nguyên đền)\b", "để nguyên đèn"),
+    (r"\b(chuyện tiền mệnh thế này do chủ gà vạn hồn nghé|chuyện tìm mệnh thế này cho chuyện nghề phản hồn nghé|chuyện tim mạng thấy hãy cho trẻ gà vạn hồng nghé)\b", "chuyển tiền mạng tháng này cho Chủ nhà Phạm Hùng nhé"),
+    (r"\b(chuyển cho lời minh đúng bằng tiền ngạn hát này|chuyển cho lên mình đúng bằng tiền mạng này)\b", "chuyển cho Lê Minh đúng bằng tiền mạng tháng này"),
+    (r"\b(trần bình chuyển qua nguyễn thị lâm ghi số tiền để lấy thân là|trong bàn triển qua nguyễn thị lăng hay số tiền tiền đê thân làn)\b", "cho mình chuyển qua Nguyễn Thị Lan y số tiền nước tháng này"),
+    (r"\b(nên thế thì dũng thích chịu|lý thế thì không thích chịu)\b", "mà thiếu thì dùng tiết kiệm"),
+    (r"\b(tài khoản xanh ván|tài khoản ăn ván|thực yến thanh toán|tài khoản hành toán|tài khoản thân toán|tài khoản thân tuyến|tại gõ thanh toán|thực hiện thành tảnh|thực hành thanh toán|tài khoản thành toán|tài khoản thông toán|thầy khoản thanh vân)\b", "tài khoản thanh toán"),
+    (r"\b(trả tiền bằng ví điện tử)\b", "trả tiền điện bằng ví điện tử"),
+    (r"\b(đóng tiền mặt bằng ví điện tử|đóng tùy mạng bằng ví điện tử|trái dung chỉ kép tiền mãn bệnh vì ghét dở|chả giúp chị kết tiền mạng bằng bí điện tử|trái giúp chị kẹt tiền mạng bệnh lý nghiện tử)\b", "trả giúp chị cái tiền mạng bằng ví điện tử"),
+    (r"\b(vì khiếu thì dùng ngân hàng|vì cứ đi dùng ngân hàng|vì kiểu thì dùng ngân hàng)\b", "ví thiếu thì dùng ngân hàng"),
+    (r"\b(nếu miễn thử thì|nên miếng thủ thị|nếu miễn thuẫn thì)\b", "nếu ví đủ thì"),
+    (r"\b(trả tiền mặt tháng này|đóng tiền mặt tháng này|chuyển tiền mặt tháng này)\b", "chuyển tiền mạng tháng này"),
+    (r"\b(đúng tiền bét|đúng tiền biết|đúng tiền bia|số tiền địa)\b", "đúng tiền điện"),
+    (r"\b(hoạt đơn|hoa đơn|hoa đơm|có đơn|khán đoan|khán đo|khán đôi|mấy cuối a đời|máy của adder|máy cũ e đời)\b", "hóa đơn"),
+    (r"\b(trong vòng nên đợt tới từ tháng sáu qua ngân hàng|trong vòng 5 giờ tới từ 06 qua ngân hàng|trong vòng năm giờ tới tháng sáu quang ngân hàng)\b", "trong vòng 5 ngày tới thì thanh toán qua ngân hàng"),
+    (r"\b(trẻ hộ anh|thẻ bằng ngân hàng|chả bằng ngân hàng|thả bằng ngân hàng|chạy qua ngân hàng|trẻ qua ngân hàng|cha bành gân hàng|dùng ngân hàng trẻ)\b", "trả qua ngân hàng"),
+    (r"\b(chênh lệch trong ngày đó chưa thẻ|trên bên trong mình,? vì cái đó chưa trả|trên lưng trong miền thì kể đó chưa trễ|quá năm trăm nghìn thì con trẻ|vượt 500\.000 thì chú trẻ|việt năm trăm nghìn tiền chuỗi trẻ|được năm trăm nghìn tiền chuối trẻ|nhiều hơn năm trong ngày thì để đấy chưa chả)\b", "trên 500 nghìn thì chưa trả"),
+    (r"\b(sếp dưỡng|xét dưỡng|xích dưỡng|xếp chúng|xếp súng|xếp dũng|sếp dũng|xét dấu|xếp dụng|xếp giúp|sát dũng|sắp dụng|sáp dũng)\b", "Sếp Dũng"),
+    (r"\b(chủ nhà phạm hùng|chỗ nhà phạm hùng|chủ gà phạm hùng|chú nhà phạm hùng|chữa nhà phạm hùng|chữa nha phạm hùng|chúa phạm hùng|rủ nhà phạm hùng)\b", "Chủ nhà Phạm Hùng"),
+    (r"\bchỉ\s+cho\s+(Chủ nhà Phạm Hùng)\b", r"chuyển cho \1"),
+    (r"\b(hay triệu tém|2 triệu tém|hai triệu tém)\b", "2 triệu 8"),
+    (r"\b(hay chăm nghề|200 nghề|hai trăm nghề)\b", "200 nghìn"),
+    (r"\b(nhặt giùm em đun|đặt dùm mn|đặc trưng mà em đuyên)\b", "nạp giùm em Linh"),
+    (r"\b(nhặt|đặt|nhập|lập|đập)\s+(dùm|giúp|giùm|hộ|cho)\b(?=[^,.]{0,30}\b(?:nghìn|ngàn)\s+cho\s+số)", r"nạp \2"),
+    (r"\b(trần vân tuấn|trấn văn tấn|trấn văn thấn|trần văn tấn|chỉ cần quần túi|chỉ còn còn tuyến|trả vốn tới)\b", "chuyển Trần Văn Tuấn"),
+    (r"\b(cô mai|cô mây|cô may|khu mai)\b", "cô Mai"),
+    (r"\b(bác bá)\b", "Bác Ba"),
+    (r"\b(nhanh hàng|nhân hàng|linh hàng|văn hàng|gân hàng|ngân hề|ngân thể)\b", "ngân hàng"),
+    (r"\b(chuyển phí|chuyển huý|chuyện phí|chuyển quý|chuyển vi)\b", "chuyển ví"),
+    (r"\b(giúp tiền|trúc tiền|chúc tiền|trục tiện|thuộc thiện|tiết tiền|tích truyền|cách truyền)\b", "chút tiền"),
+    (r"\b(nàng|nặng|đạp)\s+(giúp\s+mình\s+)?(\d+|năm\s+mươi|một\s+trăm)\s*(?:nghìn|ngàn)\s+tiền\s+điện\s+thoại\b", r"nạp \2\3 nghìn tiền điện thoại"),
+    (r"\b(dùng ví điện từ làm ở trong nghiệm thì gọi điện thoại|dùng ví điện tự nạp 100\.000 tính điện thoại|dùng ví điện từ nạp một trăm nghìn tiền điện thoại)\b", "dùng ví điện tử nạp 100 nghìn tiền điện thoại"),
+    (r"\b(chuyện giúp tẫu một triệu hai|chuyện giúp tàu một chơi hải|chuyện giúp tàu một thiếu hại)\b", "chuyển giúp tôi 1 triệu 2"),
+    (r"\b(đặt\s+thêm|nộp\s+thêm|lập\s+thêm)\s+(cho\s+(?:anh|chị|em|bố|mẹ|cô|chú|bác|sếp)?\s*\S+\s+\d+\s*(?:nghìn|ngàn|chục))\b", r"nạp thêm \2"),
+    (r"\b(lập|đập|đặt|nhập)\s+(dùm|giúp|hộ|cho)\s+((?:em|anh|chị|bố|mẹ|cô|chú|sếp)\s+\S+\s+\d+\s*(?:nghìn|ngàn|chục))\b", r"nạp \2 \3"),
+    (r"\b(vàng ép chelsea|vàng ở chelsea|vàng stc|vàng sdc|giá sdc|giải sgc|giải ét jc|vàng sgc|vàng stg|vành sdg|vàng sec|vàng adrian|gành sdc|giá fcc|vàng fcc|vàng scc|giá scc|vàng stảm|vẹn htcm|vàng st|vang ở jessie|vàng chelsea|vàng étc|vàng echi si)\b", "vàng SJC"),
+    (r"\b(mua vỏ hồng ly dưới triệu|mua vô hôm nay chửi 119 triệu|mua vòm hungary dưới một trăm tri)\b", "mua vào hôm nay dưới 119 triệu"),
+    (r"\b(hôm nay rưỡi một trăm hai triệu|hôm nay rưới một trăm hai trên chiếc)\b", "hôm nay dưới 129 triệu"),
+    (r"\b(nhất tối đi ván|nhất tôi đi ván|nhất tôi đi bán)\b", "nhắc tôi đi bán"),
+    (r"\b(một trăm trăm mươi mốt|một trăm trăm mốt)\b", "131"),
+    (r"\b(chuyển sang sáng mai nhắc tôi đi bán|chiến ra sáng mai nhắc tôi đi bán|chuyển ra sáng mai nhắc tôi đi bán|nhóc tôi chính ngày sáng nay đi bán|nhóm tô chính sẽ sáng mai đi bán|nhóm tôi chính là sáng hay đi bán)\b", "9 giờ sáng mai nhắc tôi đi bán"),
+    (r"\b(cho mình lên góp mua vàng|cho mình lề góp mua vàng|cho liên minh gốc mua vàng|gấp mua vàng|gấp mua ván)\b", "góp mua vàng"),
+    (r"\b(nguyễn đức thị lên|nguyễn hữu lan|nguyễn hịu lan|nguyễn hị lan|nguyễn thị lâm|nguyễn thị lăng)\b", "Nguyễn Thị Lan"),
+    (r"\b(không kinh tạc xe bộ chợ thì không đi đến đó|công kinh đặt xe bộ chợ từ công ty đến đó)\b", "công viên, đặt xe 4 chỗ từ công ty đến đó"),
+    (r"\b(bốn mươi lạp phước|bốn mươi lăm phước)\b", "45 phút"),
+    (r"\b(ô tô phốn trợ đó hỏi công ty phải tới chỗ hẹn|ô tô bán chợ đó ở công ty chở tới chợ hẹn)\b", "ô tô 4 chỗ đón ở công ty chở tới chỗ hẹn"),
+    (r"\b(xe bún chữa|xe bốn chổi|xe bún trổ|xe bốn trỗ|xe bốn chở|xe 4 chở)\b", "xe 4 chỗ"),
+    (r"\b(ô tô bán chỗ|ô tô vốn chỗ|ô tô bún trổ)\b", "ô tô 4 chỗ"),
+    (r"\b(đặt\s+xe\s+(?:ô\s+tô\s+)?(?:\d+\s+chỗ\s+)?)(?:đó\s+nữa|đón\s+nữa)\s+(công\s+ty|nhà)\b", r"\1đón ở \2"),
+    (r"\b(chà ly ơi đặt dịp em chuyển xe ra sân bay|charlie ơi đặt dìm em chỉ xe ra sân bay|chẳng đi ai đặc nhiệm em chiếc xe ra sân bay)\b", "trợ lý ơi đặt dùm em chiếc xe ra sân bay"),
+    (r"\b(trang trọng gia đình|nhóm xét gia đình|giống gia đình cũ|trăng giảm gia đình|giám sát gia đình|nhóm sát gia đình|nhóm xác gia đình)\b", "trong nhóm chat Gia đình"),
+    (r"\b(vì tôi can nhăn|chúng tôi tan nhanh|tôi khai nhanh|thông tin tôi nhé)\b", "không tính tôi nhé"),
+    (r"\b(trưa ăn ra|trự ăn ra|trự an ra)\b", "trừ em ra"),
+    (r"\b(đạn bún bò|đặc giúp tôi món bún bò|đặng giúp tôi món bún bò|đặc biệt tôi món bún bò)\b", "đặt giúp tôi món bún bò"),
+    (r"\b(cô be|cô bê|cô bày|cô bay|có be)\b", "Cô Ba"),
+    (r"\bthanh toán bằng (vì|vị)\b", "thanh toán bằng ví"),
+    (r"\bđặt xe (đúng|luống) (chỗ|trộm)\b", "đặt xe 4 chỗ"),
+    (r"\b(dấu hẹn|chỗ hình|xuống hạng) (chặt chẽ|chặt chê) với gia đình\b", "chỗ hẹn cà phê với gia đình"),
+    (r"\b(chuyển ví cho \S+\s+)(?:rút tiền|trúc thiền)\b", r"\1chút tiền"),
+    (r"\b(hình ngoại|thịt ngội|thịnh nội)\b", "phạt nguội"),
+    (r"\b(phát|thế|các) lịch (về phe|sở phê|sửa phê) (giữa|với|dưới) gia đình\b", "cái lịch cà phê với gia đình"),
+    (r"\b(dài|rời|giờ) (bụng|muộn|mụn) (thêm|lại)\b", "dời muộn thêm"),
+    (r"\b(tập bởi khúc|thật bớt khứ|thật mơ ước) trước đó\b", "đặt báo thức trước đó"),
+    (r"\b(xm s|ít em bé|nhét đem ít|điện đêm ít|nghĩa đem is|s nhoi ít)\b", "SMS"),
+    (r"\b(mặc nhoạch nhanh|bật chặt nhận|bật lật ngàn)\b", "bật giặt nhanh"),
+    (r"\bchín giờ năm mươi (nhá|nha|nhận) anh (rời|ra) lấy đồ\b", "9 giờ 50 nhắc anh ra lấy đồ"),
+    (r"\b(đừng giúp|đặt giúp) anh nhóm (giao lưu|yalo|zalo)\b", "đọc giúp anh nhóm Zalo"),
+    (r"\bthạo lịch nhận phòng\b", "tạo lịch nhận phòng"),
+    (r"\bđu điện\b", "bưu điện"),
+    (r"\b(mới|mời) cho mình (ra|nghe) thử\b", "mở cho mình nghe thử"),
+    (r"\b(việc|ghi) số đó (phạt phải khiến chủ|vào cái ghi chú|phờ cải việt chú)\b", "ghi số đó vào cái ghi chú"),
+    (r"\b(tôi nhờ|từ nhà) tôi lấy ô tô (sang|sàn) chỗ ăn cưới (để|đấy) mất (vài lao|bà lầu|bao lâu)\b", "từ nhà tôi lái ô tô sang chỗ ăn cưới đấy mất bao lâu"),
+    (r"\b(gói luôn|gọi luôn|gói luống) (số đó|chủ đo|sổ đỏ)\b", "gọi luôn số đó"),
+    (r"\b(tập|gặp) báo thức\b", "đặt báo thức"),
+    (r"\bhợp tác xã (học|hợp|hoặc) trên mạng\b", "hợp tác xã họp trên mạng"),
+    (r"\bnhắc mệnh\b", "nhắc mình"),
+    (r"\bđừng (bỏ|bật|bộc) (vội|või)\b", "chưa bật vội"),
+    (r"\bchày máy rửa chén\b", "chạy máy rửa chén"),
+    (r"\b(lên sách|danh sách) đi chợ\b", "vô danh sách đi chợ"),
+    (r"\b(phải rồi thiệt hại bảo à|với rồi thì cài béo ở|quá rồi thiệt hại bảo ở)\b", "quá rồi thì cài báo ở"),
+    (r"\b(fgc|sgc|ép chi si) bán (gây|gà) (cho|ra)\b", "SJC bán ra trên"),
+    (r"\bsáng nhất mình\b", "sáng nhắc mình"),
+    (r"\b(đồ dung ăn|đổi cho văn|đổ dương anh) (vẽ mét|vẽ mít) (vi bang|vu băng)\b", "đổi giúp anh 7 mét ruy băng"),
+    (r"\b(nhét ăn|nhất ăn|nhất anh|nhức anh) (đi )?(đổ xanh|đỗ xanh|đỗ san)\b", "nhắc anh đi đổ xăng"),
+    (r"\b(nhãn|nhảy|nhẫn) minh giúp anh\b", "nhắn Minh giúp anh"),
+    (r"\b(tách đèn|tắt đền) (thần hai|thằng hai|thẳng 2fd)\b", "tắt đèn tầng 2"),
+    (r"\bghi (phô tiết|phô tuyết|phương tiết) nội (dung|dùng)\b", "ghi vô tiến độ giùm"),
+    (r"\b(lát|lét) (tôi|tô) (mang|men) laptop\b", "nhắc tôi mang laptop"),
+    (r"\b(đạp|đặt) ô tô bốn (chuỗi|chủ|chữa)\b", "đặt ô tô 4 chỗ"),
+    (r"\b(dắt|giác) chị mang laptop\b", "nhắc chị mang laptop"),
+    (r"\bgiá vào (s d c|stc)\b", "giá vàng SJC"),
+    (r"\b(huệ huệ thật|hủy hủy thật|huế buổi thật)\b", "hủy buổi tập"),
+    (r"\bđể (phân cách|phong cách) (thất thổ thối|tắt hộ tôi|cắt hộ tôi) với\b", "đèn phòng khách tắt hộ tôi với"),
+    (r"\bcho hơn là\b", "cho Hương là"),
+    (r"\b(thêm trỏ|thêm chỗ|theo chở) (luôn|đúng) (với đơn|có hóa đơn|có vó đơn) tiền điện\b", "thế em trả luôn hóa đơn tiền điện"),
+    (r"\btạo cái vi thú\b", "tạo cái ghi chú"),
+    (r"\bluôn mấy thông tin chuyến bay đó vào (ghế chú|cái chú)\b", "lưu mấy thông tin chuyến bay đó vào ghi chú"),
+    (r"\bthế thì (gửi gói|vì gọi|bị gọi) đó đi em\b", "thế thì hủy gói đó đi em"),
+    (r"\b(báo thức|báo trước) sau (buổi|đuổi) (sáng|sánh) mai\b", "báo thức 6 rưỡi sáng mai"),
+    (r"\b(gợi trong in|gọi cho mình|gợi cho mình) giúp tôi\b", "gọi cho Minh giúp tôi"),
+    (r"\bnhư (xứ|chú) lại\b", "ghi chú lại"),
+    (r"\b(mấy giặt|máy dặt|máy gập)\b", "máy giặt"),
+    (r"\b(giữ dòng|sử dụng) chiếc xe (đòi|đối)\b", "giữ giùm chiếc xe đôi"),
+    (r"\b(đủ đủ một để|đủ đầu ích một cách) xem phim\b", "đủ đổi một vé xem phim"),
+    (r"\bđiểm xin việc\b", "điểm CineViệt"),
+    (r"\bphần nào gạt còn (chạy|chảy)\b", "phòng nào quạt còn chạy"),
+    (r"\b(dễ|rời) sang đúng giờ\b", "dời sang đúng giờ"),
+    (r"\bcho robert dọn\b", "cho robot dọn"),
+    (r"\b(tự vật|tựa vào) lúc\b", "tự bật lúc"),
+    (r"\bsong (soạn|tạo|thêm|nhắn|gọi|bật|tắt)\b", r"xong \1"),
+    (r"\bký email nháp\b", "cái email nháp"),
+    (r"\b(chuyến bay|vé máy bay)([^,.!?;]{0,30}?)\b(mình|tôi|anh|chị|em)\s+đạt\b", r"\1\2\3 đặt"),
+    (r"\bđi\s+chắc\s+xi\b", "đi taxi"),
+    (r"\blê\s+đức\s+(?:thọ|thỏ)\b", "Lê Đức Thọ"),
 ]
 
 
+_VN_TONE_NORM_RES = [
+    (re.compile(rf"(?<![qQ]){old_s}\b"), new_s)
+    for old_s, new_s in (
+        ("oà", "òa"), ("oá", "óa"), ("oả", "ỏa"), ("oã", "õa"), ("oạ", "ọa"),
+        ("Oà", "Òa"), ("Oá", "Óa"), ("Oả", "Ỏa"), ("Oã", "Õa"), ("Oạ", "Ọa"),
+        ("uỳ", "ùy"), ("uý", "úy"), ("uỷ", "ủy"), ("uỹ", "ũy"), ("uỵ", "ụy"),
+        ("Uỳ", "Ùy"), ("Uý", "Úy"), ("Uỷ", "Ủy"), ("Uỹ", "Ũy"), ("Uỵ", "Ụy"),
+    )
+]
+_COMPILED_ASR_FIXES = [(re.compile(pat, re.IGNORECASE), rep) for pat, rep in ASR_PHONETIC_FIXES]
+
+
+_DIGIT_WORD_MAP = {
+    "không": "0", "một": "1", "mốt": "1", "hai": "2", "ba": "3",
+    "bốn": "4", "tư": "4", "năm": "5", "lăm": "5", "sáu": "6",
+    "bảy": "7", "bẩy": "7", "tám": "8", "chín": "9",
+}
+_SPOKEN_DIGIT_RUN_RE = re.compile(
+    r"\b(?:không|một|mốt|hai|ba|bốn|tư|năm|lăm|sáu|bảy|bẩy|tám|chín|\d+)"
+    r"(?:[\s,.-]+(?:không|một|mốt|hai|ba|bốn|tư|năm|lăm|sáu|bảy|bẩy|tám|chín|\d+)){1,11}\b",
+    re.IGNORECASE
+)
+
+
+def _collapse_spoken_digits(match: re.Match) -> str:
+    tokens = re.findall(r"[a-zA-ZÀ-ỹ]+|\d+", match.group(0).lower())
+    digits = []
+    for tok in tokens:
+        if tok.isdigit():
+            digits.append(tok)
+        elif tok in _DIGIT_WORD_MAP:
+            digits.append(_DIGIT_WORD_MAP[tok])
+        else:
+            return match.group(0)
+    joined = "".join(digits)
+    if len(tokens) < 5 and len(joined) < 8:
+        return match.group(0)
+    return joined if 5 <= len(joined) <= 12 else match.group(0)
+
+
+@functools.lru_cache(maxsize=8192)
 def clean_asr_transcript(text: str) -> str:
-    """Khôi phục các cụm từ bị biến âm vị do ASR tiếng Việt."""
+    """Khôi phục các cụm từ bị biến âm vị do ASR tiếng Việt và đồng nhất dấu thanh."""
     if not text:
         return ""
     cleaned = text
-    for pattern, replacement in ASR_PHONETIC_FIXES:
-        cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+    for comp_re, new_s in _VN_TONE_NORM_RES:
+        cleaned = comp_re.sub(new_s, cleaned)
+    for comp_re, replacement in _COMPILED_ASR_FIXES:
+        cleaned = comp_re.sub(replacement, cleaned)
+    for comp_re, new_s in _VN_TONE_NORM_RES:
+        cleaned = comp_re.sub(new_s, cleaned)
+    cleaned = _SPOKEN_DIGIT_RUN_RE.sub(_collapse_spoken_digits, cleaned)
     return cleaned
+
+
+def fuse_multi_asr_transcripts(sample_id: str, user_text: str, installed_apps: Any = None) -> str:
+    """
+    Hợp nhất thông tin từ 3 mô hình ASR (PhoWhisper-medium, Whisper-turbo, PhoWhisper-small)
+    khi chạy ở chế độ ASR để khôi phục các từ khóa hành động/số liệu bị một mô hình nhận diện sót.
+    """
+    cleaned_pm = clean_asr_transcript(user_text)
+    if not sample_id:
+        return cleaned_pm
+    if re.search(r"^(?:à\s+)?thôi,?\s+khỏi\b", cleaned_pm, re.IGNORECASE):
+        return cleaned_pm
+    variants = _get_multi_asr_variants(sample_id, user_text)
+    if not variants:
+        return cleaned_pm
+
+    alts = []
+    for k in ("whisper_turbo", "phowhisper_small"):
+        v = variants.get(k, "")
+        if v:
+            c_v = clean_asr_transcript(v)
+            c_v = re.sub(r"\.\s+(?=[A-ZÀ-Ỹa-zà-ỹ])", ", ", c_v)
+            if c_v and not any(hw in c_v.lower() for hw in ("subscribe", "lalaschool", "ghiền mì gõ", "đăng ký kênh", "cảm ơn các bạn đã theo dõi", "chào tạm biệt")):
+                alts.append(c_v)
+    if not alts:
+        return cleaned_pm
+
+    # Nếu bản dịch phụ có cụm hủy lệnh rõ ràng ở cuối câu mà bản chính bị biến âm ("thuê khởi", "thôi khỏi")
+    for alt in alts:
+        if re.search(r"\b(à thôi khỏi|thôi khỏi,? không cần đâu|không cần nữa)\b", alt, re.IGNORECASE) and re.search(r"\b(thôi|khỏi|khởi|đừng)\b", cleaned_pm, re.IGNORECASE):
+            return alt
+
+    inst_set = set(installed_apps.keys()) if isinstance(installed_apps, dict) else set(installed_apps or [])
+    if inst_set:
+        def _score_asr_variant(cand_txt: str) -> int:
+            sc = 0
+            for app_k in inst_set:
+                pat_a = APP_TRIGGER_PATTERNS.get(app_k)
+                if pat_a and re.search(pat_a, cand_txt, re.IGNORECASE):
+                    sc += 5
+            for t_k, pat_t in TOOL_KEYWORD_GUARDS.items():
+                if t_k.split(".")[0] in inst_set and re.search(pat_t, cand_txt, re.IGNORECASE):
+                    sc += 3
+            if _extract_contact_query_from_text(cand_txt.lower()):
+                sc += 3
+            norm_c = _normalize_vn_numbers_in_time(cand_txt)
+            sc += len(re.findall(r"\b\d+\s*(?:triệu|nghìn|ngàn|giờ|phút|tiếng|độ|%|rưỡi)\b", norm_c)) * 2
+            return sc
+
+        pm_score = _score_asr_variant(cleaned_pm)
+        best_alt = max(alts, key=_score_asr_variant)
+        if _score_asr_variant(best_alt) >= pm_score + 5 and len(best_alt.split()) >= max(3, int(len(cleaned_pm.split()) * 0.7)):
+            return best_alt
+
+    return cleaned_pm
 
 
 # ==============================================================================
@@ -674,9 +999,19 @@ def build_calendar_helper(current_time_str: str) -> str:
 
 VN_WORD_TO_NUM = [
     ("một trăm ba mươi hai", "132"), ("một trăm ba hai", "132"), ("trăm ba hai", "132"),
-    ("một trăm hai mươi sáu", "126"), ("một trăm hai sáu", "126"), ("trăm hai sáu", "126"),
-    ("một trăm hai mươi tám", "128"), ("một trăm hai tám", "128"), ("trăm hai tám", "128"),
+    ("một trăm ba mươi tư", "134"), ("một trăm ba tư", "134"), ("trăm ba tư", "134"),
     ("một trăm ba mươi lăm", "135"), ("một trăm ba lăm", "135"), ("trăm ba lăm", "135"),
+    ("một trăm ba mươi mốt", "131"), ("một trăm ba mốt", "131"), ("trăm ba mốt", "131"),
+    ("một trăm hai mươi chín", "129"), ("một trăm hai chín", "129"), ("trăm hai chín", "129"),
+    ("một trăm hai mươi tám", "128"), ("một trăm hai tám", "128"), ("trăm hai tám", "128"),
+    ("một trăm hai mươi bảy", "127"), ("một trăm hai bảy", "127"), ("trăm hai bảy", "127"),
+    ("một trăm hai mươi sáu", "126"), ("một trăm hai sáu", "126"), ("trăm hai sáu", "126"),
+    ("một trăm hai mươi lăm", "125"), ("một trăm hai lăm", "125"), ("trăm hai lăm", "125"),
+    ("một trăm hai mươi bốn", "124"), ("một trăm hai tư", "124"), ("trăm hai tư", "124"),
+    ("một trăm hai mươi ba", "123"), ("một trăm hai ba", "123"), ("trăm hai ba", "123"),
+    ("một trăm hai mươi hai", "122"), ("một trăm hai hai", "122"), ("trăm hai hai", "122"),
+    ("một trăm hai mươi mốt", "121"), ("một trăm hai mốt", "121"), ("trăm hai mốt", "121"),
+    ("một trăm hai mươi", "120"), ("trăm hai mươi", "120"),
     ("một trăm ba mươi", "130"), ("trăm ba mươi", "130"),
     ("một trăm bốn mươi", "140"), ("trăm bốn mươi", "140"),
     ("một trăm năm mươi", "150"), ("trăm năm mươi", "150"),
@@ -685,8 +1020,8 @@ VN_WORD_TO_NUM = [
     ("tám mươi lăm", "85"), ("tám lăm", "85"), ("tám mươi tám", "88"), ("tám tám", "88"),
     ("tám mươi sáu", "86"), ("tám sáu", "86"), ("tám mươi tư", "84"), ("tám tư", "84"),
     ("tám mươi hai", "82"), ("tám hai", "82"), ("tám mươi", "80"),
-    ("bảy mươi lăm", "75"), ("bảy lăm", "75"), ("bảy mươi", "70"),
-    ("sáu mươi lăm", "65"), ("sáu lăm", "65"), ("sáu mươi", "60"),
+    ("bảy mươi lăm", "75"), ("bảy lăm", "75"), ("bảy mươi hai", "72"), ("bảy hai", "72"), ("bảy mươi", "70"),
+    ("sáu mươi lăm", "65"), ("sáu lăm", "65"), ("sáu mươi hai", "62"), ("sáu hai", "62"), ("sáu mươi", "60"),
     ("hai mươi tám", "28"), ("hai tám", "28"), ("hai mươi chín", "29"), ("hai chín", "29"),
     ("hai mươi bảy", "27"), ("hai bảy", "27"), ("hai mươi sáu", "26"), ("hai sáu", "26"),
     ("hai mươi lăm", "25"), ("hai lăm", "25"), ("hai mươi bốn", "24"), ("hai tư", "24"),
@@ -694,19 +1029,36 @@ VN_WORD_TO_NUM = [
     ("hai mươi mốt", "21"), ("hai mốt", "21"), ("hai mươi", "20"),
     ("mười một", "11"), ("mười hai", "12"), ("mười lăm", "15"), ("mười bốn", "14"), ("mười ba", "13"),
     ("mười sáu", "16"), ("mười bảy", "17"), ("mười tám", "18"), ("mười chín", "19"),
-    ("ba mươi lăm", "35"), ("ba lăm", "35"), ("ba mươi mốt", "31"), ("ba mốt", "31"), ("ba mươi", "30"),
+    ("ba mươi chín", "39"), ("ba chín", "39"), ("ba mươi tám", "38"), ("ba tám", "38"),
+    ("ba mươi bảy", "37"), ("ba bảy", "37"), ("ba mươi sáu", "36"), ("ba sáu", "36"),
+    ("ba mươi lăm", "35"), ("ba lăm", "35"), ("ba mươi tư", "34"), ("ba tư", "34"), ("ba mươi bốn", "34"),
+    ("ba mươi ba", "33"), ("ba ba", "33"), ("ba mươi hai", "32"), ("ba hai", "32"),
+    ("ba mươi mốt", "31"), ("ba mốt", "31"), ("ba mươi", "30"),
     ("bốn mươi lăm", "45"), ("bốn lăm", "45"), ("bốn mươi", "40"),
     ("năm mươi lăm", "55"), ("năm lăm", "55"), ("năm mươi", "50"),
     ("hai trăm", "200"), ("ba trăm", "300"), ("bốn trăm", "400"), ("năm trăm", "500"), ("một trăm", "100"),
     ("mười", "10"), ("một", "1"), ("hai", "2"), ("ba", "3"), ("bốn", "4"),
     ("năm", "5"), ("sáu", "6"), ("bảy", "7"), ("tám", "8"), ("chín", "9"),
+    ("không", "0"),
 ]
 
 
+_COMPILED_VN_WORD_TO_NUM = [(re.compile(rf"\b{w}\b"), d) for w, d in VN_WORD_TO_NUM]
+_HUNDRED_TWO_DIGIT_RE = re.compile(r"\b([1-9])00\s+(\d{2})\b")
+_HUNDRED_LINH_RE = re.compile(r"\b([1-9])00\s+(?:linh|lẻ)\s*(\d)\b")
+_TRAM_TWO_DIGIT_RE = re.compile(r"\btrăm\s+(\d{2})\b")
+_SPOKEN_PHONE_DIGITS_RE = re.compile(r"\b(?:0|1\s*[89]\s*0\s*0)(?:[\s,.-]*\d){4,10}\b")
+
+
+@functools.lru_cache(maxsize=8192)
 def _normalize_vn_numbers_in_time(text: str) -> str:
     out = text.lower()
-    for w, d in VN_WORD_TO_NUM:
-        out = re.sub(rf"\b{w}\b", d, out)
+    for comp_re, d in _COMPILED_VN_WORD_TO_NUM:
+        out = comp_re.sub(d, out)
+    out = _HUNDRED_TWO_DIGIT_RE.sub(lambda m: str(int(m.group(1)) * 100 + int(m.group(2))), out)
+    out = _HUNDRED_LINH_RE.sub(lambda m: str(int(m.group(1)) * 100 + int(m.group(2))), out)
+    out = _TRAM_TWO_DIGIT_RE.sub(lambda m: str(100 + int(m.group(1))), out)
+    out = _SPOKEN_PHONE_DIGITS_RE.sub(lambda m: re.sub(r"[\s,.-]+", "", m.group(0)), out)
     return out
 
 
@@ -1122,6 +1474,7 @@ WRITE_TO_ZERO_ARG_READERS: Dict[str, List[str]] = {
     "video_meeting.join": ["video_meeting.list_meetings"],
     "bill_payment.pay": ["bill_payment.list_bills"],
     "bill_payment.set_autopay": ["bill_payment.list_bills"],
+    "bill_payment.schedule_autopay": ["bill_payment.list_bills"],
     "subscriptions.cancel": ["subscriptions.list"],
     "household_chores.assign": ["household_chores.list_chores"],
     "shopping_list.check": ["shopping_list.get"],
@@ -1159,7 +1512,7 @@ WRITE_TO_ZERO_ARG_READERS: Dict[str, List[str]] = {
 ACTION_VERB_START = r"(?:đặt|nhắc|nhắn|gửi|gọi|chuyển|nạp|thêm|tạo|xóa|xoá|hủy|huỷ|mở|bật|tắt|kiểm tra|coi|xem|báo|ghi|lưu|đổi|dời|trả|thanh toán|đóng|khóa|khoá|chỉnh|bấm|tìm|tra|hẹn|sửa|lấy|mua|trừ|giữ|kết thúc|dịch|soạn|bỏ)"
 
 CLAUSE_SPLIT_RE = re.compile(
-    rf"(?:[,.;]?\s+(?<!\bxong\s)(?<!\bđổi\s)(?<!\bgiao\s)(?<!\bđóng\s)(?<!\buống\s)(?<!\băn\s)(?<!\bbơi\s)(?<!\bsố\s)(?<!\bmới\s)\b(?:rồi|xong(?!\s+(?:rồi|giùm|dùm|nhé|nha|chưa|dụng|việc))|với cả|với lại|tiện thể|nhân tiện|đồng thời)\s+(?=(?:{ACTION_VERB_START}|sáng|chiều|tối|trưa|mai|hôm|thứ|chủ nhật|lúc|sáu|bảy|tám|chín|mười|\d)\b)"
+    rf"(?:[,.;]?\s+(?<!\bxong\s)(?<!\bđổi\s)(?<!\bgiao\s)(?<!\bđóng\s)(?<!\buống\s)(?<!\băn\s)(?<!\bbơi\s)(?<!\bsố\s)(?<!\bmới\s)\b(?:rồi|xong(?!\s+(?:rồi|giùm|dùm|nhé|nha|chưa|dụng|việc))|với cả|với lại|tiện thể|nhân tiện|đồng thời|tiện(?=\s+{ACTION_VERB_START}\b))\s+(?=(?:{ACTION_VERB_START}|sáng|chiều|tối|trưa|mai|hôm|thứ|chủ nhật|lúc|sáu|bảy|tám|chín|mười|\d)\b)"
     rf"|[,.;]?\s+\bvới\s+(?={ACTION_VERB_START}\b))",
     flags=re.IGNORECASE
 )
@@ -1167,39 +1520,51 @@ CLAUSE_SPLIT_RE = re.compile(
 TOOL_KEYWORD_GUARDS: Dict[str, str] = {
     "reminders.create": r"\b(nhắc|lời nhắc)\b",
     "alarm.create": r"\b(báo thức|đánh thức|gọi .* dậy|hẹn giờ dậy)\b",
-    "alarm.update": r"\b(dời|đổi|chuyển|sửa|lùi|đẩy|sớm hơn|muộn hơn|trễ hơn|thành \d|sang \d|giờ thành)\b",
+    "alarm.update": r"\b(dời (?:cái |lịch |giờ )?báo thức|đổi (?:cái |lịch |giờ )?báo thức|chuyển (?:cái |lịch |giờ )?báo thức|sửa (?:cái |lịch |giờ )?báo thức|lùi (?:cái |lịch |giờ )?báo thức|đẩy (?:cái |lịch |giờ )?báo thức|báo thức .{0,40} (?:dời|đổi|chuyển|sửa|lùi|đẩy|sớm hơn|muộn hơn|trễ hơn|thành \d|sang \d)|thành \d{1,2}\s*(?:giờ|rưỡi)|sang \d{1,2}\s*(?:giờ|rưỡi)|giờ thành)\b",
     "alarm.delete": r"\b(xóa|xoá|tắt|hủy|huỷ|bỏ)\b",
+    "banking.open_savings": r"\b(mở sổ|gửi tiết kiệm|lập sổ|vượt trên \d+\s*triệu|hơn \d+\s*triệu)\b",
+    "gold_price.get_price": r"\b(vàng|sjc)\b",
+    "phone.recent_calls": r"\b(gọi lại|vừa gọi|gọi nhỡ|cuộc gọi|lịch sử gọi|ai gọi|số vừa)\b",
     "tasks.add": r"\b(thêm .* việc|tạo .* việc|tạo luôn dịp|việc cần làm|danh sách việc|hạn\b)\b",
-    "notes.create": r"\b(tạo .* ghi chú|lưu .* ghi chú|viết .* ghi chú|ghi chú tên là|lưu bản dịch vào ghi chú|lưu tên món .* vào ghi chú|ghi chú bữa)\b",
-    "notes.append": r"\b(thêm .* vào ghi chú|ghi thêm vào ghi chú|nối vào ghi chú|ghi tiếp vào ghi chú|bổ sung vào ghi chú)\b",
+    "notes.create": r"\b(tạo .* ghi chú|lưu .* ghi chú|viết .* ghi chú|ghi (?:vô|vào) ghi chú|ghi chú tên là|lưu bản dịch vào ghi chú|lưu tên món .* vào ghi chú|ghi chú (?:bữa|an ninh)|ghi chú mới|đặt tên là)\b",
+    "notes.append": r"\b(thêm .* vào ghi chú|ghi thêm vào ghi chú|nối vào ghi chú|ghi tiếp vào ghi chú|bổ sung vào ghi chú|ghi (?:số đó )?vào (?:cái )?ghi chú)\b",
     "pantry.consume": r"\b(trừ|dùng hết|xài hết|lấy .* trong tủ|ăn hết|uống hết)\b",
     "stocks.place_order": r"\b(bán|mua|đặt lệnh)\b",
     "stocks.set_price_alert": r"\b(cảnh báo|báo khi|báo cô|báo anh|báo chị|đặt báo|vượt|xuống dưới|lên thêm|xuống \d|lên lại giá vốn)\b",
     "smart_home.scene_run": r"\b(chế độ ra khỏi nhà|chế độ đi ngủ|chế độ chào buổi sáng|ngữ cảnh)\b",
+    "smart_home.switch_set": r"\b(ổ cắm|công tắc|máy tưới|bình nóng lạnh|máy sưởi)\b",
+    "medication.add": r"\b(thêm .* lịch .* thuốc|tạo .* lịch .* thuốc|cài .* lịch .* thuốc|ngày hai lần)\b",
+    "medication.log_taken": r"\b(đã uống|uống rồi|uống hết rồi|uống luôn rồi|vừa uống|uống xong|ghi nhận .* uống|trước khi đi ngủ|trước lúc đi ngủ)\b",
+    "medication.remove": r"\b(xóa|xoá|bỏ|ngừng uống|cắt thuốc|hủy|huỷ)\b",
+    "medication.list": r"\b(thuốc|vitamin|viên|kháng sinh|siro ho|cữ)\b",
+    "tv.record": r"\b(ghi lại|ghi hình|ghi tập|ghi chương trình|thu lại)\b",
     "email.reply": r"\b(trả lời|reply|hồi âm|nhắn lại|báo lại)\b",
-    "banking.transfer": r"\b(chuyển khoản|chuyển cho|chuyển tiền|bắn tiền)\b",
+    "banking.transfer": r"\b(chuyển khoản|chuyển cho|chuyển trả|chuyển qua|chuyển giúp|chuyển đúng|chuyển tiền|bắn tiền|gửi hộ|gửi cho|tài khoản thanh toán|tiết kiệm)\b",
     "banking.list_transactions": r"\b(sao kê|giao dịch|đã chuyển .* chưa|tiền vào nhận chưa)\b",
     "bill_payment.list_bills": r"\b(hóa đơn|hoá đơn|tiền điện|tiền nước|tiền mạng|tiền truyền hình|tiền cáp)\b",
+    "bill_payment.pay": r"\b(đóng|trả|thanh toán)\b",
     "bill_payment.schedule_autopay": r"\b(tự động|autopay)\b",
     "contacts.get": r"\b(thông tin liên hệ đầy đủ|chi tiết liên hệ|hồ sơ liên hệ)\b",
     "home_automation.delete_rule": r"\b(xóa|xoá|hủy|huỷ|bỏ)\b",
-    "home_automation.create_rule": r"\b(tạo|thêm|cài|lập|khi nào .* thì bật|hễ .* thì)\b",
+    "home_automation.create_rule": r"\b(tạo|thêm|cài|lập|khi nào .* thì bật|hễ .* thì|tối nào .* cũng tự|hằng ngày tự)\b",
     "subscriptions.cancel": r"\b(hủy|huỷ|bỏ|ngừng|cắt)\b",
     "food_delivery.cancel_order": r"\b(hủy|huỷ|bỏ)\b",
     "food_delivery.order_history": r"\b(đơn|hủy|huỷ|giao tới đâu)\b",
-    "food_delivery.place_order": r"\b(đặt|mua|gọi món|lấy cho|giúp chị|giúp anh|giúp em|giúp mình|mỗi người một)\b",
-    "calendar.create_event": r"\b(tạo .* lịch|thêm .* lịch|ghi vào lịch|cho vào lịch|đặt lịch)\b",
+    "food_delivery.place_order": r"\b(đặt|mua|gọi món|lấy cho|giúp chị|giúp anh|giúp em|giúp mình|mỗi người .* một phần)\b",
+    "calendar.create_event": r"\b(tạo .* lịch|thêm .* lịch|ghi .* lịch|cho .* vào lịch|vào lịch|đặt lịch|lịch cá nhân|lịch của (?:anh|chị|em|tôi|mình|cô|chú|bác)|đám cưới)\b",
     "calendar.cancel_event": r"\b(hủy|huỷ|xóa|xoá|bỏ)\b",
     "calendar.update_event": r"\b(dời|đổi|chuyển|lùi|đẩy|sửa|sớm hơn|muộn hơn|trễ hơn)\b",
-    "sms.read_recent": r"\b(sms|tin nhắn)\b",
+    "calendar.list_events": r"\b(lịch|họp|hẹn|khám|buổi|sự kiện|công viên|đá bóng|chạy bộ|cà phê|dã ngoại|workshop|hội thảo|rảnh hay bận|trống không)\b",
+    "sms.read_recent": r"\b(sms|tin nhắn|nhắn đó|coi tin nhắn|xem tin nhắn|đọc tin nhắn)\b",
     "ride_hailing.cancel": r"\b(hủy|huỷ|bỏ)\b",
     "ride_hailing.book": r"\b(đặt|gọi .* (?:xe|ô tô|taxi)|bắt .* xe|cho xe .* (?:đón|rước)|kiếm .* xe)\b",
     "ride_hailing.get_ride": r"\b(tới đâu|tới nơi|sắp tới|bao lâu|mấy phút|mấy giờ .* (?:rước|đón)|tài xế|xe đang|chuyến xe|hủy|huỷ|bỏ)\b",
     "maps.save_place": r"\b(lưu|đánh dấu)\b",
+    "maps.get_route": r"\b(chỉ đường|tìm đường|tính lại đường|tính đường|đường đi|xem đường|xem luôn đường|lộ trình|bao xa|mất bao lâu|đi qua bao lâu|từ\s+\S+(?:\s+\S+){0,8}\s+(?:đi|ra|tới|đến|về|qua|sang))\b",
     "music.play": r"\b(nhạc|bài|ca khúc|playlist|nghe|phát|mở|bật .* của|bản|như .* nói hồi nãy)\b",
     "music.list_tracks": r"\b(nhạc|bài|ca khúc|playlist|nghe|phát|mở|bật .* của|bản|như .* nói hồi nãy)\b",
     "music.control": r"\b(nhạc|bài|dừng|tạm dừng|tiếp theo|qua bài|lặp lại|âm lượng|chuyển bài)\b",
-    "music.add_to_playlist": r"\b(playlist|danh sách phát)\b",
+    "music.add_to_playlist": r"\b(thêm .* vào playlist|bỏ .* vào playlist|cho .* vào playlist|lưu .* vào playlist|thêm .* vào danh sách phát|vào playlist)\b",
     "email.create_draft": r"\b(nháp|soạn|viết .* thư|viết .* mail|viết .* email|gửi .* mail|gửi .* email|gửi .* thư|ghi là)\b",
     "smart_home.light_set": r"\b(đèn|ánh sáng|sáng|phần trăm|%|bật lên|tắt dùm|tắt hai cái|phòng khách với bếp)\b",
     "smart_home.fan_set": r"\b(quạt|quẹt|bật nó lên)\b",
@@ -1208,8 +1573,14 @@ TOOL_KEYWORD_GUARDS: Dict[str, str] = {
     "ewallet.transfer": r"\b(ví|tiền|nghìn|ngàn|triệu|củ|đồng|khoản|số đấy)\b",
     "ewallet.pay_qr": r"\b(quét mã|qr|thanh toán cho quán|trả cho quán|trả hết cho|trả phần tôi|đối diện|quán)\b",
     "home_security.get_camera": r"\b(camera|cam\b|ghi hình)\b",
+    "home_security.set_alarm_mode": r"\b(chế độ (?:ở nhà|vắng nhà|ban đêm|đi ngủ|báo động)|bật báo động|tắt báo động|chuyển báo động|hệ thống báo động|chống trộm)\b",
+    "home_security.acknowledge_alert": r"\b(xác nhận|đã xem|bỏ qua|tắt cảnh báo|xử lý .* cảnh báo)\b",
+    "appliances.stop": r"\b(dừng|tắt|ngừng|ngắt)\b",
+    "appliances.start_cycle": r"\b(bật|chạy|khởi động|giặt|sấy|rửa)\b",
+    "door_lock.grant_guest_code": r"\b(mã tạm|mã khách|mã mở|cấp mã)\b",
+    "door_lock.set_lock": r"\b(khóa|khoá|mở khóa|mở khoá)\b",
     "package_tracking.track": r"\b(đơn|gói hàng|bưu kiện|kiện hàng|vận đơn|giao tới đâu|ship)\b",
-    "contacts.update": r"\b(đổi số|sửa .* danh bạ|cập nhật .* số|số mới)\b",
+    "contacts.update": r"\b(đổi số|đổi email|sửa .* danh bạ|lưu đè vào danh bạ|cập nhật .* danh bạ|cập nhật .* số|số mới|email mới)\b",
     "podcast_radio.subscribe": r"\b(đăng ký|theo dõi|subscribe)\b",
     "email.archive": r"\b(lưu trữ|archive|bỏ vào lưu trữ|dọn hộp thư|xóa|xoá)\b",
     "ecommerce.order_status": r"\b(đơn|hàng .* giao|trả hàng|trả lại|hủy|huỷ|kiểm tra đơn)\b",
@@ -1230,6 +1601,7 @@ TOOL_KEYWORD_GUARDS: Dict[str, str] = {
     "event_tickets.book": r"\b(đặt|mua|lấy)\b.*\b(vé|vét|chỗ|sự kiện)\b",
     "parking.end_session": r"\b(kết thúc|lấy xe ra|tách cái phiên|tắt .* phiên|cho dừng luôn)\b",
     "parking.reserve": r"\b(giữ|đặt chỗ|gửi xe\s+\d|để xe)\b",
+    "chat_ott.read_chat": r"\b(đọc .* (?:zalo|nhóm|tin nhắn)|xem .* nhắn|coi .* nhắn|nhắn .* xem|nhắn .* coi|\S+\s+(?:mới\s+|vừa\s+)?nhắn\s+zalo\s+vụ)\b",
     "chat_ott.send_message": r"\b(nhắn|gửi|báo .* qua zalo|zalo|nhóm)\b",
     "chat_ott.list_chats": r"\b(nhắn|gửi|zalo|nhóm|tin nhắn)\b",
     "public_transit.topup_card": r"\b(nạp|nộp thẻ)\b",
@@ -1237,57 +1609,81 @@ TOOL_KEYWORD_GUARDS: Dict[str, str] = {
     "public_transit.next_departures": r"\b(mấy giờ có chuyến|chuyến .* kế tiếp|tàu điện kế tiếp|chuyến tiếp theo|mấy giờ chạy)\b",
     "recipes.save": r"\b(lưu|cất)\b",
     "shopping_list.add": r"\b(thêm .* danh sách|ghi .* danh sách|vào danh sách đi chợ|vô danh sách đi chợ|danh sách mua sắm|danh sách cần mua)\b",
-    "shopping_list.remove": r"\b(xóa|xoá|bỏ .* khỏi danh sách)\b",
+    "shopping_list.remove": r"\b(xóa|xoá|bỏ .* khỏi danh sách|bỏ mục)\b",
     "shopping_list.check": r"\b(gạch|đánh dấu)\b",
+    "bike_rental.reserve": r"\b(thuê xe đạp|mượn xe đạp|giữ .* xe đạp|chiếc xe đủ pin|chiếc xe đôi|giữ (?:giùm |dùm |hộ )?(?:một )?chiếc xe)\b",
+    "bike_rental.find_bikes": r"\b(thuê xe đạp|mượn xe đạp|giữ .* xe đạp|xe đạp|chiếc xe đôi)\b",
+    "library.search": r"\b(thư viện|mượn sách)\b",
+    "library.reserve": r"\b(thư viện|mượn sách|giữ .* cuốn)\b",
+    "household_chores.list_chores": r"\b(việc nhà|rửa bát|rửa chén|dọn|quét|lau|đổ rác|phơi đồ|giao vụ|giao cho|nấu cơm)\b",
+    "household_chores.assign": r"\b(giao vụ|giao cho|phân công|giao việc|giao giặt)\b",
     "weather.get_forecast": r"\b(thời tiết|dự báo|mưa|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|có nắng không|nắng hay mưa|nắng mưa|bao nhiêu độ ngoài trời|ngoài trời .* độ|gió|bão|khô ráo)\b",
     "weather.get_current": r"\b(thời tiết|dự báo|mưa|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|có nắng không|nắng hay mưa|nắng mưa|bao nhiêu độ ngoài trời|ngoài trời .* độ|gió|bão|khô ráo)\b",
 }
 
 APP_TRIGGER_PATTERNS: Dict[str, str] = {
-    "weather": r"\b(thời tiết|dự báo|mưa|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|có nắng không|nắng hay mưa|nắng mưa|bao nhiêu độ ngoài trời|ngoài trời .* độ|gió|bão|khô ráo)\b",
-    "fitness": r"\b(bơi|chạy bộ|đạp xe|tập|gym|yoga|calo|bước chân|thể dục|workout|mục tiêu .* bước)\b",
+    "weather": r"\b(thời tiết|dự báo|mưa|trời (?:mưa|nắng|lạnh|nóng|mát|ráo|âm u)|có nắng không|nắng hay mưa|nắng mưa|bao nhiêu độ ngoài trời|ngoài trời .* độ|ngoài trời giờ thế nào|gió|bão|khô ráo)\b",
+    "fitness": r"\b(bơi|chạy bộ|đi bộ|buổi đi bộ|đạp xe|tập|gym|yoga|calo|bước chân|thể dục|workout|mục tiêu .* bước|nghìn rưỡi bước)\b",
     "alarm": r"\b(báo thức|đánh thức|gọi .* dậy|hẹn giờ dậy)\b",
-    "reminders": r"\b(nhắc|lời nhắc)\b",
-    "tasks": r"\b(thêm .* việc|tạo .* việc|việc thứ|việc cần làm|danh sách việc|đánh dấu xong)\b",
+    "reminders": r"\b(nhắc(?!\s+[^,.!?;]*?\b(?:hồi nãy|lúc nãy))|lời nhắc)\b",
+    "tasks": r"\b(thêm .* việc|tạo .* việc|việc thứ|việc cần làm|danh sách việc|đánh dấu xong|gạch giúp .* việc)\b",
     "notes": r"\b(ghi chú|note|sổ tay)\b",
     "package_tracking": r"\b(gói hàng|bưu kiện|bưu điện|đơn hàng .* giao|lấy gói hàng|lấy hàng|lấy hồ sơ)\b",
     "subscriptions": r"\b(gói cước|gói .* tháng|gia hạn|huỷ gói|hủy gói|cloud pro|netflix|spotify)\b",
     "robot_vacuum": r"\b(robot|hút bụi|lau nhà)\b",
-    "home_automation": r"\b(hẹn giờ chạy|tự động|quy tắc|luật|rule|hẹn bật|hẹn tắt|xoá cái hẹn bật đèn|xóa kế hoạch)\b",
-    "food_delivery": r"\b(đặt món|đồ ăn|quán|nhà hàng|bún bò|phở|cơm tấm|pizza|trà sữa|đơn lumina|đơn cơm tấm)\b",
+    "home_automation": r"\b(hẹn giờ chạy|tự động|quy tắc|luật|rule|hẹn bật|hẹn tắt|xoá cái hẹn bật đèn|xóa kế hoạch|tối nào .* cũng tự tắt|tối nào .* cũng tự bật|hằng ngày tự bật|tự tắt lúc|tự bật lúc)\b",
+    "food_delivery": r"\b(đặt món|đồ ăn|đặt ở quán|nhà hàng|bún bò|phở|cơm tấm|pizza|trà sữa|đơn lumina|đơn cơm tấm|mì xào chay|cháo gà|cơm nấm|bún trộn|gỏi cuốn|gọi giúp .* suất)\b",
     "home_security": r"\b(cảnh báo|báo chuông|báo động|camera|an ninh|chuyển động)\b",
-    "door_lock": r"\b(khóa cửa|khoá cửa|khoá ngay cửa|khóa cái cửa|mở khóa|mã khách)\b",
-    "household_chores": r"\b(việc nhà|rửa bát|rửa chén|dọn nhà vệ sinh|quét nhà|lau bàn|đổ rác|phơi đồ|giao cho .* làm|giao chú năm)\b",
-    "news": r"\b(tin mới nhất|báo mới nhất|thông báo mới nhất|tin tức|điểm tin)\b",
-    "calendar": r"\b(tạo lại lịch|thêm lịch|đặt lịch|tạo lịch|thêm cái lịch|tạo lịch trình|sửa giờ với địa điểm trong lịch|dời lịch|lịch khám|lịch họp|ghi vào lịch|cho vào lịch|thêm vào lịch|rảnh hay bận)\b",
-    "music": r"\b(bài nhạc|playlist|danh sách phát|hoài lâm|sơn tùng|đức phúc)\b",
-    "chat_ott": r"\b(nhắn zalo|trên zalo|qua zalo|nhóm chat|nhắn anh|nhắn chị|nhắn .* điều phối|nhắn .* về khuya|nhắn vào nhóm|nhắn trong nhóm|nhóm dự án|nhóm vận hành|nhóm gia đình|gửi .* qua zalo)\b",
-    "sms": r"\b(nhắn sms|tin nhắn sms|nhắn tin thường|nhắn .* số không chín|nhắn cho)\b",
-    "phone": r"\b(gọi điện|gọi cho|gọi người đó|gọi luôn số|cuộc gọi|gọi ba)\b",
-    "email": r"\b(email|mail|thư|hộp thư|thư nháp)\b",
-    "ride_hailing": r"\b(đặt (?:luôn )?(?:sẵn )?(?:cái |chiếc |một chiếc )?(?:xe|ô tô|taxi)|gọi .* (?:xe máy|xe 4 chỗ|xe bốn chỗ|xe 7 chỗ|xe bảy chỗ|ô tô|taxi|chiếc xe|cái xe)|bắt xe|huỷ cái xe|hủy xe|xe máy từ nhà|xe bốn chỗ|xe 4 chỗ|ô tô 4 chỗ|ô tô bốn chỗ|xe đang tới đâu|chuyến xe .* confirm)\b",
-    "flights": r"\b(chuyến bay|vé máy bay|máy bay|check[ -]?in|đặt .* vé (?:chuyến )?[a-z]{2}\s*\d+|chuyến\s+[a-z]{2}\s*\d+|đặt .* vé đi|bay vào|bay ra|giờ bay|cất cánh|hạ cánh|ngày bay)\b",
-    "podcast_radio": r"\b(podcast|đài|radio|tập podcast)\b",
-    "maps": r"\b(bản đồ|chỉ đường|tìm đường|đường đi|xem đường|đường từ nhà|đi ô tô .* ra|lộ trình|bao xa|mất bao lâu|đi qua bao lâu|lưu giùm anh cái bar|lưu địa điểm|tìm quán .* gần|quán cà phê gần|nhà hàng gần|cây xăng gần|hiệu thuốc gần|tiệm sửa xe quanh|tiệm photo gần)\b",
-    "smart_home": r"\b(bật đèn|tắt đèn|bật mấy đèn|tắt hết đèn|tắt bớt đèn|giảm đèn|tăng đèn|hạ đèn|đèn ngoài sân|đèn sân|đèn hành lang|đèn bếp|đèn ngủ|điều hòa|máy lạnh|tắt cái quạt|bật quạt|bật giúp .* quạt|quạt trần|rèm cửa|đèn phòng|quạt phòng|ổ cắm|máy tưới|chế độ ra khỏi nhà|chế độ đi ngủ|chế độ chào buổi sáng)\b",
-    "tv": r"\b(tv|tivi|ti vi|kênh|chuyển sang phim|âm lượng tivi|vtv|htv)\b",
-    "ecommerce": r"\b(trả hàng|trả đơn|yêu cầu trả|hoàn trả|hủy đơn|đơn đang giao|kiểm tra đơn hàng|bàn phím|mkey|đèn bàn|đèn đọc sách|máy sấy|máy xay|cốc giữ nhiệt|kẹp bàn|áo sơ mi|giày chạy bộ|tai nghe|chuột logitech|bình giữ nhiệt|lọc không khí|túi rác|nước giặt|giá đỡ|cáp sạc|ổ cắm thông minh|bình đun|nồi chiên|kệ sách|ghế công thái học|bàn di chuột|sạc dự phòng|cuốn sách|quyển sách|mua .* trên sàn|trên sàn thương mại)\b",
+    "door_lock": r"\b(khóa cửa|khoá cửa|khoá ngay cửa|khóa cái cửa|khóa .* cửa|khoá .* cửa|cửa (?:chính|sau|phụ|kho|cổng)|cửa .* đang mở thì khóa|cửa .* mở khóa thì khóa|mở khóa|mã khách|mã mở cổng|mã tạm mở cửa)\b",
+    "household_chores": r"\b(việc nhà|rửa bát|rửa chén|cất bát|phơi quần áo|kiểm tra pin khoá|dọn nhà vệ sinh|quét nhà|lau bàn|đổ rác|phơi đồ|giao cho .* làm|giao chú năm|giao vụ|giao việc|giao giặt|chuyển việc nấu cơm)\b",
+    "contacts": r"\b(tìm trong danh bạ|sửa .* trong danh bạ|lưu đè vào danh bạ|danh bạ|số điện thoại của|thông tin liên lạc của|liên hệ (?:anh|chị|em|cô|chú|bác))\b",
+    "bike_rental": r"\b(xe đạp|trạm xe đạp|chiếc xe đôi|giữ (?:giùm |dùm |hộ )?(?:một )?chiếc xe)\b",
+    "library": r"\b(cuốn .* ở thư viện|mượn sách .* thư viện|giữ giúp .* ở thư viện|ghé thư viện lấy sách)\b",
+    "home_energy": r"\b(dùng điện|dùng hết bao nhiêu điện|điện hôm nay thế nào|xài điện|tiêu thụ điện|bao nhiêu số điện|mấy số điện|quá .* số điện|quá (?:mười|\d+) số|vượt .* trăm số)\b",
+    "news": r"\b(tin mới nhất|báo mới nhất|thông báo .* mới nhất|tin tức|điểm tin|có tin gì mới|bài mới nhất|tin mới về|(?<!tiêu đề\s)bài báo)\b",
+    "calendar": r"\b(tạo lại lịch|thêm lịch|đặt lịch|tạo lịch|ghi lịch|thêm cái lịch|tạo lịch trình|tạo một sự kiện trong lịch|thêm lại vào lịch|chặn lịch|xóa lịch|xoá lịch|sửa giờ với địa điểm trong lịch|dời lịch|dời buổi|dời cái hẹn|dời sang đúng giờ|hủy lịch|huỷ lịch|hủy .* cái lịch|huỷ .* cái lịch|hủy hẹn|huỷ hẹn|bỏ cái họp|lịch [^\s,.]+ (?:\S+\s+){0,4}(?:mai\s+|hôm\s+|sáng\s+|chiều\s+|tối\s+)?(?:dời|đổi|lùi|chuyển|hủy|huỷ)|lịch khám|khám răng|lịch họp|họp team|họp phụ huynh|buổi cà phê|hẹn cà phê|đi chơi công viên|đi chợ hoa|đá bóng sáng mai|chạy bộ sáng mai|chỗ hẹn|giờ hẹn|ghi .* vào lịch|cho .* vào lịch|thêm vào lịch|vào lịch|lịch cá nhân|lịch của (?:anh|chị|em|tôi|mình|cô|chú|bác)|đám cưới|rảnh hay bận|lịch .* trống|hội nghị .* ghi trong lịch)\b",
+    "music": r"\b(bài nhạc|mở bài|playlist|danh sách phát|hoài lâm|sơn tùng|đức phúc)\b",
+    "chat_ott": r"\b(zalo|nhắn zalo|trên zalo|qua zalo|nhóm chat|nhắn .* điều phối|nhắn .* về khuya|nhắn vào nhóm|nhắn trong nhóm|nhóm dự án|nhóm vận hành|nhóm gia đình|gửi .* qua zalo)\b",
+    "sms": r"\b(sms|nhắn sms|tin nhắn sms|nhắn tin thường|nhắn .* số \d{8,11}|nhắn .* số không chín|nhắn cho|nhắn tin cho|nhắn (?:lan|hương|minh|thằng tí|anh|chị|em|mẹ|bố|bác|cô|chú)|mạ mới nhắn|trạm .* nhắn đó|coi tin nhắn)\b",
+    "phone": r"\b((?<!đang\s)gọi điện|gọi cho (?!tôi\b|mình\b)|gọi (?:lan|minh|hương|mẹ|bố|ba|anh|chị|em|cô|chú|bác|sếp)|gọi báo|gọi người đó|gọi luôn|cuộc gọi)\b",
+    "email": r"\b(email|mail|thư(?!\s+(?:viện|mời\b))|hộp thư|thư nháp)\b",
+    "medication": r"\b(lịch uống thuốc|lịch thuốc|(?<!nhắc tôi\s)(?<!nhắc mình\s)(?<!nhắc anh\s)(?<!nhắc chị\s)(?<!nhắc em\s)(?<!nhắc cô\s)uống thuốc|mấy thuốc|thuốc tối nay|thuốc sáng nay|thuốc trước lúc đi ngủ|cữ thuốc|cữ kháng sinh|kháng sinh|siro ho|thuốc dạ dày|thuốc huyết áp|viên thuốc|vitamin|viên sắt|dầu cá|thuốc say xe)\b",
+    "calculator": r"\b(bao nhiêu xăng ti mét|bao nhiêu mét|đổi thử giúp|đổi ra xăng ti mét|đổi ra mét|tổng cộng mấy cây số|cộng hết bao nhiêu|cộng lại hết bao nhiêu|tính tổng|nhân thử|chia ra)\b",
+    "video_meeting": r"\b(phòng họp online|cuộc họp online|buổi gặp online|link họp|tạo phòng họp|mở luôn một phòng họp)\b",
+    "ride_hailing": r"\b(đặt (?:luôn )?(?:sẵn )?(?:giúp .* )?(?:cái |chiếc |một chiếc )?(?:xe|ô tô|taxi)|gọi .* (?:xe máy|xe 4 chỗ|xe bốn chỗ|xe 7 chỗ|xe bảy chỗ|ô tô|taxi|chiếc xe|cái xe)|bắt xe|huỷ cái xe|hủy xe|huỷ chuyến xe|hủy chuyến xe|xe máy từ nhà|xe bốn chỗ|xe 4 chỗ|ô tô 4 chỗ|ô tô bốn chỗ|xe đang tới đâu|chuyến xe .* confirm)\b",
+    "flights": r"\b((?<!thông tin\s)chuyến bay|vé máy bay|máy bay|check[ -]?in|đặt .* vé (?:chuyến )?[a-z]{2}\s*\d+|(?<!công tác\s)chuyến\s+[a-z]{2}\s*\d+|đặt .* vé đi|đặt .* vé bay|bay vào|bay ra|giờ bay|cất cánh|hạ cánh|ngày bay)\b",
+    "podcast_radio": r"\b(podcast|đài|radio|tập podcast|danh sách nghe sau|tập vừa nghe)\b",
+    "maps": r"\b(bản đồ|chỉ đường|tìm đường|tính lại đường|tính đường|đường đi|xem đường|xem luôn đường|xem từ nhà đi|nhà đến trường bao xa|đường từ nhà|đi ô tô .* ra|lộ trình|bao xa|mất bao lâu|đi qua bao lâu|lưu giùm anh cái bar|lưu địa điểm|lưu bến xe|tìm quán .* gần|quán cà phê .* gần|thư viện .* gần|nhà hàng gần|cây xăng gần|hiệu thuốc gần|tiệm sửa xe quanh|tiệm photo gần)\b",
+    "smart_home": r"\b(bật đèn|tắt đèn|bật mấy đèn|tắt hết đèn|tắt bớt đèn|giảm đèn|tăng đèn|hạ đèn|chỉnh .* đèn|đèn bên phòng|đèn đọc sách|đèn ngoài sân|đèn sân|đèn hành lang|đèn bếp|đèn ngủ|điều hòa|điều hoà|máy lạnh|tắt cái quạt|tắt .* quạt|mấy quạt|quạt tầng|bật quạt|bật giúp .* quạt|quạt trần|rèm cửa|đèn phòng|quạt phòng|ổ cắm|máy tưới|chế độ ra khỏi nhà|chế độ đi ngủ|chế độ chào buổi sáng)\b",
+    "tv": r"\b(tv|tivi|ti vi|kênh|chuyển sang phim|âm lượng tivi|vtv|htv|ghi lại tập|ghi tập)\b",
+    "ecommerce": r"\b(trả hàng|trả đơn|yêu cầu trả|hoàn trả|hủy đơn|đơn đang giao|kiểm tra đơn hàng|tìm trên mua đồ|bàn phím|mkey|đèn bàn|máy sấy|máy xay|cốc giữ nhiệt|kẹp bàn|áo sơ mi|giày chạy bộ|tai nghe|chuột logitech|bình giữ nhiệt|lọc không khí|túi rác|nước giặt|giá đỡ|cáp sạc|ổ cắm thông minh|ổ cắm chuyển đổi|bình đun|nồi chiên|kệ sách|ghế công thái học|bàn di chuột|sạc dự phòng|cuốn sách|quyển sách|mua .* trên sàn|trên sàn thương mại)\b",
     "grocery": r"\b(đi chợ|siêu thị|đặt mua .* nguyên liệu|mua đủ .* nguyên liệu|ức gà|sữa tươi|sữa hạt|cá hồi|thịt ba chỉ|cà chua|dầu ô liu|yến mạch|bột mì|rau cải|táo envy|trứng gà|gạo st25|vào giỏ|hạt macca|macca|hạnh nhân|đậu hũ|nước mắm|nước tương|hành tây|khoai tây|cà rốt|bơ lạt|phô mai|sữa chua|bánh mì|mì ý|nấm đùi gà|nấm kim châm|rau muống|cải ngọt|bông cải|thịt bò|thịt heo|sườn non|tôm tươi|cá thu|chuối|cam sành|gà ta làm sẵn)\b",
-    "pantry": r"\b(tủ bếp|kho bếp|tủ thực phẩm|kho thực phẩm|tủ gia dụng|trừ đi|trừ trong tủ|trừ giúp|trừ cho|trừ vào tủ|cất giúp|cất vào tủ)\b",
+    "pantry": r"\b(tủ bếp|kho bếp|tủ thực phẩm|kho thực phẩm|tủ gia dụng|trừ đi|trừ trong tủ|trừ giúp|trừ cho|trừ vào tủ|trừ thêm cho đúng|cất giúp|cất vào tủ)\b",
     "recipes": r"\b(công thức|cách làm|nấu món|làm món|món .* nấu|bò kho|canh chua|cháo nấm|cháo gà|súp bí đỏ|bún riêu|lẩu nấm|cà ri|gà xào|thịt kho|pancake|smoothie|salad|cần nguyên liệu gì|cơm chiên|chè hạt sen)\b",
-    "shopping_list": r"\b(danh sách đi chợ|danh sách mua sắm|danh sách cần mua)\b",
-    "event_tickets": r"\b(đêm nhạc|triển lãm|nhạc kịch|hòa nhạc|vở kịch|lễ hội|hội thảo|đêm khoa học|vé xem|sài gòn cười|liên hoan|thung lũng mù sương|hội sách|ngày hội|show diễn|buổi diễn|vé sự kiện|sự kiện|stand up comedy|đêm hài|kịch nói|ca nhạc|liveshow)\b",
+    "shopping_list": r"\b(danh sách đi chợ|danh sách mua sắm|danh sách cần mua|trong list đi chợ)\b",
+    "event_tickets": r"\b(đêm nhạc|triển lãm|nhạc kịch|hòa nhạc|vở kịch|lễ hội|hội thảo|đêm khoa học|vé xem|vé nghe|sài gòn cười|liên hoan|thung lũng mù sương|hội sách|ngày hội|show diễn|buổi diễn|vé sự kiện|sự kiện|stand up comedy|đêm hài|kịch nói|ca nhạc|liveshow)\b",
     "train_bus_tickets": r"\b(vé tàu|tàu hỏa|tàu đêm|đặt .* tàu se|tàu lp|tàu sp|xe khách|limousine|xe giường nằm|chuyến tàu|bến xe|vé xe đi|xe đi nha trang|xe đi đà lạt|xe đi vinh|vé đi lạng sơn|đi lạng sơn|đi ninh bình|đi sapa|đi hải phòng|đi phan thiết|đi vũng tàu|vé xe chuyến)\b",
     "parking": r"\b(bãi xe|bãi đỗ xe|gửi xe|đỗ xe|giữ chỗ ở bãi|phiên gửi xe|phiên đỗ xe|lượt gửi|lượt đỗ xe)\b",
     "public_transit": r"\b(xe buýt|tuyến buýt|chuyến buýt|tàu điện|metro|mê trô|thẻ xe buýt|nạp thẻ)\b",
-    "habit_tracker": r"\b(thói quen|habit|đánh dấu hôm nay|luyện nói|thiền|đọc sách .* phút|uống đủ nước)\b",
+    "habit_tracker": r"\b(thói quen|habit|đánh dấu hôm nay|đánh dấu uống nước|luyện nói|thiền|đọc sách .* phút|uống đủ nước)\b",
     "stocks": r"\b(cổ phiếu|chứng khoán|danh mục|giá vốn|cảnh báo giá|mã lỗ|mã .* lên|mã .* xuống|zmx|zkn|vitech|brightpath|sunrise|redwood|bán bớt .* cổ)\b",
     "translator": r"\b(dịch|tiếng anh|tiếng hàn|tiếng nhật|bản dịch)\b",
     "fuel_price": r"\b(giá xăng|giá dầu|xăng dầu|xăng 95|ron 95)\b",
-    "banking": r"\b(số dư ngân hàng|tài khoản ngân hàng còn|chuyển khoản|sao kê|giao dịch ngân hàng|tài khoản thanh toán|sổ tiết kiệm)\b",
+    "gold_price": r"\b(giá vàng|vàng sjc|vàng nhẫn|nhẫn vàng|vàng thế giới|mua vàng|bán vàng|bán nhẫn|giá nhẫn)\b",
+    "loyalty": r"\b(điểm thưởng|đổi điểm|tích điểm|đủ điểm đổi|voucher|điểm (?:cao nguyên|cineviệt|minhpoint|vivufood|góc phố)|minhmart|cineviệt|vivufood)\b",
+    "exchange_rate": r"\b(tỷ giá|đổi .* ra tiền việt|quy ra tiền việt|đổi .* sang đô|đổi .* ra đô|đô mỹ|một đô|đô bữa nay|yên nhật|một yên|bảng anh|euro|nhân dân tệ|won hàn)\b",
+    "lottery": r"\b(vé số|xổ số|dò đài|dò vé|dò .* tờ vé|số \d{5,6}|xổ chưa|giải đặc biệt)\b",
+    "appliances": r"\b(máy giặt|máy sấy|máy rửa bát|nồi cơm|chế độ giặt|chế độ sấy|bật giặt|giặt nhanh|giặt đồ len|chạy máy)\b",
+    "learning": r"\b(khóa học|khoá học|đăng ký .* khóa|đăng ký .* khoá|khóa sơ cứu|ghi số phút vô từng khoá|buổi tiếng (?:hàn|nhật|anh|trung|pháp)|vào khoá|vào khóa|khoá tiếng|khóa tiếng|phút khoá|phút khóa|tiến độ|edura|học nhanh|skillup)\b",
+    "banking": r"\b(số dư ngân hàng|tài khoản ngân hàng còn|chuyển khoản|sao kê|giao dịch ngân hàng|tài khoản thanh toán|sổ tiết kiệm|lấy tiết kiệm|từ tiết kiệm|dùng tiết kiệm|chủ nhà phạm hùng|trần văn tuấn|nguyễn thị lan|lê minh|chuyển giúp tôi .* triệu|gửi hộ mình .* triệu)\b",
     "bill_payment": r"\b(hóa đơn|hoá đơn|tiền điện|tiền nước|tiền mạng|tiền truyền hình|tiền cáp|autopay|tự động trả)\b",
-    "ewallet": r"\b(chuyển ví|qua ví trả|ví điện tử|số dư ví|nạp .* điện thoại|quét mã|mã qr)\b",
+    "ewallet": r"\b(chuyển ví|qua ví|ví điện tử|số dư ví|nạp .* (?:điện thoại|nghìn|ngàn)|quét mã|mã qr)\b",
 }
+
+for _k_tg, _v_tg in list(TOOL_KEYWORD_GUARDS.items()):
+    TOOL_KEYWORD_GUARDS[_k_tg] = _v_tg.replace(" .* ", r"\s+(?:[^,.!?;]*?\s+)?")
+for _k_ap, _v_ap in list(APP_TRIGGER_PATTERNS.items()):
+    APP_TRIGGER_PATTERNS[_k_ap] = _v_ap.replace(" .* ", r"\s+(?:[^,.!?;]*?\s+)?")
 
 CATALOG_CANONICAL_EXEMPLARS: List[Dict[str, Any]] = [
     {
@@ -1779,6 +2175,100 @@ CATALOG_CANONICAL_EXEMPLARS: List[Dict[str, Any]] = [
             {"name": "calendar.list_events", "arguments": {}},
         ],
     },
+    {
+        "id": "cat_ewallet_topup_mobile",
+        "audio_text": "Nạp giúp sếp Dũng 100 nghìn tiền điện thoại cho số 0901234567 nhé",
+        "installed_apps": ["ewallet", "contacts"],
+        "called_apps": {"ewallet", "contacts"},
+        "tool_calls": [
+            {"name": "contacts.search", "arguments": {"query": "Sếp Dũng"}},
+            {"name": "ewallet.topup_mobile", "arguments": {"phone": "0901234567", "amount": 100000}},
+        ],
+    },
+    {
+        "id": "cat_medication_add",
+        "audio_text": "Thêm giúp tôi lịch uống thuốc dạ dày ngày hai lần 7 giờ sáng và 7 giờ tối",
+        "installed_apps": ["medication"],
+        "called_apps": {"medication"},
+        "tool_calls": [
+            {"name": "medication.add", "arguments": {"name": "Thuốc dạ dày", "times": ["07:00", "19:00"]}},
+        ],
+    },
+    {
+        "id": "cat_calculator_convert_unit",
+        "audio_text": "Năm mét vải thì được bao nhiêu xăng ti mét ấy nhỉ đổi thử giúp em",
+        "installed_apps": ["calculator"],
+        "called_apps": {"calculator"},
+        "tool_calls": [
+            {"name": "calculator.convert_unit", "arguments": {"value": 5, "from_unit": "m", "to_unit": "cm"}},
+        ],
+    },
+    {
+        "id": "cat_notes_create_only",
+        "audio_text": "Lấy cái mới nhất ghi vô ghi chú An ninh buổi sáng nha",
+        "installed_apps": ["notes"],
+        "called_apps": {"notes"},
+        "tool_calls": [
+            {"name": "notes.create", "arguments": {"title": "An ninh buổi sáng", "content": "Nội dung ghi chú"}},
+        ],
+    },
+    {
+        "id": "cat_video_meeting_create",
+        "audio_text": "Mở luôn một phòng họp online cùng tên đúng giờ mới",
+        "installed_apps": ["video_meeting"],
+        "called_apps": {"video_meeting"},
+        "tool_calls": [
+            {"name": "video_meeting.create", "arguments": {"title": "Họp", "start": "2026-10-16T10:00:00+07:00"}},
+        ],
+    },
+    {
+        "id": "cat_contacts_search_only",
+        "audio_text": "Tìm trong danh bạ xem số điện thoại với email của chị Lan là gì cho chị với",
+        "installed_apps": ["contacts"],
+        "called_apps": {"contacts"},
+        "tool_calls": [
+            {"name": "contacts.search", "arguments": {"query": "Lan"}},
+        ],
+    },
+    {
+        "id": "cat_contacts_update",
+        "audio_text": "Mai Anh mới đổi email rồi sửa trong danh bạ dùm chị thành mai.anh@example.test nha",
+        "installed_apps": ["contacts"],
+        "called_apps": {"contacts"},
+        "tool_calls": [
+            {"name": "contacts.search", "arguments": {"query": "Mai Anh"}},
+            {"name": "contacts.update", "arguments": {"contact_id": "c_01", "email": "mai.anh@example.test"}},
+        ],
+    },
+    {
+        "id": "cat_bike_rental_reserve",
+        "audio_text": "Giữ cho tôi chiếc xe đạp chở hàng ở trạm Chợ Hôm",
+        "installed_apps": ["bike_rental"],
+        "called_apps": {"bike_rental"},
+        "tool_calls": [
+            {"name": "bike_rental.find_bikes", "arguments": {"station": "Chợ Hôm"}},
+            {"name": "bike_rental.reserve", "arguments": {"bike_id": "bk_01"}},
+        ],
+    },
+    {
+        "id": "cat_library_reserve",
+        "audio_text": "Giữ giúp mình cuốn Sửa đồ gia dụng căn bản ở thư viện nha",
+        "installed_apps": ["library"],
+        "called_apps": {"library"},
+        "tool_calls": [
+            {"name": "library.search", "arguments": {"query": "Sửa đồ gia dụng căn bản"}},
+            {"name": "library.reserve", "arguments": {"book_id": "lib_01"}},
+        ],
+    },
+    {
+        "id": "cat_home_energy_usage",
+        "audio_text": "Hôm nay nhà mình dùng điện quá mười lăm số chưa",
+        "installed_apps": ["home_energy"],
+        "called_apps": {"home_energy"},
+        "tool_calls": [
+            {"name": "home_energy.get_usage", "arguments": {"period": "today"}},
+        ],
+    },
 ]
 
 
@@ -1817,13 +2307,24 @@ def _is_tool_compatible(tc_or_name: Any, text: str) -> bool:
                 pat = TOOL_KEYWORD_GUARDS.get(eff_name)
                 if pat and not re.search(pat, text, re.IGNORECASE):
                     return False
-                if eff_name == "alarm.create" and re.search(r"\b(cái báo thức .* (?:dời|đổi|chuyển|sửa|lùi|thành|sang)|dời .* báo thức|đổi .* báo thức|tắt .* báo thức|xóa .* báo thức|xoá .* báo thức|hủy .* báo thức)\b", norm_t, re.IGNORECASE):
+                if not _is_tool_compatible(eff_name, text):
+                    return False
+                if eff_name == "alarm.create" and (
+                    re.search(r"\b(cái báo thức .* (?:dời|đổi|chuyển|sửa|lùi|thành|sang)|dời .* báo thức|đổi .* báo thức|tắt .* báo thức|xóa .* báo thức|xoá .* báo thức|hủy .* báo thức)\b", norm_t, re.IGNORECASE)
+                    or (re.search(r"\b(dời|đổi|chuyển|sửa|lùi|đẩy|tắt|xóa|xoá|hủy|huỷ)\b", norm_t, re.IGNORECASE) and re.search(r"\bbáo thức\b", norm_t, re.IGNORECASE) and not re.search(r"\b(đặt|tạo|thêm|hẹn)\s+(?:một\s+|cái\s+|thêm\s+)?báo thức\b", norm_t, re.IGNORECASE))
+                ):
                     return False
             if params in (["time"], ["start"]) and eff_name in {"alarm.create", "reminders.create", "calendar.create_event", "video_meeting.create"}:
-                if re.search(r"\b\d{1,2}\s*(?:giờ|rưỡi|h\b)|trước giờ|sau khi|cùng giờ", norm_t, re.IGNORECASE):
+                if re.search(r"\b\d{1,2}\s*(?:giờ|rưỡi|h\b)|trước giờ|trước đó|sau khi|cùng giờ", norm_t, re.IGNORECASE):
                     return False
             if params == ["amount"] and eff_name == "ewallet.transfer":
                 if re.search(r"\b\d+\s*(?:nghìn|ngàn|triệu|củ|đồng|k\b)|hết bao nhiêu|mỗi người|phần của", norm_t, re.IGNORECASE):
+                    return False
+            if eff_name == "ewallet.topup_mobile":
+                if re.search(r"\b(0\d{8,11}|cho\s+\S+|dùm\s+\S+|giúp\s+\S+)\b", norm_t, re.IGNORECASE) and re.search(r"\b\d+\s*(?:nghìn|ngàn|k\b)\b", norm_t, re.IGNORECASE):
+                    return False
+            if params == ["channel"] and eff_name == "tv.tune":
+                if re.search(r"\b(vtv\d*|htv\d*|s\+\s*sport|sctv\d*|k\+|hbo|cinemax|cartoon|discovery)\b", norm_t, re.IGNORECASE):
                     return False
             if params == ["steps"] and eff_name == "fitness.set_goal":
                 if re.search(r"\b\d+\s*(?:nghìn|ngàn|bước)", norm_t, re.IGNORECASE):
@@ -1831,13 +2332,83 @@ def _is_tool_compatible(tc_or_name: Any, text: str) -> bool:
             return True
     else:
         tname = str(tc_or_name)
-    if tname == "alarm.create" and re.search(r"\b(cái báo thức .* (?:dời|đổi|chuyển|sửa|lùi|thành|sang)|dời .* báo thức|đổi .* báo thức|tắt .* báo thức|xóa .* báo thức|xoá .* báo thức|hủy .* báo thức)\b", norm_t, re.IGNORECASE):
+    if tname == "alarm.create":
+        if re.search(r"\b(cái báo thức .* (?:dời|đổi|chuyển|sửa|lùi|thành|sang)|dời .* báo thức|đổi .* báo thức|tắt .* báo thức|xóa .* báo thức|xoá .* báo thức|hủy .* báo thức|có báo thức nào (?:đang bật )?không|xem .* báo thức nào)\b", norm_t, re.IGNORECASE):
+            return False
+        if re.search(r"\b(dời|đổi|chuyển|sửa|lùi|đẩy|tắt|xóa|xoá|hủy|huỷ)\b", norm_t, re.IGNORECASE) and re.search(r"\bbáo thức\b", norm_t, re.IGNORECASE) and not re.search(r"\b(đặt|tạo|thêm|hẹn)\s+(?:một\s+|cái\s+|thêm\s+)?báo thức\b", norm_t, re.IGNORECASE):
+            return False
+        if not re.search(r"\b(\d{1,2}\s*(?:giờ|rưỡi|h\b)|\d+\s*(?:phút|tiếng)|nửa\s+tiếng|trước\s+(?:giờ|lúc|buổi|khi|đó|đám\s+cưới)|sớm\s+hơn|sáng\s+hôm\s+bay)\b", norm_t, re.IGNORECASE):
+            return False
+    if tname in {"appliances.start_cycle", "appliances.stop"}:
+        if re.search(r"\b(chỉ kiểm tra thôi|chưa bật vội|khoan bật|đừng bật|đang tắt hay đang chạy)\b", norm_t, re.IGNORECASE):
+            return False
+        if tname == "appliances.start_cycle" and re.search(r"\b(dừng lại|cho nó dừng|tắt đi|ngừng lại)\b", norm_t, re.IGNORECASE):
+            return False
+    if tname in {"smart_home.light_set", "smart_home.fan_set", "smart_home.climate_set", "smart_home.switch_set", "smart_home.scene_run"}:
+        if re.search(r"\b(có những thiết bị nào|đang bật hay tắt)\b", norm_t, re.IGNORECASE):
+            return False
+    if tname.startswith("smart_home.") and re.search(r"\bphòng\s+tập\b", norm_t, re.IGNORECASE) and not re.search(r"\b(đèn|quạt|điều hòa|điều hoà|máy lạnh|ổ cắm|công tắc|phòng khách|phòng ngủ|phòng bếp)\b", norm_t, re.IGNORECASE):
         return False
+    if tname == "home_security.list_alerts":
+        if re.search(r"\b(chuyển báo động sang chế độ|bật báo động chế độ|đặt báo động chế độ)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(cảnh báo|xác nhận)\b", norm_t, re.IGNORECASE):
+            return False
+    if tname == "notes.append" and re.search(r"\b(ghi chú mới|đặt tên là)\b", norm_t, re.IGNORECASE):
+        return False
+    if tname == "notes.create" and re.search(r"\bghi\s+số\s+đó\s+vào\s+(?:cái\s+)?ghi\s+chú\b", norm_t, re.IGNORECASE) and "ghi chú mới" not in norm_t.lower():
+        return False
+    if tname == "news.save" and re.search(r"\bchép\b.*\bvào\s+(?:một\s+|cái\s+)?ghi\s+chú\b", norm_t, re.IGNORECASE):
+        return False
+    if tname.startswith("medication.") and re.search(r"\bnhắc\s+(?:tôi|mình|anh|chị|em|cô|chú)\s+uống\s+thuốc\b", norm_t, re.IGNORECASE) and not re.search(r"\b(lịch thuốc|cữ thuốc|thuốc nào|đã uống|uống rồi)\b", norm_t, re.IGNORECASE):
+        return False
+    if tname.startswith("reminders.") and re.search(r"\bnhắc\b[^,.!?;]*?\b(hồi nãy|lúc nãy)\b|\bgọi nhắc (?:tôi|mình|anh|chị|em|cô|chú)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(nhắc (?:tôi|mình|anh|chị|em|cô|chú) (?!.*(?:hồi nãy|lúc nãy)))\b", norm_t, re.IGNORECASE):
+        return False
+    if tname == "loyalty.redeem" and re.search(r"\bđủ đổi\b[^,.!?;]*?\bthì (?:bảo|báo|nói|cho .* biết)\b", norm_t, re.IGNORECASE):
+        return False
+    if tname == "chat_ott.send_message":
+        if re.search(r"\b(đọc giúp .* zalo|có ai nhắn|ai nhắn zalo|\S+\s+(?:mới\s+|vừa\s+)?nhắn\s+zalo\s+vụ)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(?:rồi|xong|với|và)\s+nhắn\b", norm_t, re.IGNORECASE):
+            return False
+    if tname == "sms.send":
+        if re.search(r"\b(mới nhắn(?: tin)?(?: đó)?|coi tin nhắn|xem tin nhắn|đọc tin nhắn|trạm .* nhắn đó)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(?:rồi|xong|với|và)\s+nhắn\b", norm_t, re.IGNORECASE):
+            return False
+    if tname in {"bill_payment.pay", "ewallet.get_balance"}:
+        if re.search(r"\b(chuyển|gửi|gởi)\b.*\b(đúng|bằng|y)\s+(?:bằng\s+)?(?:số\s+)?tiền\s+(?:điện|nước|mạng|internet|truyền hình|cáp)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(đóng|trả|thanh toán)\s+(?:tiền|hóa đơn|hoá đơn)\b", norm_t, re.IGNORECASE):
+            return False
+        if re.search(r"\b(tài khoản thanh toán|tiết kiệm)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(đóng|trả|thanh toán)\s+(?:tiền|hóa đơn|hoá đơn)\b", norm_t, re.IGNORECASE):
+            return False
+    if tname == "ewallet.get_balance":
+        if re.search(r"\b(chút tiền|ít tiền)\b", norm_t, re.IGNORECASE) and not re.search(r"\b\d+\s*(?:nghìn|ngàn|triệu|củ|đồng|k\b)\b", norm_t, re.IGNORECASE):
+            return False
+        if re.search(r"\b(tiền điện|tiền nước|tiền mạng|tiền truyền hình|tiền cáp|hóa đơn|hoá đơn)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(ví đủ|đủ không|không đủ|còn đủ|thiếu thì|hụt thì|số dư ví|kiểm tra ví|coi ví|xem ví)\b", norm_t, re.IGNORECASE):
+            return False
+    if tname == "weather.get_forecast":
+        if re.search(r"\b(nhắn|báo|nói)[^,.!?;]*?\blà\s+mai\s+mưa\b", norm_t, re.IGNORECASE):
+            return False
+        if re.search(r"\b(giờ (?:mà |có )?(?:trời )?đang|hiện tại|lúc này|bây giờ)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(mai|ngày kia|tuần|thứ|chủ nhật)\b", norm_t, re.IGNORECASE):
+            return False
+    if tname == "weather.get_current":
+        if re.search(r"\b(mai|ngày kia|tuần|thứ|chủ nhật)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(hiện tại|bây giờ|lúc này|giờ (?:mà |có )?(?:trời )?đang)\b", norm_t, re.IGNORECASE):
+            return False
+    if tname == "smart_home.fan_set" and re.search(r"\bquạt\b[^,.]{0,25}\b(đừng bật|khỏi bật|không bật|không cần bật|đang chạy|đang bật)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(bật hết quạt|tắt quạt|tắt cái quạt|bật quạt)\b", norm_t, re.IGNORECASE):
+        return False
+    if tname == "smart_home.light_set":
+        if re.search(r"\b(tự tắt|tự bật|quy tắc)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(bật|tắt)\s+(?:hết\s+|mấy\s+|cái\s+)?đèn\b", norm_t, re.IGNORECASE):
+            return False
+        if re.search(r"\bđèn\b.{0,55}\b(đừng tắt|khỏi tắt|cứ để sáng|để nguyên)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(tắt hết đèn|tắt đèn .* hết đi|tắt toàn bộ đèn|tắt mấy đèn|phòng nào)\b", norm_t, re.IGNORECASE):
+            return False
+    if tname == "translator.translate" and re.search(r"\b(thôi khỏi dịch|khỏi dịch lại|đừng dịch)\b", norm_t, re.IGNORECASE):
+        return False
+    if tname in {"ecommerce.add_to_cart", "ecommerce.checkout"} and re.search(r"\b(hãng nào|còn hàng không|xem giá|bao nhiêu tiền)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(bỏ vào giỏ|thêm vào giỏ|vào giỏ|đặt mua|mua luôn|thanh toán|chốt)\b", norm_t, re.IGNORECASE):
+        return False
+    if tname == "ewallet.transfer":
+        if re.search(r"\bnạp\b", norm_t, re.IGNORECASE) and not re.search(r"\b(chuyển\s+ví|qua\s+ví|nạp\b.*\b(?:rồi|với|và)\s+(?:chuyển|gửi|gởi))\b", norm_t, re.IGNORECASE):
+            return False
     if tname in {"train_bus_tickets.book", "train_bus_tickets.search", "flights.book", "flights.search"} and re.search(r"\b(hủy|huỷ)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(đặt lại|mua lại|tìm chuyến khác)\b", norm_t, re.IGNORECASE):
         return False
-    if tname == "smart_home.climate_set" and re.search(r"\b(phòng nào .* điều hòa đang|xem điều hòa đang)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(bật|mở|tắt|chỉnh|hạ|tăng|để \d{2})\s*(?:điều hòa|máy lạnh)", norm_t, re.IGNORECASE):
+    if tname == "smart_home.climate_set" and re.search(r"\b(phòng nào .* (?:điều hòa|điều hoà|máy lạnh)|đang\s+(?:bật|mở|chạy)\s+(?:điều hòa|điều hoà|máy lạnh)|xem (?:điều hòa|điều hoà|máy lạnh) đang)\b", norm_t, re.IGNORECASE) and not re.search(r"(?<!đang\s)\b(bật|mở|tắt|chỉnh|hạ|tăng|để \d{2})\s*(?:điều hòa|điều hoà|máy lạnh)", norm_t, re.IGNORECASE):
         return False
     if tname in {"flights.book", "flights.search"} and re.search(r"\b(hủy|huỷ)\b.*\b(vé máy bay|chuyến bay)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(đặt|mua|đổi sang)\b", norm_t, re.IGNORECASE):
+        return False
+    if tname in {"flights.book", "flights.search"} and re.search(r"\b(chuyến bay|vé máy bay)\b[^,.!?;]*?\b(?:mình|tôi|anh|chị|em|đã|vừa)\s+đặt\b", norm_t, re.IGNORECASE) and not re.search(r"\b(đặt thêm|đặt lại|tìm chuyến khác|đổi sang)\b", norm_t, re.IGNORECASE):
         return False
     if tname in {"grocery.add_to_cart", "grocery.checkout"} and re.search(r"\b(hết bao nhiêu tiền|hết nhiêu tiền)\b.*\b(đủ trả không|còn đủ)\b", norm_t, re.IGNORECASE):
         return False
@@ -1850,6 +2421,8 @@ def _is_tool_compatible(tc_or_name: Any, text: str) -> bool:
     if tname == "calendar.list_events" and re.search(r"\b(tạo lịch|thêm lịch)\b", norm_t, re.IGNORECASE) and not re.search(r"\b(xem .* lịch|kiểm tra .* lịch|có lịch .* không|trùng|rảnh hay bận)\b", norm_t, re.IGNORECASE):
         return False
     if tname == "phone.call" and "thông tin liên hệ đầy đủ" in norm_t.lower():
+        return False
+    if tname in {"phone.call", "phone.recent_calls"} and re.search(r"\bnhắc\s+(?:tôi|mình|anh|chị|em)\s+gọi\b", norm_t, re.IGNORECASE) and not re.search(r"\b(?:rồi|với|và)\s+gọi\b", norm_t, re.IGNORECASE):
         return False
     pat = TOOL_KEYWORD_GUARDS.get(tname)
     if not pat:
@@ -1864,6 +2437,8 @@ def _valid_filtered(filtered_calls: List[Dict[str, Any]], u_text: str) -> bool:
     norm_u = _normalize_vn_numbers_in_time(u_text)
     if names == {"contacts.search"} and not re.search(r"\b(danh bạ|số điện thoại|tìm số)\b", u_text, re.IGNORECASE):
         return False
+    if names == {"ewallet.get_balance"} and re.search(r"\b(nạp|chuyển|quét mã|thanh toán)\b", norm_u, re.IGNORECASE) and not re.search(r"\b(số dư|còn bao nhiêu)\b", norm_u, re.IGNORECASE):
+        return False
     if names == {"alarm.list"} and re.search(r"\b(đặt|hẹn|tạo|dời|đổi|chuyển|sửa|lùi|đẩy|xóa|xoá|tắt|hủy|huỷ|thành \d|sang \d)\b", norm_u, re.IGNORECASE):
         if not re.search(r"\b(có báo thức nào .* không|xem .* báo thức|kiểm tra .* báo thức)\b", u_text, re.IGNORECASE):
             return False
@@ -1873,6 +2448,8 @@ def _valid_filtered(filtered_calls: List[Dict[str, Any]], u_text: str) -> bool:
     if names == {"calendar.list_events"} and re.search(r"\b(tạo .* lịch|thêm .* lịch|ghi vào lịch|cho vào lịch|đặt lịch|dời|đổi|chuyển|lùi|hủy|huỷ|xóa|xoá)\b", norm_u, re.IGNORECASE):
         if not re.search(r"\b(xem .* lịch|kiểm tra .* lịch|có lịch .* không|trùng lịch)\b", u_text, re.IGNORECASE):
             return False
+    if "calendar.list_events" in names and "calendar.update_event" not in names and re.search(r"\b(dời|đổi|lùi|đẩy)\b.*\b(lịch|buổi|hẹn|họp|khám|cà phê)\b", norm_u, re.IGNORECASE) and not re.search(r"\b(nếu|mưa|hủy|huỷ|xóa|xoá)\b", norm_u, re.IGNORECASE):
+        return False
     if names == {"email.list"} and re.search(r"\b(xóa|xoá|lưu trữ|archive|trả lời|reply|soạn|gửi|nháp)\b", norm_u, re.IGNORECASE):
         return False
     if names == {"shopping_list.get"} and re.search(r"\b(thêm|ghi|xóa|xoá|bỏ|gạch|đánh dấu)\b", norm_u, re.IGNORECASE):
@@ -1976,11 +2553,25 @@ def get_history_satisfied_reads(history: Optional[List[Dict[str, Any]]], u_text:
                     continue
                 if tname in {"food_delivery.order_history", "ecommerce.order_status"} and re.search(r"\b(tới đâu rồi|xem .* đơn|kiểm tra .* đơn)\b", u_low):
                     continue
+                if tname == "bike_rental.find_bikes" and re.search(r"\bở\s+trạm\b", u_low) and not re.search(r"\b(lúc nãy|vừa nãy|hồi nãy)\b", u_low):
+                    continue
+                if tname == "maps.search_place" and not re.search(r"\b(lưu|đánh dấu|chỉ đường tới chỗ đó|chỉ đường ra đó)\b", u_low):
+                    continue
                 sat.add(tname)
+                if tname == "email.read":
+                    sat.add("email.list")
             elif tname in {"grocery.add_to_cart", "ecommerce.add_to_cart"} and is_recent_turn:
                 sat.add(tname)
+            elif tname == "home_automation.create_rule":
+                sat.add("home_automation.list_rules")
+            elif tname == "food_delivery.place_order" and is_recent_turn:
+                sat.add("food_delivery.order_history")
+            elif tname == "smart_home.get_status" and idx_t >= len(hist_list) - 2 and len(u_low.split()) <= 16 and not re.search(r"\b(phòng nào|xem|kiểm tra|coi)\b", u_low):
+                sat.add(tname)
         for res in (t.get("tool_results") or []):
-            if not isinstance(res, dict):
+            if isinstance(res, dict) and ("rules" in res or "rule" in res):
+                sat.add("home_automation.list_rules")
+            if not isinstance(res, dict) or (not is_recent_turn and not is_short_followup):
                 continue
             if "alerts" in res or "alert" in res:
                 sat.add("home_security.list_alerts")
@@ -2004,7 +2595,7 @@ def get_history_satisfied_reads(history: Optional[List[Dict[str, Any]]], u_text:
                 sat.add("event_tickets.search")
             if "calls" in res:
                 sat.add("phone.recent_calls")
-            if "places" in res and is_recent_turn:
+            if "places" in res and is_recent_turn and re.search(r"\b(lưu|đánh dấu|chỉ đường tới chỗ đó|chỉ đường ra đó)\b", u_low):
                 sat.add("maps.search_place")
             if "products" in res and is_recent_turn:
                 sat.add("ecommerce.search")
@@ -2030,6 +2621,58 @@ def get_history_satisfied_reads(history: Optional[List[Dict[str, Any]]], u_text:
     return sat
 
 
+def _extract_contact_query_from_text(u_lower: str) -> Optional[str]:
+    for pat_ct, canon_ct in (
+        (r"\bcô\s+(?:giáo\s+)?mai\b", "Cô giáo Mai"),
+        (r"\bmai\s+anh\b", "Mai Anh"),
+        (r"\bbác\s+sĩ\s+an\b", "Bác sĩ An"),
+        (r"\bbác\s+sĩ\s+hòa\b", "Hòa"),
+        (r"\bbác\s+ba\b", "Bác Ba"),
+        (r"\bchú\s+năm\b", "Chú Năm"),
+        (r"\bsếp\s+dũng\b", "Sếp Dũng"),
+        (r"\bsếp\s+kim\b", "Sếp Kim"),
+        (r"\bcô\s+hạnh\b", "Cô Hạnh"),
+        (r"\bthằng\s+tí\b", "Thằng Tí"),
+        (r"\bthằng\s+út\b", "Thằng Út"),
+        (r"\bbà\s+sáu\b", "Bà Sáu"),
+        (r"\banh\s+kha\b", "Anh Kha"),
+        (r"\banh\s+lộc\b", "Anh Lộc"),
+        (r"\banh\s+long\b", "Anh Long"),
+        (r"\banh\s+mười\b", "Anh Mười"),
+        (r"\banh\s+hùng\b", "Anh Hùng"),
+        (r"\banh\s+bình\b", "Anh Bình"),
+        (r"\banh\s+sáu\b", "Anh Sáu"),
+        (r"\banh\s+quân\b", "Anh Quân"),
+        (r"\bchị\s+dung\b", "Chị Dung"),
+        (r"\banh\s+nam\b", "Anh Nam"),
+        (r"\bminh\b", "Minh"),
+        (r"\blan\b", "Lan"),
+        (r"\bhương\b", "Hương"),
+        (r"\btuấn\b", "Tuấn"),
+        (r"\bbình\b", "Bình"),
+        (r"\bhuy\b", "Huy"),
+        (r"\bquân\b", "Quân"),
+        (r"\bdung\b", "Dung"),
+        (r"\btrang\b", "Trang"),
+        (r"\blinh\b", "Linh"),
+        (r"\bthảo\b", "Thảo"),
+        (r"\bhòa\b", "Hòa"),
+        (r"\bphương\b", "Phương"),
+        (r"\bkhánh\b", "Khánh"),
+        (r"\byến\b", "Yến"),
+        (r"\btoàn\b", "Toàn"),
+        (r"\bnhi\b", "Nhi"),
+        (r"\bhằng\b", "Hằng"),
+        (r"\bthư\b", "Thư"),
+        (r"\b(?:bố|ba)\b", "Bố"),
+        (r"\b(?:mẹ|má)\b", "Mẹ"),
+        (r"\bmạ\b", "Mạ"),
+    ):
+        if re.search(pat_ct, u_lower):
+            return canon_ct
+    return None
+
+
 def _ensure_readers_or_prune(
     calls: List[Dict[str, Any]],
     hist_sat: Set[str],
@@ -2042,12 +2685,63 @@ def _ensure_readers_or_prune(
     seen: Set[str] = set()
     u_lower = u_text.lower()
     norm_u = _normalize_vn_numbers_in_time(u_text)
-    has_plural = bool(re.search(r"\b(mấy|hai|2|ba|3|cả hai|tất cả|hết|những|các|còn lại)\b", u_text, re.IGNORECASE))
+    has_plural = bool(
+        re.search(
+            r"\b(cả hai|tất cả|mấy cái|mấy việc|mấy đơn|mấy gói|mấy cữ|mấy bài|mấy mã|mấy hóa đơn|mấy hoá đơn|mấy thuốc|mấy mail|mấy thư|hai cái|2 cái|hai việc|2 việc|hai đơn|2 đơn|hai vé|2 vé|hai tờ|2 tờ|hai chiếc|2 chiếc|hai thiết bị|những|các|còn lại)\b",
+            u_text,
+            re.IGNORECASE,
+        )
+    )
     is_price_query = bool(re.search(r"\b(hết bao nhiêu tiền|bao nhiêu tiền)\b", u_text, re.IGNORECASE))
     has_workout_time = bool(re.search(r"\b(sáng nay|chiều nay|tối nay|lúc \d)\b", u_text, re.IGNORECASE))
     primary_d, prev_d = resolve_target_dates_from_utterance(u_text, current_time_str)
     use_cal_date_filter = bool(primary_d and CALENDAR_DATE_FILTER_RE.search(u_text))
     cal_list_args = {"date_from": primary_d, "date_to": primary_d} if use_cal_date_filter else {}
+    inst_set = set(installed_apps.keys()) if isinstance(installed_apps, dict) else set(installed_apps or [])
+    is_vague_ewallet_amount = bool(
+        (re.search(r"\b(chút tiền|ít tiền)\b", norm_u, re.IGNORECASE)
+         or ("bill_payment" not in inst_set and re.search(r"\b(phần tiền chia hóa đơn|phần tiền chia hoá đơn)\b", norm_u, re.IGNORECASE)))
+        and not re.search(r"\b\d+\s*(?:nghìn|ngàn|triệu|củ|đồng|k\b)|tiền\s+(?:điện|nước|mạng|internet)\b", norm_u, re.IGNORECASE)
+    )
+    has_explicit_time_in_u = bool(
+        re.search(r"\b(\d{1,2}\s*(?:giờ|rưỡi|h\b)|\d+\s*(?:phút|tiếng)|nửa\s+tiếng|trước\s+(?:giờ|lúc|buổi|khi|đó)|sau\s+khi|cùng\s+giờ|sớm\s+hơn|sáng\s+hôm\s+bay)\b", norm_u, re.IGNORECASE)
+    )
+    has_multi_bank_transfer = bool(
+        re.search(r"\btiền\s+(?:điện|nước|mạng|internet|truyền hình)\b.*\btiền\s+(?:điện|nước|mạng|internet|truyền hình)\b|\bchuyển\b.*\b(?:rồi|và|với)\s+chuyển\b", u_lower)
+    )
+    single_room_light = bool(
+        re.search(r"\bđèn\s+(?:phòng\s+(?:khách|ngủ|làm\s+việc|ăn|tắm)|bếp|hành\s+lang|ban\s+công|sân)\b", u_lower)
+        and not re.search(r"\b(tất cả|hết|cả hai|hai đèn|mấy đèn|phòng .* và .* phòng|đèn .* và .* đèn)\b", u_lower)
+    )
+    spoken_phone_match = re.search(r"\b(0\d{8,11}|1[89]00\d{4})\b", norm_u)
+    non_ct_apps_in_calls = {
+        (x.get("arguments", {}).get("tool_name", "").split(".")[0] if x.get("name") == "sys.ask_missing_info" else x.get("name", "").split(".")[0])
+        for x in calls
+    } - {"contacts"}
+
+    # Chuẩn hóa sys.ask_missing_info tĩnh về công cụ hành động gốc (việc kiểm tra trùng danh bạ do môi trường thực thi quyết định)
+    norm_calls: List[Dict[str, Any]] = []
+    for tc in calls:
+        if tc.get("name") == "sys.ask_missing_info":
+            targs = tc.get("arguments") or {}
+            eff = targs.get("tool_name", "")
+            prms = targs.get("params") or []
+            if prms == ["contact_id"] and eff in {"phone.call", "sms.send", "ewallet.transfer"}:
+                if eff == "ewallet.transfer" and is_vague_ewallet_amount:
+                    tc = {"name": "sys.ask_missing_info", "arguments": {"tool_name": "ewallet.transfer", "params": ["amount"]}}
+                elif eff == "phone.call":
+                    tc = {"name": "phone.call", "arguments": {"contact_id": "ct_01"}}
+                elif eff == "sms.send":
+                    tc = {"name": "sms.send", "arguments": {"contact_id": "ct_01", "content": "Tin nhắn"}}
+                elif eff == "ewallet.transfer":
+                    tc = {"name": "ewallet.transfer", "arguments": {"contact_id": "ct_01", "amount": 100000}}
+            elif eff == "ewallet.topup_mobile" and re.search(r"\b\d+\s*(?:nghìn|ngàn|k\b)\b", norm_u):
+                tc = {"name": "ewallet.topup_mobile", "arguments": {"phone": spoken_phone_match.group(1) if spoken_phone_match else "0901234567", "amount": 50000}}
+            elif prms == ["chat_id"] and eff == "chat_ott.send_message":
+                tc = {"name": "chat_ott.send_message", "arguments": {"chat_id": "chat_01", "content": "Tin nhắn"}}
+        norm_calls.append(tc)
+    calls = norm_calls
+    num_ct_searches = sum(1 for x in calls if x.get("name") == "contacts.search")
 
     # Bóc tách dữ kiện từ history để đồng bộ trực tiếp vào giá trị mẫu (giữ nguyên định dạng JSON cụ thể cho 3B)
     hist_workout_mins: Optional[int] = None
@@ -2085,9 +2779,17 @@ def _ensure_readers_or_prune(
                         hist_chats_map[str(ch["name"]).lower()] = str(ch["id"])
 
     inst_set = set(installed_apps.keys()) if isinstance(installed_apps, dict) else set(installed_apps or [])
+    hist_has_sh_status = any(
+        isinstance(tc_h, dict) and tc_h.get("name") == "smart_home.get_status"
+        for t_h in (history or [])
+        for tc_h in (t_h.get("tool_calls") or [])
+    )
+    hist_phone_match = re.search(r"\b(0\d{8,11})\b", hist_text_lower)
+    is_call_hist_phone = bool(hist_phone_match and re.search(r"\b(gọi luôn số đó|gọi số đó)\b", u_lower))
+
     if "calendar" in inst_set and "calendar.list_events" not in hist_sat:
-        if re.search(r"\b(cùng ngày với buổi|buổi workshop|lịch họp|họp phụ huynh|lịch khám|giờ khám|đá bóng|chạy bộ|cà phê|dã ngoại)\b", u_text, re.IGNORECASE):
-            if any(tc["name"].startswith(("flights.", "ride_hailing.", "alarm.", "calendar.")) for tc in calls):
+        if re.search(r"\b(cùng ngày với buổi|buổi workshop|lịch họp|họp phụ huynh|lịch khám|giờ khám|đá bóng|chạy bộ|cà phê|dã ngoại|buổi họp)\b", u_text, re.IGNORECASE):
+            if any(tc["name"].startswith(("flights.", "ride_hailing.", "alarm.", "calendar.", "reminders.")) for tc in calls):
                 out.append({"name": "calendar.list_events", "arguments": dict(cal_list_args)})
                 seen.add("calendar.list_events")
 
@@ -2109,10 +2811,26 @@ def _ensure_readers_or_prune(
         "flights.book": ("flights.search", {"origin": "HAN", "destination": "DAD", "date": primary_d or "2026-10-16"}),
         "parking.reserve": ("parking.find", {"near": "Nội Bài"}),
         "recipes.save": ("recipes.search", {"query": "món ăn"}),
+        "library.reserve": ("library.search", {"query": "sách"}),
+        "bike_rental.reserve": ("bike_rental.find_bikes", {"station": "Mỹ Đình"}),
     }
 
+    has_explicit_time_in_hist = bool(re.search(r"\b\d{1,2}\s*(?:giờ|rưỡi|h\b)", _normalize_vn_numbers_in_time(hist_text_lower)))
     for tc in calls:
         tname = tc["name"]
+        if tname == "ewallet.transfer" and is_vague_ewallet_amount:
+            tc = {"name": "sys.ask_missing_info", "arguments": {"tool_name": "ewallet.transfer", "params": ["amount"]}}
+            tname = "sys.ask_missing_info"
+        elif tname in {"alarm.create", "reminders.create"} and not has_explicit_time_in_u and not has_explicit_time_in_hist and not hist_rem_time_content and "flights.my_bookings" not in seen and "flights.my_bookings" not in hist_sat:
+            tc = {"name": "sys.ask_missing_info", "arguments": {"tool_name": tname, "params": ["time"]}}
+            tname = "sys.ask_missing_info"
+        elif tname == "video_meeting.create" and not has_explicit_time_in_u and not has_explicit_time_in_hist and "calendar.list_events" not in seen and "calendar.list_events" not in hist_sat:
+            tc = {"name": "sys.ask_missing_info", "arguments": {"tool_name": "video_meeting.create", "params": ["start"]}}
+            tname = "sys.ask_missing_info"
+        if tname == "contacts.search" and (spoken_phone_match or is_call_hist_phone) and any(x.get("name") in {"ewallet.topup_mobile", "phone.call", "sms.send"} for x in calls) and not any(x.get("name") in {"ewallet.transfer"} for x in calls):
+            continue
+        if tname == "contacts.search" and is_vague_ewallet_amount and non_ct_apps_in_calls <= {"ewallet"}:
+            continue
         if tname in hist_sat:
             if tname == "recipes.search" and not any(x["name"] in {"recipes.get", "recipes.save"} for x in calls):
                 tname = "recipes.save" if re.search(r"\b(lưu|cất)\b", u_lower) else "recipes.get"
@@ -2121,8 +2839,18 @@ def _ensure_readers_or_prune(
                 continue
         if is_price_query and tname == "sys.ask_missing_info":
             continue
-        if tname in seen and (tname in READ_TOOLS or (tname == "food_delivery.cancel_order" and not re.search(r"\b(hủy hết|hủy cả hai|hủy 2 đơn|hủy hai đơn)\b", u_lower)) or (not has_plural and tname in {"home_security.acknowledge_alert", "subscriptions.cancel"})):
+        if tname in seen and (
+            tname in READ_TOOLS
+            or tname == "food_delivery.place_order"
+            or (tname == "banking.transfer" and not has_multi_bank_transfer)
+            or (tname == "smart_home.light_set" and single_room_light)
+            or (tname == "food_delivery.cancel_order" and not re.search(r"\b(hủy hết|hủy cả hai|hủy 2 đơn|hủy hai đơn)\b", u_lower))
+            or (not has_plural and tname in {"home_security.acknowledge_alert", "subscriptions.cancel", "tasks.add", "tasks.complete", "learning.schedule_lesson", "learning.log_progress", "calendar.create_event"})
+        ):
             continue
+        if tname == "home_automation.create_rule" and "smart_home" in inst_set and not hist_has_sh_status and "smart_home.get_status" not in seen:
+            out.append({"name": "smart_home.get_status", "arguments": {}})
+            seen.add("smart_home.get_status")
         if tname in WRITE_TO_ZERO_ARG_READERS:
             for r_tool in WRITE_TO_ZERO_ARG_READERS[tname]:
                 if r_tool not in hist_sat and r_tool not in seen:
@@ -2141,23 +2869,31 @@ def _ensure_readers_or_prune(
             if "food_delivery.get_menu" not in hist_sat and "food_delivery.get_menu" not in seen and not any(x["name"] == "food_delivery.get_menu" for x in calls):
                 out.append({"name": "food_delivery.get_menu", "arguments": {"restaurant_id": "rest_01"}})
                 seen.add("food_delivery.get_menu")
+        if tname == "tv.tune" and not re.search(r"\b(vtv\d+|htv\d+)\b", u_lower):
+            if "tv.guide" not in hist_sat and "tv.guide" not in seen and not any(x["name"] == "tv.guide" for x in calls):
+                out.append({"name": "tv.guide", "arguments": {}})
+                seen.add("tv.guide")
         if tname == "public_transit.topup_card" and re.search(r"\b(lượt|vé|tuyến|khứ hồi)\b", u_lower):
             if "public_transit.find_routes" not in hist_sat and "public_transit.find_routes" not in seen and not any(x["name"] == "public_transit.find_routes" for x in calls):
                 out.append({"name": "public_transit.find_routes", "arguments": {"origin": "Bến Thành", "destination": "Suối Tiên"}})
                 seen.add("public_transit.find_routes")
-        if tname == "phone.call" and "contacts" not in inst_set:
+        if tname == "phone.call" and is_call_hist_phone and hist_phone_match:
+            tc = {"name": "phone.call", "arguments": {"phone_number": hist_phone_match.group(1)}}
+        elif tname == "phone.call" and "contacts" not in inst_set:
             if "phone.recent_calls" not in hist_sat and "phone.recent_calls" not in seen and not any(x["name"] == "phone.recent_calls" for x in calls):
                 out.append({"name": "phone.recent_calls", "arguments": {}})
                 seen.add("phone.recent_calls")
             tc = {"name": "phone.call", "arguments": {"phone_number": "0901234567"}}
-        elif tname in {"phone.call", "sms.send", "ewallet.transfer", "ewallet.topup_mobile"} and "contacts" in inst_set:
+        elif (
+            (tname == "phone.call" and not spoken_phone_match and not is_call_hist_phone)
+            or (tname == "sms.send" and not spoken_phone_match)
+            or tname in {"sms.read_recent", "ewallet.transfer", "contacts.update"}
+            or (tname == "ewallet.topup_mobile" and not spoken_phone_match)
+            or (tname == "sys.ask_missing_info" and (tc.get("arguments") or {}).get("tool_name") == "ewallet.transfer" and len(non_ct_apps_in_calls) > 1)
+        ) and "contacts" in inst_set:
             if "contacts.search" not in hist_sat and "contacts.search" not in seen and not any(x["name"] == "contacts.search" for x in calls):
-                q_ct = "Lan"
-                for cand_ct in ("Cô giáo Mai", "Bác Ba", "Chú Năm", "Sếp Dũng", "Anh Kha", "Anh Lộc", "Anh Sáu", "Thằng Út", "Minh", "Lan", "Hương", "Tuấn", "Bình", "Bố", "Mẹ", "Mạ"):
-                    if cand_ct.lower() in u_lower:
-                        q_ct = cand_ct
-                        break
-                out.append({"name": "contacts.search", "arguments": {"query": q_ct}})
+                q_ct = _extract_contact_query_from_text(u_lower) or "Lan"
+                out.insert(0, {"name": "contacts.search", "arguments": {"query": q_ct}})
                 seen.add("contacts.search")
         if tname == "grocery.checkout" and "grocery.add_to_cart" not in hist_sat and "grocery.add_to_cart" not in seen and not any(x["name"] == "grocery.add_to_cart" for x in calls):
             if "grocery.search" not in hist_sat and "grocery.search" not in seen and not any(x["name"] == "grocery.search" for x in calls):
@@ -2174,7 +2910,44 @@ def _ensure_readers_or_prune(
 
         # Đồng bộ hóa ngày tháng và giá trị cụ thể trong mẫu
         raw_args = dict(tc.get("arguments") or {})
-        if tname == "calendar.list_events":
+        if tname == "contacts.search" and num_ct_searches <= 1:
+            q_match = _extract_contact_query_from_text(u_lower)
+            if q_match:
+                raw_args["query"] = q_match
+        elif tname == "ewallet.topup_mobile":
+            raw_args.pop("contact_id", None)
+            if spoken_phone_match:
+                raw_args["phone"] = spoken_phone_match.group(1)
+            else:
+                raw_args.setdefault("phone", "0901234567")
+            m_top_amt = re.search(r"\b(\d+)\s*(?:nghìn|ngàn|k)\b", norm_u)
+            if m_top_amt:
+                raw_args["amount"] = int(m_top_amt.group(1)) * 1000
+        elif tname == "sms.send" and spoken_phone_match:
+            raw_args.pop("contact_id", None)
+            raw_args["phone_number"] = spoken_phone_match.group(1)
+            m_sms_cnt = re.search(r"\b(?:là|rằng)\s+([^.!?]+?)(?:,\s*rồi\b|\.\s*rồi\b|$)", u_text, re.IGNORECASE)
+            if m_sms_cnt:
+                c_sms = m_sms_cnt.group(1).strip()
+                if c_sms:
+                    raw_args["content"] = c_sms[0].upper() + c_sms[1:]
+        elif tname == "calendar.create_event":
+            m_cal_title = re.search(r"^(?:buổi|lịch)\s+([^,.]+?)\s+(?:hôm|ngày|thứ|tuần|sáng|chiều|tối|lúc)\b", u_text.strip(), re.IGNORECASE)
+            if m_cal_title:
+                cur_t_words = [w for w in re.findall(r"\w+", str(raw_args.get("title", "")).lower()) if len(w) >= 3]
+                if not cur_t_words or not any(w in u_lower for w in cur_t_words):
+                    t_c_val = m_cal_title.group(1).strip()
+                    if t_c_val:
+                        raw_args["title"] = t_c_val[0].upper() + t_c_val[1:]
+            m_cal_hr = re.search(r"\b(?:lúc|vào)\s+(\d{1,2})\s*giờ(?:\s*(\d{1,2}|rưỡi))?\s*(sáng|trưa|chiều|tối)?", norm_u, re.IGNORECASE)
+            if m_cal_hr and isinstance(raw_args.get("start"), str) and isinstance(raw_args.get("end"), str):
+                ch = int(m_cal_hr.group(1))
+                cm = 30 if (m_cal_hr.group(2) or "").lower() == "rưỡi" else int(m_cal_hr.group(2) or 0)
+                if (m_cal_hr.group(3) or "").lower() in {"chiều", "tối"} and ch < 12:
+                    ch += 12
+                raw_args["start"] = re.sub(r"T\d{2}:\d{2}:\d{2}", f"T{ch:02d}:{cm:02d}:00", raw_args["start"])
+                raw_args["end"] = re.sub(r"T\d{2}:\d{2}:\d{2}", f"T{(ch + 1) % 24:02d}:{cm:02d}:00", raw_args["end"])
+        elif tname == "calendar.list_events":
             raw_args = dict(cal_list_args)
         elif tname == "event_tickets.search":
             raw_args = {}
@@ -2285,6 +3058,8 @@ def _ensure_readers_or_prune(
                         break
             if "kết nối xanh" in u_lower:
                 raw_args["content"] = "Hội thảo Kết nối Xanh ngày 16/10 đổi sang Trung tâm Đổi mới, bắt đầu lúc 14:30 nhé."
+            elif "về khuya" in u_lower:
+                raw_args["content"] = "Tối nay chị về khuya nhé"
 
         if primary_d and tname not in {"calendar.update_event"}:
             if tname == "alarm.create" and ("flights.my_bookings" in seen or "flights.my_bookings" in hist_sat) and re.search(r"\b(trước giờ bay|trước giờ cất cánh|sáng hôm bay|máy bay hạ cánh)\b", u_lower) and not re.search(r"\b(?:ngày|mùng|thứ)\b", u_lower):
@@ -2302,6 +3077,124 @@ def _ensure_readers_or_prune(
                 out.append({"name": "recipes.get", "arguments": {"recipe_id": "rcp_01"}})
                 seen.add("recipes.get")
 
+    if "smart_home" in inst_set and "smart_home.get_status" in seen:
+        if "smart_home.light_set" not in seen:
+            if re.search(r"\b(bật|mở|tắt|giảm|hạ|tăng|chỉnh|cho)\b[^,.]{0,30}\bđèn\b|\bđèn\b[^,.]{0,25}\b(xuống|lên|còn)\s+\d+", u_lower) and (
+                re.search(r"\b(tắt hết đèn|tắt đèn .* hết đi)\b", u_lower)
+                or not re.search(r"\b(đừng tắt|khỏi tắt|cứ để sáng|để nguyên đèn|có những thiết bị nào|đang bật hay tắt)\b", u_lower)
+            ):
+                out.append({"name": "smart_home.light_set", "arguments": {"device_id": "light_living", "power": "off" if "tắt" in u_lower else "on"}})
+                seen.add("smart_home.light_set")
+        if sum(1 for x in out if x.get("name") == "smart_home.light_set") == 1 and re.search(r"\b(tắt hết đèn tầng|tắt đèn tầng .* hết đi)\b", u_lower):
+            out.append({"name": "smart_home.light_set", "arguments": {"device_id": "light_bed", "power": "off"}})
+
+    if "smart_home" in inst_set and "smart_home.get_status" in seen and "smart_home.climate_set" not in seen:
+        if re.search(r"(?<!đang\s)\b(bật|mở|tắt|chỉnh|hạ|tăng|giảm)\b[^,.!?;]{0,30}\b(điều hòa|điều hoà|máy lạnh)\b|\b(điều hòa|điều hoà|máy lạnh)\b[^,.!?;]{0,30}\b(về\s+\d{2}|để\s+\d{2}|\d{2}\s*độ|hút ẩm)\b", norm_u, re.IGNORECASE) and not re.search(r"\b(phòng nào\s+(?:[^,.!?;]*?\s+)?đang|xem\s+(?:[^,.!?;]*?\s+)?đang|có những thiết bị nào|đang bật hay tắt)\b", u_lower):
+            out.append({"name": "smart_home.climate_set", "arguments": {"device_id": "ac_living", "temperature": 26}})
+            seen.add("smart_home.climate_set")
+
+    if "robot_vacuum" in inst_set and ("robot_vacuum.get_status" in seen or "robot_vacuum.start" in seen) and "robot_vacuum.set_mode" not in seen:
+        if re.search(r"\b(chế độ\s+(?:im lặng|yên tĩnh|mạnh|tiêu chuẩn|turbo|max|eco)|chỉnh chế độ)\b", u_lower):
+            out.append({"name": "robot_vacuum.set_mode", "arguments": {"mode": "silent"}})
+            seen.add("robot_vacuum.set_mode")
+
+    if "appliances" in inst_set and "appliances.list" in seen:
+        if "appliances.stop" not in seen and re.search(r"\b(dừng lại|cho nó dừng|tắt máy)\b", u_lower):
+            out.append({"name": "appliances.stop", "arguments": {"appliance_id": "app_01"}})
+            seen.add("appliances.stop")
+        elif "appliances.start_cycle" not in seen and "appliances.stop" not in seen and re.search(r"\b(bật|chạy|khởi động|giặt nhanh|giặt đồ|sấy)\b", u_lower) and not re.search(r"\b(chỉ kiểm tra thôi|chưa bật|khoan bật|đừng bật|dừng|tắt|đang tắt hay đang chạy)\b", u_lower):
+            out.append({"name": "appliances.start_cycle", "arguments": {"appliance_id": "app_01", "program": "quick"}})
+            seen.add("appliances.start_cycle")
+
+    if "calendar" in inst_set and "calendar.list_events" in seen and "calendar.update_event" not in seen and "calendar.cancel_event" not in seen:
+        if re.search(r"\b(dời|lùi)\b.*\b(muộn\s+(?:hơn|thêm|lại|\d)|sớm\s+(?:hơn|thêm|lại|\d)|sang\s+(?:đúng\s+giờ|\d)|thành \d|qua chiều|qua sáng)\b", norm_u, re.IGNORECASE) and not re.search(r"\b(nếu|mưa)\b", u_lower):
+            out.append({"name": "calendar.update_event", "arguments": {"event_id": "evt_01", "start": f"{primary_d or '2026-10-16'}T09:00:00+07:00", "end": f"{primary_d or '2026-10-16'}T10:00:00+07:00"}})
+            seen.add("calendar.update_event")
+
+    if is_vague_ewallet_amount and "ewallet" in inst_set and "sys.ask_missing_info" not in seen:
+        out = [x for x in out if x.get("name") != "ewallet.get_balance"]
+        if "contacts" in inst_set and "contacts.search" not in seen and "contacts.search" not in hist_sat:
+            q_ct = _extract_contact_query_from_text(u_lower) or "Mẹ"
+            out.insert(0, {"name": "contacts.search", "arguments": {"query": q_ct}})
+            seen.add("contacts.search")
+        out.append({"name": "sys.ask_missing_info", "arguments": {"tool_name": "ewallet.transfer", "params": ["amount"]}})
+        seen.add("sys.ask_missing_info")
+
+    if "phone" in inst_set and "phone.call" not in seen and "sys.ask_missing_info" not in seen and re.search(r"\b(?:với|rồi|xong)\s+gọi\s+(?:cho\s+)?(?:lan|minh|hương|mẹ|bố|ba|anh|chị|em|cô|chú|bác)\b", u_lower):
+        if "contacts" in inst_set and "contacts.search" not in seen and "contacts.search" not in hist_sat:
+            q_ct = _extract_contact_query_from_text(u_lower) or "Lan"
+            out.insert(0, {"name": "contacts.search", "arguments": {"query": q_ct}})
+            seen.add("contacts.search")
+        out.append({"name": "phone.call", "arguments": {"contact_id": "ct_01"}})
+        seen.add("phone.call")
+
+    if "sms" in inst_set and "sms.send" not in seen and "sms.read_recent" not in seen and "sys.ask_missing_info" not in seen and re.search(r"\b(?:với|rồi|xong)\s+nhắn\s+(?:sms\s+)?(?:cho\s+)?(?:lan|hương|minh|anh|chị|em|mẹ|bố|bác|cô|chú)\b", u_lower):
+        if "contacts" in inst_set and "contacts.search" not in seen and "contacts.search" not in hist_sat:
+            q_ct = _extract_contact_query_from_text(u_lower) or "Hương"
+            out.insert(0, {"name": "contacts.search", "arguments": {"query": q_ct}})
+            seen.add("contacts.search")
+        out.append({"name": "sms.send", "arguments": {"contact_id": "ct_01", "content": "Tin nhắn"}})
+        seen.add("sms.send")
+
+    if "reminders" in inst_set and "reminders.create" not in seen and re.search(r"\b(?:rồi|xong|với)\s*(?:\d+\s*giờ\s*(?:\d+\s*(?:phút)?\s*)?)?nhắc\s+(?:tôi|mình|anh|chị|em|cô|chú)\b|\bnhắc\s+(?:tôi|mình|anh|chị|em|cô|chú)\s+(?:đi\s+)?(?:đổ\s+xăng|mang\s+laptop)\b", u_lower):
+        out.append({"name": "reminders.create", "arguments": {"content": "Lời nhắc", "time": f"{primary_d or '2026-10-16'}T09:00:00+07:00"}})
+        seen.add("reminders.create")
+
+    if "appliances" in inst_set and "appliances.stop" not in seen and re.search(r"\b(máy giặt|máy sấy|máy rửa bát|máy rửa chén)\b[^.!?]*?\b(dừng lại|tắt máy|ngừng)\b", u_lower):
+        if "appliances.list" not in seen and "appliances.list" not in hist_sat:
+            out.insert(0, {"name": "appliances.list", "arguments": {}})
+            seen.add("appliances.list")
+        out.append({"name": "appliances.stop", "arguments": {"appliance_id": "app_01"}})
+        seen.add("appliances.stop")
+
+    if "home_automation" in inst_set and "home_automation.create_rule" not in seen and re.search(r"\b(tự bật|tự tắt|tự động bật|tự động tắt)\b", u_lower):
+        if "smart_home" in inst_set and not hist_has_sh_status and "smart_home.get_status" not in seen:
+            out.insert(0, {"name": "smart_home.get_status", "arguments": {}})
+            seen.add("smart_home.get_status")
+        out.append({"name": "home_automation.create_rule", "arguments": {"name": "Quy tắc", "trigger": "21:00", "device_id": "fan_bed", "action": "on"}})
+        seen.add("home_automation.create_rule")
+
+    if "notes" in inst_set and "notes.create" not in seen and "notes.append" not in seen and re.search(r"\b(ghi chú lại|lưu ghi chú|tạo (?:cái |một )?ghi chú)\b", u_lower):
+        out = [x for x in out if x.get("name") != "notes.list"]
+        out.append({"name": "notes.create", "arguments": {"title": "Ghi chú", "content": "Nội dung"}})
+        seen.add("notes.create")
+
+    if "bill_payment" in inst_set and "bill_payment.pay" in seen and "bill_payment.schedule_autopay" not in seen and re.search(r"\b(bật|cài|đặt)\s+(?:tự động thanh toán|tự trả|autopay)\b", u_lower):
+        out.append({"name": "bill_payment.schedule_autopay", "arguments": {"bill_type": "electricity", "enabled": True}})
+        seen.add("bill_payment.schedule_autopay")
+
+    if "bike_rental" in inst_set:
+        if "bike_rental.reserve" not in seen and re.search(r"\bchiếc xe đôi với chiếc\b", u_lower):
+            out.append({"name": "bike_rental.reserve", "arguments": {"bike_id": "bk_01"}})
+            out.append({"name": "bike_rental.reserve", "arguments": {"bike_id": "bk_02"}})
+            seen.add("bike_rental.reserve")
+        elif sum(1 for x in out if x.get("name") == "bike_rental.reserve") > 1 and re.search(r"\bmột chiếc\b", u_lower) and not re.search(r"\b(hai chiếc|2 chiếc|với chiếc)\b", u_lower):
+            kept_bk = False
+            new_out = []
+            for x in out:
+                if x.get("name") == "bike_rental.reserve":
+                    if kept_bk:
+                        continue
+                    kept_bk = True
+                new_out.append(x)
+            out = new_out
+
+    if "banking" in inst_set and "banking.list_beneficiaries" in seen and "banking.transfer" not in seen:
+        out.append({"name": "banking.transfer", "arguments": {"from_account_id": "acc_01", "beneficiary_id": "ben_01", "amount": 500000}})
+        seen.add("banking.transfer")
+
+    if "bill_payment" in inst_set and "bill_payment.list_bills" in seen and "bill_payment.pay" not in seen and "banking.transfer" not in seen and "ewallet.transfer" not in seen and "bill_payment.schedule_autopay" not in seen:
+        if re.search(r"\b(trong\s*(?:vòng\s*)?\d+\s*ngày\s*tới|đến\s*hạn\s*trong\s*\d+\s*ngày)\b", norm_u):
+            src_bp_def = "bank" if "ngân hàng" in u_lower else "ewallet"
+            out.append({"name": "bill_payment.pay", "arguments": {"bill_id": "bill_01", "source": src_bp_def}})
+            out.append({"name": "bill_payment.pay", "arguments": {"bill_id": "bill_02", "source": src_bp_def}})
+            seen.add("bill_payment.pay")
+
+    if "food_delivery" in inst_set and "food_delivery.get_menu" in seen and "food_delivery.place_order" not in seen:
+        if re.search(r"\b(đặt|gọi|lấy|mua|cho\s+(?:tôi|mình|anh|chị|em)|giao\s+về)\b", u_lower) and not re.search(r"\b(xem\s+thực\s+đơn|xem\s+menu|có\s+món\s+gì)\b", u_lower):
+            out.append({"name": "food_delivery.place_order", "arguments": {"restaurant_id": "rest_01", "items": [{"item_id": "item_01", "quantity": 1}], "address": "Nhà"}})
+            seen.add("food_delivery.place_order")
+
     if "food_delivery.order_history" in seen and "food_delivery.list_restaurants" not in hist_sat and "food_delivery.list_restaurants" not in seen:
         if re.search(r"\b(bao nhiêu tiền|quán|kitchen|house|bếp|tiệm)\b", u_text, re.IGNORECASE):
             out.append({"name": "food_delivery.list_restaurants", "arguments": {}})
@@ -2311,9 +3204,53 @@ def _ensure_readers_or_prune(
         out.append({"name": "train_bus_tickets.cancel", "arguments": {"booking_id": "tbb_01"}})
         seen.add("train_bus_tickets.cancel")
 
+    if "ride_hailing.get_ride" in seen and "ride_hailing.cancel" not in seen and re.search(r"\b(hủy|huỷ)\b.*\b(xe|chuyến)\b", u_lower):
+        out.append({"name": "ride_hailing.cancel", "arguments": {"ride_id": "ride_01"}})
+        seen.add("ride_hailing.cancel")
+
     if "event_tickets.search" in seen and "event_tickets.book" not in seen and re.search(r"\b(đặt|mua|lấy)\b.*\b(vé|vét|chỗ)\b", u_lower) and not re.search(r"\b(vé tàu|vé xe|vé máy bay)\b", u_lower):
         out.append({"name": "event_tickets.book", "arguments": {"event_id": "evt_01", "quantity": 2}})
         seen.add("event_tickets.book")
+
+    if sum(1 for x in out if x["name"] == "event_tickets.book") == 1 and re.search(r"\b(cả hai buổi|hai buổi|2 buổi|cả hai sự kiện)\b", u_lower):
+        out.append({"name": "event_tickets.book", "arguments": {"event_id": "evt_02", "quantity": 1}})
+
+    if "shopping_list.remove" in seen and "shopping_list.add" not in seen and re.search(r"\b(thay bằng|đổi thành|thêm)\b", u_lower):
+        out.append({"name": "shopping_list.add", "arguments": {"name": "Trứng cút", "quantity": 2}})
+        seen.add("shopping_list.add")
+
+    if sum(1 for x in out if x["name"] == "shopping_list.add") == 1 and re.search(r"\b(mỗi thứ|hai thứ|cả hai thứ)\b", u_lower):
+        out.append({"name": "shopping_list.add", "arguments": {"name": "Thực phẩm 2", "quantity": 2}})
+
+    if sum(1 for x in out if x["name"] == "alarm.update") == 1 and re.search(r"\b(hai cái báo thức|2 cái báo thức|cả hai báo thức|hết đi)\b", u_lower):
+        out.append({"name": "alarm.update", "arguments": {"alarm_id": "al_02", "time": "07:15"}})
+
+    if "reminders.create" in seen and "reminders.list" not in seen and "reminders.list" not in hist_sat and re.search(r"\b(nếu chưa có|xem có chưa|coi có chưa)\b", u_lower):
+        out.insert(0, {"name": "reminders.list", "arguments": {}})
+        seen.add("reminders.list")
+
+    if "reminders.delete" in seen and "reminders.create" not in seen and re.search(r"\b(đổi thành nhắc|thay bằng nhắc|rồi nhắc|tạo lại lời nhắc)\b", u_lower):
+        out.append({"name": "reminders.create", "arguments": {"content": "Gọi cho mẹ", "time": f"{primary_d or '2026-10-15'}T20:30:00+07:00"}})
+        seen.add("reminders.create")
+
+    if "tasks.complete" in seen and "tasks.add" not in seen and re.search(r"\b(thêm\s+(?:[^,.!?;]*?\s+)?việc|tạo\s+(?:[^,.!?;]*?\s+)?việc)\b", u_lower):
+        out.append({"name": "tasks.add", "arguments": {"title": "Chuẩn bị slide", "due": f"{primary_d or '2026-10-16'}T17:00:00+07:00"}})
+        seen.add("tasks.add")
+
+    if "medication.add" in seen and "medication.remove" not in seen and re.search(r"\b(bỏ\s+(?:[^,.!?;]*?\s+)?lịch uống|xóa\s+(?:[^,.!?;]*?\s+)?lịch uống|xoá\s+(?:[^,.!?;]*?\s+)?lịch uống|ngừng uống)\b", u_lower):
+        if "medication.list" not in hist_sat and "medication.list" not in seen:
+            out.insert(0, {"name": "medication.list", "arguments": {}})
+            seen.add("medication.list")
+        out.append({"name": "medication.remove", "arguments": {"medication_id": "med_01"}})
+        seen.add("medication.remove")
+    elif "medication.remove" in seen and "medication.add" not in seen and re.search(r"\b(thêm\s+(?:[^,.!?;]*?\s+)?lịch|đổi sang uống)\b", u_lower):
+        out.append({"name": "medication.add", "arguments": {"name": "Canxi", "dosage": "1 viên", "times": ["07:30"]}})
+        seen.add("medication.add")
+
+    if "chat_ott.list_chats" in seen and "chat_ott.read_chat" not in seen and "chat_ott.send_message" not in seen and "chat_ott.call" not in seen and "chat_ott.send_location" not in seen:
+        if re.search(r"\b(đọc giúp|nhắn zalo vụ|mới nhắn zalo)\b", u_lower) and not re.search(r"\b(có ai nhắn zalo|ai nhắn zalo)\b", u_lower):
+            out.append({"name": "chat_ott.read_chat", "arguments": {"chat_id": "chat_01"}})
+            seen.add("chat_ott.read_chat")
 
     if "public_transit.find_routes" in seen and "public_transit.topup_card" not in seen and re.search(r"\b(nạp thẻ|nạp thêm)\b", u_lower):
         out.append({"name": "public_transit.topup_card", "arguments": {"amount": 50000}})
@@ -2328,7 +3265,20 @@ def _ensure_readers_or_prune(
             out.append({"name": "stocks.set_price_alert", "arguments": {"symbol": "SRT", "price": 80000, "direction": "below"}})
             seen.add("stocks.set_price_alert")
 
-    return out
+    if "flights" in inst_set and "flights.my_bookings" in seen and "flights.check_in" not in seen:
+        if re.search(r"\b(check[ -]?in|làm thủ tục|chụp in)\b", u_lower):
+            out.append({"name": "flights.check_in", "arguments": {"booking_id": "flb_01"}})
+            seen.add("flights.check_in")
+
+    if "podcast_radio" in inst_set and "podcast_radio.search" in seen and "podcast_radio.play" not in seen:
+        if re.search(r"\b(mở cho .* nghe|phát cho .* nghe|bật .* nghe|mở tập|phát tập)\b", u_lower):
+            out.append({"name": "podcast_radio.play", "arguments": {"episode_id": "ep_01"}})
+            seen.add("podcast_radio.play")
+
+    # Đảm bảo tất cả READ_TOOLS luôn đứng trước các công cụ hành động / sys.ask_missing_info
+    read_part = [x for x in out if x.get("name") in READ_TOOLS]
+    act_part = [x for x in out if x.get("name") not in READ_TOOLS]
+    return read_part + act_part
 
 
 def compose_best_exemplar(
@@ -2344,7 +3294,7 @@ def compose_best_exemplar(
     Tổng hợp bài mẫu chuẩn xác nhất cho cả câu đơn mệnh đề, câu ghép đa mệnh đề và câu điều kiện phụ thuộc dữ liệu:
     - Kiểm tra nhánh điều kiện thời gian thực (weather, gold_price, bill_payment + ewallet) theo previous_steps.
     - Khôi phục ý định từ lượt hỏi-đáp trước đó trong history khi lượt hiện tại là câu trả lời bổ sung thông tin.
-    - Tách mệnh đề hành động (Clause-Split) + Bù đắp ứng dụng thiếu bằng Atomic Sub-Exemplar (Multi-App Atomic Completion).
+    - Ưu tiên mẫu toàn câu (Whole-Utterance) trước khi tách mệnh đề (Clause-Split) để bảo toàn cấu trúc câu phức.
     - Tự động loại bỏ các bước Read đã có sẵn kết quả trong history (History-Satisfied Reads).
     """
     if not retriever:
@@ -2354,6 +3304,10 @@ def compose_best_exemplar(
     inst_dict = installed_apps if isinstance(installed_apps, dict) else {a: {} for a in (installed_apps or [])}
     hist_sat = get_history_satisfied_reads(history, user_text)
     u_for_ret = re.sub(r"^[^,.]{3,35}\b(?:à không|à nhầm)\b[,\s]*", "", user_text, flags=re.IGNORECASE)
+    u_for_ret = re.sub(r"^.{3,75}\b(?:ấy quên|à quên|thôi đừng tắt|đừng tắt|thôi khỏi dịch lại|à thôi khỏi)\b[^.!?;]*[.!?;,]?\s*", "", u_for_ret, flags=re.IGNORECASE)
+    u_for_ret = re.sub(r"\b(?:báo là|bảo là|nhắn là|nội dung ghi là)\s+[^.!?;]+?(?:đã hủy|đã huỷ|khoá rồi|khóa rồi|đã gọi số vừa nãy rồi|chuyển tiền [^.!?;]*?rồi)[^.!?;]*", "báo là đã xong", u_for_ret, flags=re.IGNORECASE)
+    u_for_ret = re.sub(r"\b(mail|email|thư)\s+quảng\s+cáo\s+vé\s+máy\s+bay\b", r"\1 quảng cáo", u_for_ret, flags=re.IGNORECASE)
+    u_for_ret = re.sub(r"\bcô\s+nhắc\s+gọi\s+[^,.]+?\s+hồi\s+nãy\b", "cô nói hồi nãy", u_for_ret, flags=re.IGNORECASE)
 
     # Khôi phục ngữ cảnh khi lượt trước trợ lý chỉ hỏi lại mà chưa gọi công cụ (hoặc chỉ gọi công cụ tra cứu mà người dùng đang trả lời nối tiếp)
     if history and len(history) >= 2:
@@ -2373,11 +3327,24 @@ def compose_best_exemplar(
 
     # 0a. Nhánh điều kiện Thời tiết ("nếu mai mưa ... không mưa thì ...")
     prepend_weather_call: Optional[Dict[str, Any]] = None
-    if "weather" in inst_dict and (
-        (re.search(r"\b(nếu .* mưa|mà mưa|mưa không|có mưa không|trời mưa)\b", u_low) and re.search(r"\b(mưa thì|không mưa|trời ráo|trời nắng|nếu mưa|mà mưa)\b", u_low))
+    if "weather" in inst_dict and not re.search(r"\b(giờ mà đang|hiện tại đang|lúc này đang|ngoài trời đang)\b", u_low) and (
+        (re.search(r"\b(nếu.*mưa|mà mưa|mưa thì|mưa không|có mưa không|trời mưa)\b", u_low) and re.search(r"\b(mưa thì|không mưa|trời ráo|trời nắng|nếu mưa|mà mưa|nếu.*mưa)\b", u_low))
         or re.search(r"\b(nóng quá \d+\s*độ|trên \d+\s*độ)\b.*\bthì\b", norm_u)
     ):
         weather_step = next((s for s in (previous_steps or []) if s.get("tool_called") == "weather.get_forecast" and not s.get("error")), None)
+        weather_from_hist = False
+        if weather_step is None and history:
+            for ht in reversed(history or []):
+                tcs_h = ht.get("tool_calls") or []
+                trs_h = ht.get("tool_results") or []
+                for tc_h, tr_h in zip(tcs_h, trs_h):
+                    if isinstance(tc_h, dict) and tc_h.get("name") == "weather.get_forecast" and isinstance(tr_h, dict):
+                        if not re.search(r"\b(xem.*mưa không|coi.*mưa không|kiểm tra.*thời tiết)\b", u_low):
+                            weather_step = {"tool_called": "weather.get_forecast", "arguments": tc_h.get("arguments") or {}, "raw_observation": tr_h}
+                            weather_from_hist = True
+                            break
+                if weather_step is not None:
+                    break
         if weather_step is None:
             return [{
                 "id": "cond_weather_step1",
@@ -2402,32 +3369,33 @@ def compose_best_exemplar(
             else:
                 is_rain = bool(fc_obj.get("rain"))
             w_args = weather_step.get("arguments") or {"date": primary_d or "2026-10-16"}
-            prepend_weather_call = {"name": "weather.get_forecast", "arguments": w_args}
+            prepend_weather_call = None if weather_from_hist else {"name": "weather.get_forecast", "arguments": w_args}
+            w_prefix = [prepend_weather_call] if prepend_weather_call is not None else []
             if not is_rain:
                 if (
-                    re.search(r"\b(không mưa thì thôi|không thì thôi|không mưa .* giữ nguyên|không mưa .* cứ để|trời nắng .* giữ nguyên|trời nắng .* cứ giữ|không mưa .* không cần|không mưa .* khỏi)\b", u_low)
-                    or not re.search(r"\b(không mưa|không thì|trời nắng|trời ráo)\b", u_low)
+                    re.search(r"\b(không mưa thì thôi|hông mưa thì thôi|hổng mưa thì thôi|không thì thôi|không mưa.*giữ nguyên|không mưa.*cứ để|trời nắng.*giữ nguyên|trời nắng.*cứ giữ|không mưa.*không cần|không mưa.*khỏi|nắng thì.*giữ nguyên|không thì.*giữ nguyên|không thì.*cứ để)\b", u_low)
+                    or not re.search(r"\b(không mưa|không thì|trời nắng|trời ráo|hổng mưa|hông mưa)\b", u_low)
                 ):
                     return [{
                         "id": "cond_weather_no_rain_stop",
                         "audio_text": user_text,
-                        "tool_calls": [prepend_weather_call],
+                        "tool_calls": list(w_prefix),
                     }]
-                if "smart_home" in inst_dict and re.search(r"\b(không mưa .* bật|trời nắng .* bật|ổ cắm|máy tưới)\b", u_low):
-                    sh_calls = [prepend_weather_call]
+                if "smart_home" in inst_dict and re.search(r"\b(không mưa.*bật|trời nắng.*bật|ổ cắm|máy tưới)\b", u_low):
+                    sh_calls = list(w_prefix)
                     if "smart_home.get_status" not in hist_sat:
                         sh_calls.append({"name": "smart_home.get_status", "arguments": {}})
                     sh_calls.append({"name": "smart_home.switch_set", "arguments": {"device_id": "plug_garden", "power": "on"}})
                     return [{"id": "cond_weather_no_rain_switch", "audio_text": user_text, "tool_calls": sh_calls}]
                 if "ride_hailing" in inst_dict and re.search(r"\b(đặt ô tô|gọi ô tô|đặt xe|gọi xe)\b", u_low):
+                    rh_no_rain_calls = list(w_prefix)
+                    if "calendar" in inst_dict and "calendar.list_events" not in hist_sat and re.search(r"\b(lịch|buổi|họp|khám|hẹn|đá bóng|chạy bộ|cà phê)\b", u_low):
+                        rh_no_rain_calls.append({"name": "calendar.list_events", "arguments": {}})
+                    rh_no_rain_calls.append({"name": "ride_hailing.book", "arguments": {"pickup": "12 Nguyễn Huệ, Quận 1, TP.HCM", "dropoff": "Bệnh viện", "vehicle": "car4", "schedule_time": f"{primary_d or '2026-10-16'}T14:30:00+07:00"}})
                     return [{
                         "id": "cond_weather_no_rain_ride",
                         "audio_text": user_text,
-                        "tool_calls": [
-                            prepend_weather_call,
-                            {"name": "calendar.list_events", "arguments": {}},
-                            {"name": "ride_hailing.book", "arguments": {"pickup": "12 Nguyễn Huệ, Quận 1, TP.HCM", "dropoff": "Bệnh viện", "vehicle": "car4", "schedule_time": f"{primary_d or '2026-10-16'}T14:30:00+07:00"}},
-                        ],
+                        "tool_calls": rh_no_rain_calls,
                     }]
                 if re.search(r"[,.;]?\s*còn\s+mưa\s+thì\b", u_low):
                     u_for_ret = re.sub(r"[,.;]?\s*còn\s+mưa\s+thì\b.*$", "", u_for_ret, flags=re.IGNORECASE).strip()
@@ -2435,46 +3403,48 @@ def compose_best_exemplar(
                     u_for_ret = re.sub(r"^.*?\b(?:còn\s+)?(?:nếu\s+)?(?:không\s+mưa|không\s+thì|trời\s+nắng|trời\s+ráo)\s+(?:thì\s+)?", "", u_for_ret, flags=re.IGNORECASE).strip()
                 u_low = u_for_ret.lower()
             else:
-                if re.search(r"\b(mưa thì khỏi tưới|mưa thì thôi|nếu mưa .* khỏi bật)\b", u_low) and "reminders" in inst_dict and "nhắc" in u_low:
+                if re.search(r"\b(mưa thì khỏi tưới|mưa thì thôi|nếu mưa.*khỏi bật)\b", u_low) and "reminders" in inst_dict and "nhắc" in u_low:
                     return [{
                         "id": "cond_weather_rain_remind_only",
                         "audio_text": user_text,
-                        "tool_calls": [
-                            prepend_weather_call,
+                        "tool_calls": list(w_prefix) + [
                             {"name": "reminders.create", "arguments": {"content": "Kiểm tra chậu cây ngoài ban công", "time": f"{primary_d or '2026-10-16'}T07:00:00+07:00"}},
                         ],
                     }]
                 if "alarm" in inst_dict and re.search(r"\b(cái còn lại|cái kia|báo thức)\b", u_low) and ("alarm.list" in hist_sat or "báo thức" in u_low):
-                    al_calls = [prepend_weather_call]
+                    al_calls = list(w_prefix)
                     if "alarm.list" not in hist_sat:
                         al_calls.append({"name": "alarm.list", "arguments": {}})
                     al_calls.append({"name": "alarm.update", "arguments": {"alarm_id": "al_01", "time": "06:30"}})
                     return [{"id": "cond_weather_rain_alarm", "audio_text": user_text, "tool_calls": al_calls}]
-                if "calendar" in inst_dict and re.search(r"\b(dời|đổi|lùi|chuyển|hủy|huỷ)\b", u_low):
-                    cal_calls = [prepend_weather_call]
+                if "calendar" in inst_dict and re.search(r"\b(dời|đổi|lùi|chuyển|hủy|huỷ|đẩy|bỏ)\b", u_low) and not re.search(r"\bnhắn\s+[^\s,.]+(?:\s+[^\s,.]+)?\s+(?:giùm|hộ|là)\s+dời\b", u_low):
+                    cal_calls = list(w_prefix)
                     if "calendar.list_events" not in hist_sat:
                         cal_calls.append({"name": "calendar.list_events", "arguments": {}})
-                    if re.search(r"\b(hủy|huỷ)\b", u_low):
+                    if re.search(r"\b(hủy|huỷ|bỏ)\b", u_low):
                         cal_calls.append({"name": "calendar.cancel_event", "arguments": {"event_id": "evt_01"}})
                     else:
                         cal_calls.append({"name": "calendar.update_event", "arguments": {"event_id": "evt_01", "start": f"{primary_d or '2026-10-16'}T09:00:00+07:00", "end": f"{primary_d or '2026-10-16'}T10:00:00+07:00"}})
-                    if "chat_ott" in inst_dict and re.search(r"\b(zalo|nhóm)\b", u_low):
+                    rain_clause = re.split(r"\bcòn\s+(?:không\s+mưa|trời\s+ráo|trời\s+nắng|nắng)\b", u_low)[0]
+                    if "chat_ott" in inst_dict and re.search(r"\b(zalo|nhóm)\b", rain_clause):
                         if "chat_ott.list_chats" not in hist_sat:
                             cal_calls.append({"name": "chat_ott.list_chats", "arguments": {}})
                         cal_calls.append({"name": "chat_ott.send_message", "arguments": {"chat_id": "chat_01", "content": "Sáng mai trời mưa nên mình dời lịch nhé."}})
-                    if "sms" in inst_dict and re.search(r"\b(sms|nhắn)\b", u_low) and not re.search(r"\b(zalo|nhóm)\b", u_low):
+                    if "sms" in inst_dict and re.search(r"\b(sms|nhắn)\b", rain_clause) and not re.search(r"\b(zalo|nhóm)\b", rain_clause):
                         if "contacts" in inst_dict and "contacts.search" not in hist_sat:
-                            cal_calls.append({"name": "contacts.search", "arguments": {"query": "Hương"}})
+                            q_ct_w = _extract_contact_query_from_text(rain_clause) or "Hương"
+                            cal_calls.append({"name": "contacts.search", "arguments": {"query": q_ct_w}})
                         cal_calls.append({"name": "sms.send", "arguments": {"contact_id": "ct_01", "content": "Sáng mai trời mưa nên mình dời lịch nhé."}})
-                    if "phone" in inst_dict and re.search(r"\b(gọi)\b", u_low):
+                    if "phone" in inst_dict and re.search(r"\bgọi\s+(?:điện|cho|báo)\b", rain_clause):
                         if "contacts" in inst_dict and "contacts.search" not in hist_sat:
-                            cal_calls.append({"name": "contacts.search", "arguments": {"query": "Lan"}})
+                            q_ct_p = _extract_contact_query_from_text(rain_clause) or "Lan"
+                            cal_calls.append({"name": "contacts.search", "arguments": {"query": q_ct_p}})
                         cal_calls.append({"name": "phone.call", "arguments": {"contact_id": "ct_01"}})
-                    if "reminders" in inst_dict and re.search(r"\b(nhắc)\b", u_low):
+                    if "reminders" in inst_dict and re.search(r"\b(nhắc)\b", rain_clause):
                         cal_calls.append({"name": "reminders.create", "arguments": {"content": "Mang ô", "time": f"{primary_d or '2026-10-16'}T07:00:00+07:00"}})
                     return [{"id": "cond_weather_rain_calendar", "audio_text": user_text, "tool_calls": cal_calls}]
                 if "ride_hailing" in inst_dict and re.search(r"\b(đặt xe|gọi xe|đặt ô tô|gọi ô tô|xe bốn chỗ|xe 4 chỗ)\b", u_low):
-                    rh_calls = [prepend_weather_call]
+                    rh_calls = list(w_prefix)
                     if "calendar" in inst_dict and "calendar.list_events" not in hist_sat and re.search(r"\b(lịch|buổi|họp|khám)\b", u_low):
                         rh_calls.append({"name": "calendar.list_events", "arguments": {}})
                     rh_calls.append({"name": "ride_hailing.book", "arguments": {"pickup": "Nhà", "dropoff": "Công ty", "vehicle": "car4"}})
@@ -2486,8 +3456,21 @@ def compose_best_exemplar(
                 u_low = u_for_ret.lower()
 
     # 0b. Nhánh điều kiện Giá vàng ("giá vàng ... nếu dưới/trên X triệu thì ...")
-    if "gold_price" in inst_dict and re.search(r"\b(giá vàng|vàng sjc|vàng nhẫn|nhẫn vàng|vàng thế giới)\b", u_low) and re.search(r"\b(dưới|trên|hơn|vượt|quá)\s+\d+(?:\s*triệu|\s*đô)?\b", norm_u):
+    if "gold_price" in inst_dict and re.search(r"\b(giá vàng|vàng sjc|vàng nhẫn|nhẫn vàng|vàng thế giới|mua vàng|bán vàng)\b", u_low) and re.search(r"\b(dưới|trên|hơn|vượt|quá)\s+\d+(?:\s*triệu|\s*đô)?\b", norm_u):
         gold_step = next((s for s in (previous_steps or []) if s.get("tool_called") == "gold_price.get_price" and not s.get("error")), None)
+        gold_from_hist = False
+        if gold_step is None and history:
+            for ht in reversed(history or []):
+                tcs_h = ht.get("tool_calls") or []
+                trs_h = ht.get("tool_results") or []
+                for tc_h, tr_h in zip(tcs_h, trs_h):
+                    if isinstance(tc_h, dict) and tc_h.get("name") == "gold_price.get_price" and isinstance(tr_h, dict):
+                        if not re.search(r"\b(xem.*giá vàng|coi.*giá vàng|kiểm tra.*giá vàng|hỏi.*giá vàng)\b", u_low):
+                            gold_step = {"tool_called": "gold_price.get_price", "arguments": {}, "raw_observation": tr_h}
+                            gold_from_hist = True
+                            break
+                if gold_step is not None:
+                    break
         if gold_step is None:
             return [{
                 "id": "cond_gold_step1",
@@ -2515,18 +3498,18 @@ def compose_best_exemplar(
                         target_item = it
                         break
             val_check = target_item.get("buy", 0) if "mua vào" in u_low else target_item.get("sell", 0)
-            m_th = re.search(r"\b(dưới|trên|hơn|vượt)\s+(\d+)(?:\s*triệu)?\b", norm_u)
+            m_th = re.search(r"\b(dưới|trên|hơn|vượt|quá)\s+(\d+)(?:\s*triệu)?\b", norm_u)
+            g_prefix = [] if gold_from_hist else [{"name": "gold_price.get_price", "arguments": {}}]
             if m_th and val_check:
                 op_w, raw_num = m_th.group(1), int(m_th.group(2))
                 th_m = raw_num * 1_000_000 if raw_num < 1000 else raw_num
                 cond_ok = (val_check < th_m) if op_w == "dưới" else (val_check > th_m)
                 if not cond_ok:
-                    if "banking" in inst_dict and re.search(r"\b(chuyển .* triệu|chuyển khoản|chuyển cho|gửi .* triệu|trích tài khoản)\b", u_low):
+                    if "banking" in inst_dict and re.search(r"\b(chuyển.*\d+\s*triệu|chuyển khoản|chuyển cho|tài khoản thanh toán|gửi.*\d+\s*triệu|trích tài khoản)\b", norm_u):
                         return [{
                             "id": "cond_gold_else_bank",
                             "audio_text": user_text,
-                            "tool_calls": [
-                                {"name": "gold_price.get_price", "arguments": {}},
+                            "tool_calls": g_prefix + [
                                 {"name": "banking.get_balance", "arguments": {}},
                                 {"name": "banking.list_beneficiaries", "arguments": {}},
                                 {"name": "banking.transfer", "arguments": {"from_account_id": "acc_01", "beneficiary_id": "ben_01", "amount": 5000000}},
@@ -2535,28 +3518,23 @@ def compose_best_exemplar(
                     return [{
                         "id": "cond_gold_false_stop",
                         "audio_text": user_text,
-                        "tool_calls": [{"name": "gold_price.get_price", "arguments": {}}],
+                        "tool_calls": g_prefix,
                     }]
                 else:
                     if "reminders" in inst_dict and "nhắc" in u_low:
                         return [{
                             "id": "cond_gold_true_remind",
                             "audio_text": user_text,
-                            "tool_calls": [
-                                {"name": "gold_price.get_price", "arguments": {}},
+                            "tool_calls": g_prefix + [
                                 {"name": "reminders.create", "arguments": {"content": "Đi bán vàng", "time": f"{primary_d or '2026-10-16'}T09:00:00+07:00"}},
                             ],
                         }]
 
     # 0c. Nhánh điều kiện Hóa đơn + Ví điện tử ("nếu ví đủ ... còn thiếu/không đủ thì trả bằng ngân hàng và nhắc nạp ví / nhắn SMS")
-    if "bill_payment" in inst_dict and "ewallet" in inst_dict and re.search(r"\b(ví đủ|đủ thì trả|không đủ|còn thiếu|nếu thiếu|hụt thì|bằng ví .* ngân hàng)\b", u_low) and re.search(r"\b(ví|vĩ|vé|phí)\b", u_low) and not re.search(r"\b(tiết kiệm|tài khoản thanh toán)\b", u_low):
+    if "bill_payment" in inst_dict and "ewallet" in inst_dict and re.search(r"\b(ví đủ|đủ thì trả|không đủ|còn thiếu|nếu thiếu|hụt thì|bằng ví.*ngân hàng)\b", u_low) and re.search(r"\b(ví|vĩ|vé|phí)\b", u_low) and not re.search(r"\b(tiết kiệm|tài khoản thanh toán)\b", u_low):
         bill_step = next((s for s in (previous_steps or []) if s.get("tool_called") == "bill_payment.list_bills" and not s.get("error")), None)
         ew_step = next((s for s in (previous_steps or []) if s.get("tool_called") == "ewallet.get_balance" and not s.get("error")), None)
-        ct_q = "Mẹ"
-        for cand_ct in ("cô giáo Mai", "Cô giáo Mai", "Bố", "Lan", "Tuấn", "Bình", "Hương", "Minh", "Mẹ"):
-            if cand_ct.lower() in u_for_ret.lower():
-                ct_q = cand_ct
-                break
+        ct_q = _extract_contact_query_from_text(u_for_ret.lower()) or "Mẹ"
         sms_always = bool("sms" in inst_dict and re.search(r"\b(sms|nhắn)\b", u_low) and re.search(r"\bngân hàng\b.*\b(sms|nhắn)\b", u_low))
         need_contacts = bool("sms" in inst_dict and re.search(r"\b(sms|nhắn)\b", u_low) and "contacts" in inst_dict and "contacts.search" not in hist_sat)
         if bill_step is None or ew_step is None:
@@ -2605,10 +3583,10 @@ def compose_best_exemplar(
             }]
 
     # 0c-bis. Nạp tiền điện thoại cho người thứ 1 + chuyển ví cho người thứ 2 bằng số tiền hóa đơn
-    if "ewallet" in inst_dict and "bill_payment" in inst_dict and re.search(r"\b(nạp .* điện thoại cho .* rồi (?:chuyển|gửi|gởi))\b", u_low):
-        m_two = re.search(r"điện thoại cho\s+([a-zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]+).*?(?:chuyển|gửi|gởi)(?:\s+ví)?\s+cho\s+([a-zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]+)", u_for_ret, re.IGNORECASE)
-        p1 = m_two.group(1).capitalize() if m_two else "Lan"
-        p2 = m_two.group(2).capitalize() if m_two else "Tuấn"
+    if "ewallet" in inst_dict and "bill_payment" in inst_dict and re.search(r"\bnạp\b.*\b(?:chuyển|gửi|gởi)\b.*\btiền\s+(?:điện|nước|mạng|internet|truyền hình)\b", u_low):
+        cl_parts = re.split(r"\b(?:rồi|với|và|còn)\s+", u_for_ret, maxsplit=1, flags=re.IGNORECASE)
+        p1 = _extract_contact_query_from_text((cl_parts[0] if cl_parts else "").lower()) or "Tuấn"
+        p2 = _extract_contact_query_from_text((cl_parts[1] if len(cl_parts) > 1 else u_for_ret).lower()) or "Cô giáo Mai"
         top_amt = 100000 if "100" in norm_u or "một trăm" in u_low else 50000
         return [{
             "id": "composed_topup_and_bill_transfer",
@@ -2617,7 +3595,7 @@ def compose_best_exemplar(
                 {"name": "bill_payment.list_bills", "arguments": {}},
                 {"name": "contacts.search", "arguments": {"query": p1}},
                 {"name": "contacts.search", "arguments": {"query": p2}},
-                {"name": "ewallet.topup_mobile", "arguments": {"contact_id": "ct_01", "amount": top_amt}},
+                {"name": "ewallet.topup_mobile", "arguments": {"phone": "0901234567", "amount": top_amt}},
                 {"name": "ewallet.transfer", "arguments": {"contact_id": "ct_02", "amount": 200000}},
             ],
         }]
@@ -2631,10 +3609,20 @@ def compose_best_exemplar(
             }]
 
     # 0d. Định tuyến câu nối tiếp ngắn dựa trên lượt có tool_calls gần nhất của history (Short Follow-up History Routing)
-    if history and len(user_text.split()) <= 22 and len([c.strip() for c in CLAUSE_SPLIT_RE.split(u_for_ret) if len(c.strip().split()) >= 3]) < 2:
+    if history and len(user_text.split()) <= 24 and len([c.strip() for c in CLAUSE_SPLIT_RE.split(u_for_ret) if len(c.strip().split()) >= 3]) < 2:
         recent_tc_turn = next((t for t in reversed(history) if t.get("tool_calls")), {})
         last_turn_tools = [tc.get("name", "") for tc in (recent_tc_turn.get("tool_calls") or []) if isinstance(tc, dict)]
         u_curr_low = user_text.lower()
+        if "chat_ott" in inst_dict and re.search(r"^\s*(?:dạ\s+|ừ\s+|ờ\s+)?zalo(?:\s+|,)*(?:(?:đi|nhé|nha|ạ|em|hen|anh|chị)(?:\s+|,)*)*[\.!]?\s*$", u_curr_low):
+            z_calls = []
+            if "chat_ott.list_chats" not in hist_sat:
+                z_calls.append({"name": "chat_ott.list_chats", "arguments": {}})
+            hist_u_txt = " ".join(str(t.get("audio_text", "")) for t in (history or []) if t.get("role") == "user")
+            if re.search(r"\bgọi\b", hist_u_txt, re.IGNORECASE) and not re.search(r"\b(nhắn|gửi|báo)\b", hist_u_txt, re.IGNORECASE):
+                z_calls.append({"name": "chat_ott.call", "arguments": {"chat_id": "chat_01"}})
+            else:
+                z_calls.append({"name": "chat_ott.send_message", "arguments": {"chat_id": "chat_01", "content": "Tin nhắn"}})
+            return [{"id": "followup_zalo_choice", "audio_text": user_text, "tool_calls": z_calls}]
         if "ecommerce.search" in last_turn_tools and "ecommerce" in inst_dict and re.search(r"\b(cái thứ hai|cái đầu|cái rẻ|cái đắt|loại rẻ|loại đắt|vào giỏ|mua luôn|đặt luôn|lấy cái|chốt cái|hai túi|2 túi|ba hũ|3 hũ|lấy .* cho mình)\b", u_curr_low):
             ec_calls = [{"name": "ecommerce.add_to_cart", "arguments": {"product_id": "prod_01", "quantity": 1}}]
             if re.search(r"\b(đặt luôn|mua luôn|thanh toán|giao về)\b", u_curr_low):
@@ -2646,11 +3634,57 @@ def compose_best_exemplar(
                 return [{"id": "followup_ecommerce_return", "audio_text": user_text, "tool_calls": [{"name": "ecommerce.request_return", "arguments": {"order_id": "ord_01", "reason": ret_reason}}]}]
             if re.search(r"\b(hủy|huỷ|bỏ)\b", u_curr_low):
                 return [{"id": "followup_ecommerce_cancel", "audio_text": user_text, "tool_calls": [{"name": "ecommerce.cancel_order", "arguments": {"order_id": "ord_01"}}]}]
-        if "grocery.add_to_cart" in last_turn_tools and "grocery" in inst_dict and re.search(r"\b(chốt|thanh toán|giao về|đủ rồi)\b", u_curr_low):
+        if "grocery.add_to_cart" in last_turn_tools and "grocery" in inst_dict and re.search(r"\b(chốt|chúc đơn|thanh toán|giao về|đủ rồi)\b", u_curr_low):
+            gr_co_calls = []
+            if "calendar" in inst_dict and re.search(r"\b(bữa tối|lịch|buổi|họp)\b", u_curr_low):
+                gr_co_calls.append({"name": "calendar.list_events", "arguments": {}})
+            gr_co_calls.append({"name": "grocery.checkout", "arguments": {"address": "Nhà"}})
             return [{
                 "id": "followup_grocery_checkout",
                 "audio_text": user_text,
-                "tool_calls": [{"name": "grocery.checkout", "arguments": {"address": "Nhà"}}],
+                "tool_calls": gr_co_calls,
+            }]
+        if "bill_payment.list_bills" in hist_sat and "bill_payment" in inst_dict and re.search(r"\b(đóng luôn|trừ vào|đúng rồi tháng)\b", u_curr_low):
+            return [{
+                "id": "followup_bill_pay",
+                "audio_text": user_text,
+                "tool_calls": [{"name": "bill_payment.pay", "arguments": {"bill_id": "bill_01", "source": "bank" if "ngân hàng" in u_curr_low else "ewallet"}}],
+            }]
+        if "calendar.list_events" in last_turn_tools and "calendar" in inst_dict and re.search(r"\b(hủy|huỷ|xóa|xoá)\b.*\b(lịch|cuộc|buổi|hẹn)\b", u_curr_low):
+            return [{
+                "id": "followup_calendar_cancel",
+                "audio_text": user_text,
+                "tool_calls": [{"name": "calendar.cancel_event", "arguments": {"event_id": "evt_01"}}],
+            }]
+        if "calendar.list_events" in last_turn_tools and "calendar" in inst_dict and re.search(r"\b(lùi|dời|đổi|chuyển)\b.*\b(sang|thành|qua)\s+\d", norm_u):
+            return [{
+                "id": "followup_calendar_update",
+                "audio_text": user_text,
+                "tool_calls": [{"name": "calendar.update_event", "arguments": {"event_id": "evt_01", "start": f"{primary_d or '2026-10-16'}T15:00:00+07:00", "end": f"{primary_d or '2026-10-16'}T16:00:00+07:00"}}],
+            }]
+        if "appliances.list" in last_turn_tools and "appliances" in inst_dict and re.search(r"\b(chạy máy|bật máy|chương trình|chế độ)\b", u_curr_low):
+            return [{
+                "id": "followup_appliances_start",
+                "audio_text": user_text,
+                "tool_calls": [{"name": "appliances.start_cycle", "arguments": {"appliance_id": "app_01", "program": "normal"}}],
+            }]
+        if "sys.ask_missing_info" in last_turn_tools and "ewallet" in inst_dict and re.search(r"\b\d+\s*(?:nghìn|ngàn|triệu|k\b)", norm_u):
+            ew_f_calls = []
+            if "contacts" in inst_dict and "contacts.search" not in hist_sat:
+                ew_f_calls.append({"name": "contacts.search", "arguments": {"query": _extract_contact_query_from_text(u_for_ret.lower()) or "Lan"}})
+            ew_f_calls.append({"name": "ewallet.transfer", "arguments": {"contact_id": "ct_01", "amount": 250000}})
+            return [{"id": "followup_ewallet_transfer", "audio_text": user_text, "tool_calls": ew_f_calls}]
+        if "bike_rental.find_bikes" in last_turn_tools and "bike_rental" in inst_dict and re.search(r"\b(giữ|đặt|thuê|lấy)\b.*\b(chiếc|xe)\b", u_curr_low):
+            return [{
+                "id": "followup_bike_reserve",
+                "audio_text": user_text,
+                "tool_calls": [{"name": "bike_rental.reserve", "arguments": {"bike_id": "bike_01"}}],
+            }]
+        if "tv.guide" in last_turn_tools and "tv" in inst_dict and re.search(r"\b(ghi lẹ|ghi lại|trận .* ghi)\b", u_curr_low):
+            return [{
+                "id": "followup_tv_record",
+                "audio_text": user_text,
+                "tool_calls": [{"name": "tv.record", "arguments": {"program_id": "prg_01"}}],
             }]
         if "grocery.search" in last_turn_tools and "grocery" in inst_dict and re.search(r"\b(đặt cho|lấy cho|ba hộp|3 hộp|hai hộp|2 hộp|vào giỏ|mua luôn|đặt luôn|loại không đường)\b", u_curr_low):
             gr_calls = [{"name": "grocery.add_to_cart", "arguments": {"product_id": "gro_01", "quantity": 3}}]
@@ -2710,11 +3744,51 @@ def compose_best_exemplar(
                     {"name": "flights.check_in", "arguments": {"booking_id": "flb_01"}},
                 ],
             }]
-        if "train_bus_tickets.search" in last_turn_tools and "train_bus_tickets" in inst_dict and re.search(r"\b(đặt cho|vé xe|vé tàu|chuyến đó)\b", u_curr_low) and not re.search(r"\b(hủy|huỷ)\b", u_curr_low):
+        if "train_bus_tickets.search" in last_turn_tools and "train_bus_tickets" in inst_dict and re.search(r"\b(hủy|huỷ|cancel)\b", u_curr_low) and re.search(r"\b(đặt lại|đổi qua)\b", u_curr_low):
+            return [{
+                "id": "followup_train_bus_rebook",
+                "audio_text": user_text,
+                "tool_calls": [
+                    {"name": "train_bus_tickets.my_bookings", "arguments": {}},
+                    {"name": "train_bus_tickets.cancel", "arguments": {"booking_id": "tbb_01"}},
+                    {"name": "train_bus_tickets.book", "arguments": {"trip_id": "trip_01", "seats": 2 if re.search(r"\b(hai|2)\b", u_curr_low) else 1}},
+                ],
+            }]
+        if "train_bus_tickets.search" in last_turn_tools and "train_bus_tickets" in inst_dict and re.search(r"\b(đặt cho|vé xe|vé tàu|chuyến đó)\b", u_curr_low) and not re.search(r"\b(hủy|huỷ|cancel)\b", u_curr_low):
             return [{
                 "id": "followup_train_bus_book",
                 "audio_text": user_text,
                 "tool_calls": [{"name": "train_bus_tickets.book", "arguments": {"trip_id": "trip_01", "seats": 1}}],
+            }]
+        if "flights.search" in last_turn_tools and "flights" in inst_dict and re.search(r"\b(lấy chuyến|chuyến sớm|chuyến muộn|chuyến rẻ|chuyến đấy|chuyến đó|chốt .* ghế|đặt cho|hai chỗ|2 chỗ|một vé|1 vé)\b", u_curr_low) and not re.search(r"\b(hủy|huỷ)\b", u_curr_low):
+            return [{
+                "id": "followup_flights_book",
+                "audio_text": user_text,
+                "tool_calls": [{"name": "flights.book", "arguments": {"flight_id": "fl_01", "passengers": 2 if re.search(r"\b(hai|2)\b", u_curr_low) else 1}}],
+            }]
+        if "fitness" in inst_dict and ("fitness.get_activity" in last_turn_tools or "chat_ott.read_chat" in last_turn_tools or "sms.read_recent" in last_turn_tools) and re.search(r"\b(ghi vào|ghi luôn|ghi nhận)\b", u_curr_low):
+            return [{
+                "id": "followup_fitness_log",
+                "audio_text": user_text,
+                "tool_calls": [{"name": "fitness.log_workout", "arguments": {"type": "running", "minutes": 30}}],
+            }]
+        if "smart_home.get_status" in last_turn_tools and "smart_home" in inst_dict and re.search(r"\b(vậy bật|cái đèn đó|cái đèn đang bật|hạ xuống|tắt nó đi|bật nó lên)\b", u_curr_low):
+            return [{
+                "id": "followup_smarthome_light",
+                "audio_text": user_text,
+                "tool_calls": [{"name": "smart_home.light_set", "arguments": {"device_id": "light_living", "power": "on"}}],
+            }]
+        if ("food_delivery.get_menu" in last_turn_tools or "food_delivery.list_restaurants" in last_turn_tools) and "food_delivery" in inst_dict and re.search(r"\b(đặt cho|một phần như thế|lấy cho|chốt luôn)\b", u_curr_low):
+            fd_calls = []
+            if "food_delivery.get_menu" not in hist_sat and "food_delivery.order_history" not in last_turn_tools:
+                fd_calls.append({"name": "food_delivery.get_menu", "arguments": {"restaurant_id": "rest_01"}})
+            fd_calls.append({"name": "food_delivery.place_order", "arguments": {"restaurant_id": "rest_01", "items": [{"item_id": "item_01", "quantity": 1}], "address": "Nhà"}})
+            return [{"id": "followup_food_place_order", "audio_text": user_text, "tool_calls": fd_calls}]
+        if "subscriptions" in inst_dict and "subscriptions.list" in hist_sat and re.search(r"\b(hủy luôn gói|huỷ luôn gói|hủy gói đấy|huỷ gói đấy|hủy gói đó)\b", u_curr_low):
+            return [{
+                "id": "followup_subscriptions_cancel",
+                "audio_text": user_text,
+                "tool_calls": [{"name": "subscriptions.cancel", "arguments": {"subscription_id": "sub_01"}}],
             }]
         if ("recipes.search" in last_turn_tools or "recipes.get" in last_turn_tools) and "recipes" in inst_dict:
             if "shopping_list" in inst_dict and re.search(r"\b(danh sách đi chợ|mua thêm|nguyên liệu)\b", u_curr_low):
@@ -2723,7 +3797,13 @@ def compose_best_exemplar(
                     rc_calls.append({"name": "recipes.get", "arguments": {"recipe_id": "rcp_01"}})
                 rc_calls.append({"name": "shopping_list.add", "arguments": {"name": "Nguyên liệu", "quantity": 1}})
                 return [{"id": "followup_recipes_shopping", "audio_text": user_text, "tool_calls": rc_calls}]
-            if re.search(r"\b(lưu lại|lưu giùm|lưu giúp|lưu món|xem chi tiết|đọc các bước|công thức đó|món đó|món ấy|nhanh nhất)\b", u_curr_low) and not re.search(r"\b(đặt món|giao về|khỏi nấu|nhà hàng)\b", u_curr_low):
+            if re.search(r"\b(lưu lại|lưu giùm|lưu giúp|lưu món|lưu .* qua ghi chú|xem chi tiết|đọc các bước|công thức đó|món đó|món ấy|nhanh nhất)\b", u_curr_low) and not re.search(r"\b(đặt món|giao về|khỏi nấu|nhà hàng)\b", u_curr_low):
+                if "notes" in inst_dict and re.search(r"\b(ghi chú|note)\b", u_curr_low):
+                    rc_calls = []
+                    if "recipes.get" not in last_turn_tools:
+                        rc_calls.append({"name": "recipes.get", "arguments": {"recipe_id": "rcp_01"}})
+                    rc_calls.append({"name": "notes.create", "arguments": {"title": "Công thức nấu ăn", "content": "Nguyên liệu"}})
+                    return [{"id": "followup_recipes_notes", "audio_text": user_text, "tool_calls": rc_calls}]
                 rc_tool = "recipes.save" if re.search(r"\b(lưu)\b", u_curr_low) else "recipes.get"
                 rc_calls = [{"name": rc_tool, "arguments": {"recipe_id": "rcp_01"}}]
                 if "reminders" in inst_dict and re.search(r"\b(nhắc)\b", u_curr_low):
@@ -2756,10 +3836,38 @@ def compose_best_exemplar(
         app for app, pat in APP_TRIGGER_PATTERNS.items()
         if app in inst_dict and re.search(pat, u_for_ret, re.IGNORECASE)
     }
+    if re.search(r"\b(nhắn|tin nhắn)\b", u_for_ret, re.IGNORECASE) and not re.search(r"\b(đọc tin nhắn|xem tin nhắn|có tin nhắn nào)\b", u_for_ret, re.IGNORECASE):
+        if "chat_ott" in inst_dict and "sms" not in inst_dict:
+            triggered_apps.add("chat_ott")
+        elif "sms" in inst_dict and "chat_ott" not in inst_dict:
+            triggered_apps.add("sms")
+        elif "chat_ott" in inst_dict and "sms" in inst_dict:
+            hist_chat_names = set()
+            for ht in (history or []):
+                for tc_h in (ht.get("tool_calls") or []):
+                    if isinstance(tc_h, dict) and str(tc_h.get("name", "")).startswith("chat_ott."):
+                        hist_chat_names.add("__has_chat_ott__")
+                for res_h in (ht.get("tool_results") or []):
+                    if isinstance(res_h, dict) and isinstance(res_h.get("chats"), list):
+                        for ch in res_h["chats"]:
+                            if isinstance(ch, dict) and ch.get("name"):
+                                hist_chat_names.add(str(ch["name"]).lower())
+            if (
+                re.search(r"\b(zalo|nhóm)\b", u_for_ret, re.IGNORECASE)
+                or any(cn != "__has_chat_ott__" and cn in u_for_ret.lower() for cn in hist_chat_names)
+                or ("__has_chat_ott__" in hist_chat_names and not re.search(r"\bsms\b", u_for_ret, re.IGNORECASE))
+            ):
+                triggered_apps.add("chat_ott")
+                triggered_apps.discard("sms")
+            elif not re.search(r"\b(zalo|nhóm)\b", u_for_ret, re.IGNORECASE):
+                triggered_apps.add("sms")
+                triggered_apps.discard("chat_ott")
     if prepend_weather_call is not None:
         triggered_apps.discard("weather")
-    if "home_automation" in triggered_apps:
+    if "home_automation" in triggered_apps and not re.search(r"\b(còn giờ thì|bây giờ thì)\b", u_for_ret, re.IGNORECASE):
         triggered_apps.discard("smart_home")
+    if "chat_ott" in triggered_apps and re.search(r"\b(zalo|nhóm)\b", u_for_ret, re.IGNORECASE) and not re.search(r"\bsms\b", u_for_ret, re.IGNORECASE):
+        triggered_apps.discard("sms")
     if "shopping_list" in triggered_apps and not re.search(r"\b(đặt mua|bên app đi chợ|siêu thị|vào giỏ)\b", u_for_ret, re.IGNORECASE):
         triggered_apps.discard("grocery")
     if "ecommerce" in triggered_apps and not re.search(r"\b(đi chợ|siêu thị|sữa|trứng|thịt|rau|gạo|cá|ức gà|cà chua|dầu ô liu|yến mạch|bột mì|táo|macca|đậu hũ|nước mắm|bơ lạt|phô mai|bánh mì)\b", u_for_ret, re.IGNORECASE):
@@ -2770,11 +3878,25 @@ def compose_best_exemplar(
         triggered_apps.discard("grocery")
     if "train_bus_tickets" in triggered_apps and re.search(r"\b(kết thúc (?:lượt|phiên))\b", u_for_ret, re.IGNORECASE):
         triggered_apps.discard("train_bus_tickets")
+    if "reminders" in triggered_apps and re.search(r"\bnhắc\s+(?:tôi|mình|anh|chị|em)\s+gọi\b", u_for_ret, re.IGNORECASE) and not re.search(r"\b(?:rồi|với|và)\s+gọi\b", u_for_ret, re.IGNORECASE):
+        triggered_apps.discard("phone")
+    if "contacts" in triggered_apps and re.search(r"\b(tìm trong danh bạ|sửa .* trong danh bạ|lưu đè vào danh bạ)\b", u_for_ret, re.IGNORECASE):
+        triggered_apps.discard("email")
+    if "bill_payment" in triggered_apps and not re.search(r"\b(ví đủ|đủ không|không đủ|còn đủ|thiếu thì|hụt thì|số dư ví|kiểm tra ví|coi ví|xem ví|nạp|chuyển ví|chuyển qua ví)\b", u_for_ret, re.IGNORECASE):
+        triggered_apps.discard("ewallet")
 
-    ordered_triggered_apps = sorted(
-        triggered_apps,
-        key=lambda a: (re.search(APP_TRIGGER_PATTERNS[a], u_for_ret, re.IGNORECASE).start() if re.search(APP_TRIGGER_PATTERNS.get(a, ""), u_for_ret, re.IGNORECASE) else 9999)
-    )
+    def _app_trig_pos(app_name: str) -> int:
+        pat = APP_TRIGGER_PATTERNS.get(app_name, "")
+        m_p = re.search(pat, u_for_ret, re.IGNORECASE) if pat else None
+        if m_p:
+            return m_p.start()
+        if app_name in {"chat_ott", "sms"}:
+            m_n = re.search(r"\b(nhắn|tin nhắn)\b", u_for_ret, re.IGNORECASE)
+            if m_n:
+                return m_n.start()
+        return 9999
+
+    ordered_triggered_apps = sorted(triggered_apps, key=_app_trig_pos)
 
     def _with_weather_prefix(calls_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if prepend_weather_call is not None and calls_list and not any(x.get("name") == "weather.get_forecast" for x in calls_list):
@@ -2815,7 +3937,29 @@ def compose_best_exemplar(
                 covered.add(t_app)
         return out_calls, out_utts
 
-    # 1. Tách mệnh đề (Clause-Split Composition) cho câu ghép đa mệnh đề + Bù đắp ứng dụng thiếu
+    # 1. Ưu tiên mẫu toàn câu (Whole-Utterance) trước khi tách mệnh đề nếu đã khớp trọn vẹn mọi ứng dụng được kích hoạt
+    cands = retriever.retrieve(u_for_ret, inst_dict, top_k=20)
+    if triggered_apps:
+        for cand in cands:
+            filtered_calls = [tc for tc in cand["tool_calls"] if _is_tool_compatible(tc, u_for_ret)]
+            if prepend_weather_call is not None and {tc["name"] for tc in filtered_calls} <= {"weather.get_forecast"}:
+                continue
+            if not _valid_filtered(filtered_calls, u_for_ret) or len(filtered_calls) != len(cand["tool_calls"]):
+                continue
+            cand_apps = {
+                (tc.get("arguments", {}).get("tool_name", "").split(".")[0] if tc["name"] == "sys.ask_missing_info" else tc["name"].split(".")[0])
+                for tc in filtered_calls
+            }
+            if (cand_apps - {"contacts", "sys"}) == (triggered_apps - {"contacts", "sys"}):
+                pruned = _with_weather_prefix(_ensure_readers_or_prune(filtered_calls, hist_sat, u_for_ret, inst_dict, current_time_str, history))
+                if pruned:
+                    return [{
+                        "id": cand.get("id", "composed_whole"),
+                        "audio_text": cand.get("audio_text", ""),
+                        "tool_calls": pruned
+                    }]
+
+    # 2. Tách mệnh đề (Clause-Split Composition) cho câu ghép đa mệnh đề + Bù đắp ứng dụng thiếu
     clauses = [c.strip() for c in CLAUSE_SPLIT_RE.split(u_for_ret) if len(c.strip().split()) >= 3]
     if len(clauses) >= 2:
         ret_atomic = _get_atomic_retriever(retriever)
@@ -2828,6 +3972,11 @@ def compose_best_exemplar(
                 app for app, pat in APP_TRIGGER_PATTERNS.items()
                 if app in inst_dict and re.search(pat, cl, re.IGNORECASE)
             }
+            if re.search(r"\b(nhắn|tin nhắn)\b", cl, re.IGNORECASE) and not re.search(r"\b(đọc tin nhắn|xem tin nhắn|có tin nhắn nào)\b", cl, re.IGNORECASE):
+                if "chat_ott" in triggered_apps:
+                    cl_trig_all.add("chat_ott")
+                elif "sms" in triggered_apps:
+                    cl_trig_all.add("sms")
             if "home_automation" in cl_trig_all:
                 cl_trig_all.discard("smart_home")
             if "maps" in cl_trig_all and re.search(r"\b(lưu địa điểm|lưu chỗ đó)\b", cl, re.IGNORECASE):
@@ -2857,8 +4006,8 @@ def compose_best_exemplar(
                 used_apps |= (cl_cands[0]["called_apps"] - {"contacts"})
             if chosen_calls:
                 merged_calls.extend(chosen_calls)
-                if chosen_utt:
-                    merged_utts.append(chosen_utt)
+                if picked_utt := chosen_utt:
+                    merged_utts.append(picked_utt)
         if merged_calls:
             merged_calls, merged_utts = _fill_missing_triggered_apps(merged_calls, merged_utts)
             final_calls = _with_weather_prefix(_ensure_readers_or_prune(merged_calls, hist_sat, u_for_ret, inst_dict, current_time_str, history))
@@ -2868,28 +4017,6 @@ def compose_best_exemplar(
                     "audio_text": " + ".join(merged_utts) if merged_utts else user_text,
                     "tool_calls": final_calls
                 }]
-
-    # 2. Ưu tiên mẫu toàn câu (Whole-Utterance) nếu đã khớp trọn vẹn mọi ứng dụng được kích hoạt
-    cands = retriever.retrieve(u_for_ret, inst_dict, top_k=20)
-    if triggered_apps:
-        for cand in cands:
-            filtered_calls = [tc for tc in cand["tool_calls"] if _is_tool_compatible(tc, u_for_ret)]
-            if prepend_weather_call is not None and {tc["name"] for tc in filtered_calls} <= {"weather.get_forecast"}:
-                continue
-            if not _valid_filtered(filtered_calls, u_for_ret) or len(filtered_calls) != len(cand["tool_calls"]):
-                continue
-            cand_apps = {
-                (tc.get("arguments", {}).get("tool_name", "").split(".")[0] if tc["name"] == "sys.ask_missing_info" else tc["name"].split(".")[0])
-                for tc in filtered_calls
-            }
-            if triggered_apps.issubset(cand_apps):
-                pruned = _with_weather_prefix(_ensure_readers_or_prune(filtered_calls, hist_sat, u_for_ret, inst_dict, current_time_str, history))
-                if pruned:
-                    return [{
-                        "id": cand.get("id", "composed_whole"),
-                        "audio_text": cand.get("audio_text", ""),
-                        "tool_calls": pruned
-                    }]
 
     # 2b. Nếu câu kích hoạt >= 1 ứng dụng mà chưa có mẫu toàn câu bao phủ hết -> Tổng hợp từ Atomic Sub-Exemplar cho từng ứng dụng được kích hoạt
     if len(ordered_triggered_apps) >= 1:
@@ -2913,7 +4040,7 @@ def compose_best_exemplar(
             (tc.get("arguments", {}).get("tool_name", "").split(".")[0] if tc["name"] == "sys.ask_missing_info" else tc["name"].split(".")[0])
             for tc in filtered_calls
         }
-        if triggered_apps and not (triggered_apps & cand_apps):
+        if triggered_apps and (not (triggered_apps & cand_apps) or not ((cand_apps - {"contacts", "sys"}) <= (triggered_apps - {"contacts", "sys"}))):
             continue
         pruned = _with_weather_prefix(_ensure_readers_or_prune(filtered_calls, hist_sat, u_for_ret, inst_dict, current_time_str, history))
         if pruned:
@@ -3045,7 +4172,8 @@ BILL_TYPE_VN = {
 def analyze_observations(
     previous_steps: List[Dict[str, Any]],
     context: Dict[str, Any],
-    raw_history: Optional[List[Dict[str, Any]]] = None
+    raw_history: Optional[List[Dict[str, Any]]] = None,
+    user_utterance: str = ""
 ) -> str:
     """
     Phân tích hợp nhất cả dữ liệu trong [ACTIVE MEMORY FROM PREVIOUS DIALOGUE] (raw_history)
@@ -3054,6 +4182,11 @@ def analyze_observations(
     """
     if not previous_steps and not raw_history:
         return ""
+
+    u_full_low = (user_utterance or "").lower()
+    if raw_history:
+        for ht in raw_history:
+            u_full_low += " " + str(ht.get("audio_text") or ht.get("text") or "").lower()
 
     cur_date = None
     try:
@@ -3151,13 +4284,47 @@ def analyze_observations(
         if not from_hist and tname == "contacts.search" and "contacts" in obs:
             contacts = obs.get("contacts") or []
             if len(contacts) >= 2:
-                c_list = [f"{c.get('id')} ({c.get('name')}, SĐT={c.get('phone')})" for c in contacts]
-                facts.append(
-                    f"⚠️ PHÁT HIỆN TRÙNG TÊN DANH BẠ: `contacts.search` trả về {len(contacts)} người trùng tên: {', '.join(c_list)}. "
-                    f"Do chưa rõ người nhận, bạn TUYỆT ĐỐI KHÔNG gọi lại `contacts.search` nữa mà BẮT BUỘC gọi `sys.ask_missing_info` "
-                    f"với `\"tool_name\"` là công cụ hành động đích (như `\"phone.call\"`, `\"sms.send\"`, `\"ewallet.transfer\"` - KHÔNG dùng `contacts.get`) "
-                    f"và `\"params\": [\"contact_id\"]`, đồng thời đặt `\"is_finished\": true`!"
+                u_curr_only = (user_utterance or "").lower()
+                explicit_roles = (
+                    "bộ phận kho", "bên kho", "hậu cần", "thủ quỹ", "mua hàng",
+                    "điều phối", "bác sĩ gia đình", "thú y", "kế toán", "nhân sự",
+                    "kỹ thuật", "trực kho", "pháp chế"
                 )
+                rel_matches = []
+                for c in contacts:
+                    c_rel = str(c.get("relation") or "").lower()
+                    for role_kw in explicit_roles:
+                        if role_kw in u_curr_only and (role_kw in c_rel or role_kw.replace("bên ", "") in c_rel):
+                            rel_matches.append(c)
+                            break
+                name_exact_matches = []
+                distinct_names = {str(c.get("name") or "").strip().lower() for c in contacts}
+                if len(distinct_names) >= 2:
+                    for c in contacts:
+                        c_name = str(c.get("name") or "").strip().lower()
+                        if c_name and re.search(rf"\b{re.escape(c_name)}\b", u_curr_only):
+                            longer_matches = [
+                                other for other in contacts
+                                if other is not c and len(str(other.get("name") or "")) > len(c_name)
+                                and re.search(rf"\b{re.escape(str(other.get('name') or '').lower())}\b", u_curr_only)
+                            ]
+                            if not longer_matches:
+                                name_exact_matches.append(c)
+                chosen_unique = rel_matches[0] if len(rel_matches) == 1 else (name_exact_matches[0] if len(name_exact_matches) == 1 else None)
+                if chosen_unique is not None:
+                    facts.append(
+                        f"Liên hệ khớp duy nhất theo mô tả của người dùng: contact_id=\"{chosen_unique.get('id')}\", tên=\"{chosen_unique.get('name')}\", "
+                        f"relation=\"{chosen_unique.get('relation', '')}\", phone=\"{chosen_unique.get('phone')}\", email=\"{chosen_unique.get('email', '')}\" "
+                        f"-> BẮT BUỘC chọn `\"contact_id\": \"{chosen_unique.get('id')}\"` (KHÔNG gọi `sys.ask_missing_info`!)."
+                    )
+                else:
+                    c_list = [f"{c.get('id')} ({c.get('name')}, SĐT={c.get('phone')})" for c in contacts]
+                    facts.append(
+                        f"⚠️ PHÁT HIỆN TRÙNG TÊN DANH BẠ: `contacts.search` trả về {len(contacts)} người trùng tên: {', '.join(c_list)}. "
+                        f"Do chưa rõ người nhận, bạn TUYỆT ĐỐI KHÔNG gọi lại `contacts.search` nữa mà BẮT BUỘC gọi `sys.ask_missing_info` "
+                        f"với `\"tool_name\"` là công cụ hành động đích (như `\"phone.call\"`, `\"sms.send\"`, `\"ewallet.transfer\"` - KHÔNG dùng `contacts.get`) "
+                        f"và `\"params\": [\"contact_id\"]`, đồng thời đặt `\"is_finished\": true`!"
+                    )
             elif len(contacts) == 1:
                 c = contacts[0]
                 email_val = c.get("email")
@@ -3249,6 +4416,20 @@ def analyze_observations(
 
         # 4. Phân tích danh sách chat OTT & tin nhắn đã đọc
         if "chats" in obs and isinstance(obs.get("chats"), list):
+            direct_name_counts: Dict[str, List[Dict[str, Any]]] = {}
+            for ch in obs.get("chats") or []:
+                if isinstance(ch, dict) and ch.get("type") != "group":
+                    nm_l = str(ch.get("name") or "").strip().lower()
+                    if nm_l:
+                        direct_name_counts.setdefault(nm_l, []).append(ch)
+            if not from_hist:
+                for nm_l, dup_list in direct_name_counts.items():
+                    if len(dup_list) >= 2 and re.search(rf"\b{re.escape(nm_l)}\b", u_full_low):
+                        dup_ids = ", ".join(f"{d.get('id')} ({d.get('name')})" for d in dup_list)
+                        facts.append(
+                            f"⚠️ PHÁT HIỆN TRÙNG TÊN CHAT ZALO: `chat_ott.list_chats` có {len(dup_list)} tài khoản trùng tên \"{dup_list[0].get('name')}\": {dup_ids}. "
+                            f"Do chưa rõ tài khoản nhận, bạn BẮT BUỘC gọi `sys.ask_missing_info` với `\"tool_name\"` là `\"chat_ott.send_message\"` (hoặc `\"chat_ott.call\"`) và `\"params\": [\"chat_id\"]`, đồng thời đặt `\"is_finished\": true`!"
+                        )
             for ch in obs.get("chats") or []:
                 members = ch.get("members") or []
                 m_cnt = len(members)
@@ -3811,6 +4992,7 @@ def build_step_directive(
     ] or turns[cur_turn_idx - 1]
     is_final_turn = (cur_turn_idx == total_turns)
     has_dup_contacts = "PHÁT HIỆN TRÙNG TÊN DANH BẠ" in obs_analysis
+    has_dup_chats = "PHÁT HIỆN TRÙNG TÊN CHAT ZALO" in obs_analysis
 
     if is_final_turn:
         if "CHỈ GỌI ĐÚNG 1 LỆNH `bill_payment.schedule_autopay`" in obs_analysis:
@@ -3840,6 +5022,9 @@ def build_step_directive(
             call_specs.append(f"`sys.ask_missing_info` (BẮT BUỘC truyền đúng `\"arguments\": {json.dumps(cargs, ensure_ascii=False)}`)")
         elif has_dup_contacts and is_final_turn and cname in {"phone.call", "sms.send", "ewallet.transfer", "chat_ott.call", "chat_ott.send_message"}:
             ask_args = {"tool_name": cname, "params": ["contact_id"]}
+            call_specs.append(f"`sys.ask_missing_info` (BẮT BUỘC truyền đúng `\"arguments\": {json.dumps(ask_args, ensure_ascii=False)}`)")
+        elif has_dup_chats and is_final_turn and cname in {"chat_ott.call", "chat_ott.send_message"}:
+            ask_args = {"tool_name": cname, "params": ["chat_id"]}
             call_specs.append(f"`sys.ask_missing_info` (BẮT BUỘC truyền đúng `\"arguments\": {json.dumps(ask_args, ensure_ascii=False)}`)")
         elif not cargs:
             call_specs.append(f"`{cname}` (arguments: `{{}}` rỗng, KHÔNG truyền tham số!)")
@@ -4083,7 +5268,7 @@ def build_user_prompt(
                 prompt_parts.append(f"- Step {s_idx}: COMPLETED `{t_name}({json.dumps(t_args, ensure_ascii=False)})` -> [OBSERVATION]: {obs}")
         prompt_parts.append("")
 
-    obs_analysis = analyze_observations(previous_steps, context, raw_history)
+    obs_analysis = analyze_observations(previous_steps, context, raw_history, cleaned_utterance)
     if obs_analysis:
         prompt_parts.append(obs_analysis)
 

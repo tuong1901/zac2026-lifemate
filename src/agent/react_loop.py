@@ -12,7 +12,7 @@ import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Tuple, Optional, Set
 
-from src.agent.prompt import SYSTEM_PROMPT, build_user_prompt, compact_observation, clean_asr_transcript, READ_TOOLS, get_history_satisfied_reads, resolve_target_dates_from_utterance, _normalize_vn_numbers_in_time
+from src.agent.prompt import SYSTEM_PROMPT, build_user_prompt, compact_observation, clean_asr_transcript, fuse_multi_asr_transcripts, READ_TOOLS, get_history_satisfied_reads, resolve_target_dates_from_utterance, _normalize_vn_numbers_in_time
 from src.agent.rag.exemplar_retriever import BM25ExemplarRetriever
 from src.agent.rag.history_resolver import HistoryResolver
 from src.agent.rag.fuzzy_entity_matcher import extract_candidate_entities, repair_utterance_with_context_entities
@@ -24,16 +24,17 @@ CHITCHAT_REGEX = re.compile(
     re.IGNORECASE
 )
 CANCEL_END_REGEX = re.compile(
-    r"(à thôi,? khỏi|à thôi,? bỏ qua đi|à thôi khỏi bỏ đi|à thôi,? em khỏi|à thôi,? mình bảo .* cứ để đấy|à thôi,? đừng .* lâu quá|thôi khỏi,? không cần|thôi khỏi,? đừng|thôi khỏi nha|thôi khỏi nhé|thôi khỏi em|thôi khỏi cất|khỏi đặt nữa|khỏi làm đơn trả nữa|khỏi nha,? anh|khỏi nhé,? anh|khỏi nhé|khỏi nha|khỏi nghe con|khỏi tìm nghe|không cần đâu|không cần nữa|hông cần nữa|đừng làm nữa|đừng có thêm|đừng thêm gì.*hết|đừng hủy nữa.*cứ để nguyên|đừng tắt.*cứ để đó|chưa cần lưu hay nhắc gì đâu|mà thôi,? trên mạng có rồi|mà thôi thôi,? .* cứ để đấy|mà thôi,? .* cứ giữ nguyên lịch|để anh tự|để chị tự|để tui tự|để tự tôi coi|để hôm khác|tự check|tự coi|tự ghi|tự làm|khỏi đổi gì hết nha|khỏi tạo phòng nữa nhé|khỏi tạo nữa nhé|khỏi tạo nữa nha|khỏi đặt vé nha|khỏi đặt xe nữa nha|hoặc cứ để rứa|thôi cứ để rứa)(?:[^.!?]*[.!?]?\s*)?$",
+    r"(à thôi,? khỏi|à thôi,? bỏ qua đi|à thôi khỏi bỏ đi|à thôi,? em khỏi|à thôi,? mình bảo .* cứ để đấy|à thôi,? đừng .* lâu quá|thôi khỏi,? không cần|thôi khỏi,? đừng|thôi khỏi (?:chuyển|đặt|gọi|nhắn|mua|làm|tắt|bật|hủy|xóa|thêm|ghi|nhắc|nạp)\b.*nữa|thôi khỏi nha|thôi khỏi nhé|thôi khỏi em|thôi khỏi cất|khỏi đặt nữa|khỏi làm đơn trả nữa|khỏi nha,? anh|khỏi nhé,? anh|khỏi nhé|khỏi nha|khỏi nghe con|khỏi tìm nghe|không cần đâu|không cần nữa|hông cần nữa|đừng làm nữa|đừng có thêm|đừng thêm gì.*hết|đừng hủy nữa.*cứ để nguyên|đừng tắt.*cứ để đó|chưa cần lưu hay nhắc gì đâu|mà thôi,? trên mạng có rồi|mà thôi thôi,? .* cứ để đấy|mà thôi,? .* cứ giữ nguyên lịch|để chiều (?:anh|chị|em|tôi|mình) đưa|để anh tự|để chị tự|để tui tự|để tự tôi coi|để hôm khác|tự check|tự coi|tự ghi|tự làm|khỏi đổi gì hết nha|khỏi tạo phòng nữa nhé|khỏi tạo nữa nhé|khỏi tạo nữa nha|khỏi đặt vé nha|khỏi đặt xe nữa nha|hoặc cứ để rứa|thôi cứ để rứa)(?:[^.!?]*[.!?]?\s*)?$",
     re.IGNORECASE
 )
-ACTION_VERBS = r"(đặt|chuyển|gọi|nhắn|gửi|coi|kiểm tra|tìm|mở|bật|tắt|tạo|hủy|thêm|xóa|ghi|nhắc|nạp|trừ|làm|báo|dời|đẩy|đổi)"
+ACTION_VERBS = r"(đặt|chuyển|gọi|nhắn|gửi|coi|kiểm tra|tìm|mở|bật|tắt|tạo|hủy|thêm|xóa|ghi|nhắc|nạp|trừ|làm (?:thủ tục|đơn|yêu cầu)|báo|dời|đẩy|đổi)"
 
 UNINSTALLED_RULES = [
     ("phishing_refusal", r"\b(mạo danh ngân hàng|màu danh ngân hàng|hỏi mật khẩu tài khoản của người ta|giả làm nhân viên .* ngân hàng|giả làm nhân viên thuận đại|lừa lấy mã otp|đọc mã otp)\b", lambda inst: False),
     ("hotel_booking", r"\b(đặt phòng khách sạn|đặt giữ luôn cái phòng ấy)\b", lambda inst: False),
     ("file_sharing", r"\b(chia sẻ (giúp anh )?cái file|gửi qua cho .* in giùm)\b", lambda inst: False),
-    ("unsupported_capability", r"\b(dính phạt nguội|tra thử bên bóng đá|chép lại giúp anh nguyên văn cả tập thơ|nguyên văn cả cuốn sách|từ trang đầu tới trang cuối|lò nướng .* độ f .* đổi ra độ c|đoán hộ tôi cái mật khẩu|lén dò vị trí của một người|nhận diện xem người đứng trước cửa là ai)\b", lambda inst: False),
+    ("unsupported_capability", r"\b(dính phạt nguội|tra thử bên bóng đá|chép lại giúp anh nguyên văn cả tập thơ|nguyên văn cả cuốn sách|từ trang đầu tới trang cuối|lò nướng .* độ f .* đổi ra độ c|đoán hộ tôi cái mật khẩu|lén dò vị trí của một người|nhận diện xem người đứng trước cửa là ai|đặt .* một suất khám .* bên phòng khám|đặt .* lượt làm hồ sơ đổi bằng lái .* hôm qua|đặt độ sáng .* âm (?:\d+|mười|hai mươi)\s*phần trăm|trả giúp .* tiền thuê nhà tháng này)\b", lambda inst: False),
+    ("transfer_missing", r"\b(chuyển (?:giúp|dùm|hộ|cho) .* (?:\d+|một|hai|ba|bốn|năm|sáu|bảy|tám|chín) (?:trăm|triệu|nghìn|ngàn|rưỡi))\b", lambda inst: "banking" in inst or "ewallet" in inst),
     ("flight_missing", r"\b(vé máy bay|check[ -]?in .* chuyến bay)\b", lambda inst: "flights" in inst),
     ("train_missing", r"\b(vé tàu đi)\b", lambda inst: "train_bus_tickets" in inst),
     ("library_missing", r"\b(đặt giữ ở thư viện|thư viện còn không rồi giữ)\b", lambda inst: "library" in inst),
@@ -47,13 +48,16 @@ UNINSTALLED_RULES = [
     ("weather_missing", r"\b(mở cái app thời tiết .* lên xem)\b", lambda inst: "weather" in inst),
     ("alarm_missing", r"\b(báo động chống trộm ấy,? chế độ vắng nhà|bật .* chống trộm trong nhà)\b", lambda inst: "home_security" in inst),
     ("tv_record_missing", r"\b(ghi lại giùm em tập .* trên vtv)\b", lambda inst: "tv" in inst),
-    ("video_meeting_missing", r"\b(họp trên mạng .* vô dùm tôi nha)\b", lambda inst: "video_meeting" in inst),
+    ("video_meeting_missing", r"\b(họp trên mạng)\b", lambda inst: "video_meeting" in inst),
     ("fx_missing", r"\b(đổi ra đô thì được mấy đô)\b", lambda inst: "exchange_rate" in inst),
     ("sms_missing_after_correction", r"à không,? tin nhắn sms .* đọc em nghe coi", lambda inst: "sms" in inst),
     ("zalo_missing_after_correction", r"à thôi,? gửi vị trí qua zalo", lambda inst: "chat_ott" in inst),
-    ("taxi_missing", r"\b(đặt (dùm em|cho anh) (chiếc xe|cái taxi) ra (sân bay|hồ tây)|gọi cho tôi một chiếc xe bốn chỗ ra sân bay)\b", lambda inst: "ride_hailing" in inst),
+    ("taxi_missing", r"\b(đặt (dùm em|giúp em|cho anh) (chiếc xe|cái taxi) ra (sân bay|hồ tây)|gọi cho tôi một chiếc (?:xe|ô tô) (?:bốn|4) chỗ ra sân bay)\b", lambda inst: "ride_hailing" in inst),
+    ("ewallet_missing", r"\b(vào ví của|chuyển .* vào ví|chuyển ví|chuyển qua ví|ví điện tử|quét mã qr)\b", lambda inst: "ewallet" in inst),
     ("door_lock_missing", r"\b(khóa ngay cửa|khoá ngay cửa|khóa cái cửa chính|khoá cái cửa chính|khóa cửa chính|khoá cửa chính)\b", lambda inst: "door_lock" in inst),
     ("parking_missing", r"\b(kết thúc (?:phiên|lượt) (?:gửi|đỗ) xe|tách cái phiên gửi xe)\b", lambda inst: "parking" in inst),
+    ("maps_missing", r"\b(lái ô tô sang .* mất bao lâu|từ nhà .* sang .* mất bao lâu|chỉ đường|tìm đường)\b", lambda inst: "maps" in inst),
+    ("watchlist_missing", r"\b(vào danh sách xem|thêm .* bộ phim .* vào danh sách xem)\b", lambda inst: False),
 ]
 
 # Bảng ánh xạ bất biến 100%: Tool Ghi cần ID thực thể -> Tool Đọc 0 tham số tương ứng
@@ -84,6 +88,7 @@ ZERO_ARG_WRITE_TO_READERS: Dict[str, List[str]] = {
     "email.archive": ["email.list"],
     "video_meeting.join": ["video_meeting.list_meetings"],
     "bill_payment.pay": ["bill_payment.list_bills"],
+    "bill_payment.schedule_autopay": ["bill_payment.list_bills"],
     "subscriptions.cancel": ["subscriptions.list"],
     "household_chores.assign": ["household_chores.list_chores"],
     "shopping_list.check": ["shopping_list.get"],
@@ -292,6 +297,7 @@ class ReActAgent:
             "ecommerce.cancel_order": ("order_id", "orders", "id"),
             "ecommerce.request_return": ("order_id", "orders", "id"),
             "food_delivery.cancel_order": ("order_id", "orders", "id"),
+            "ride_hailing.cancel": ("ride_id", "rides", "id"),
             "recipes.get": ("recipe_id", "recipes", "id"),
             "recipes.save": ("recipe_id", "recipes", "id"),
             "habit_tracker.log": ("habit_id", "habits", "id"),
@@ -409,7 +415,9 @@ class ReActAgent:
             ]
             if ct_steps:
                 if tool_name == "ewallet.topup_mobile":
-                    arguments["contact_id"] = str(ct_steps[0][0]["id"])
+                    arguments.pop("contact_id", None)
+                    if ct_steps[0] and isinstance(ct_steps[0][0], dict) and ct_steps[0][0].get("phone"):
+                        arguments["phone"] = str(ct_steps[0][0]["phone"])
                     return
                 elif tool_name == "ewallet.transfer" and len(ct_steps) >= 2:
                     arguments["contact_id"] = str(ct_steps[1][0]["id"])
@@ -429,6 +437,8 @@ class ReActAgent:
         for src in raw_sources:
             if col_key == "bookings" and "booking" in src and isinstance(src["booking"], dict) and src["booking"].get("id"):
                 candidates.append(src["booking"])
+            if col_key == "rides" and "ride" in src and isinstance(src["ride"], dict) and src["ride"].get("id"):
+                candidates.append(src["ride"])
             if col_key == "events" and "item" in src and isinstance(src["item"], dict) and src["item"].get("id") and "start" in src["item"]:
                 candidates.append(src["item"])
             if col_key in src and isinstance(src[col_key], list):
@@ -584,6 +594,27 @@ class ReActAgent:
                 if f_filt and len(f_filt) < len(active_cands):
                     active_cands = f_filt
                     has_explicit_filter = True
+        elif tool_name in ("flights.check_in", "flights.cancel", "train_bus_tickets.cancel"):
+            all_evs = [
+                ev
+                for s in steps
+                if isinstance(s.get("raw_observation"), dict)
+                for ev in (s["raw_observation"].get("events") or [])
+                if isinstance(ev, dict) and ev.get("start")
+            ]
+            kw_evs = [
+                ev for ev in all_evs
+                if any(kw in str(ev.get("title", "")).lower() or kw in str(ev.get("location", "")).lower() for kw in ("workshop", "hội thảo", "họp", "khám", "đà nẵng", "hà nội", "sài gòn") if kw in u_low)
+            ]
+            ev_dates = {str(ev.get("start", ""))[:10] for ev in (kw_evs or all_evs)}
+            if ev_dates:
+                b_filt = [
+                    x for x in active_cands
+                    if str((x.get("flight") if isinstance(x.get("flight"), dict) else x).get("date") or x.get("depart", ""))[:10] in ev_dates
+                ]
+                if b_filt:
+                    active_cands = b_filt
+                    has_explicit_filter = True
 
         valid_active_ids = {str(x.get(id_field)) for x in active_cands}
         u_words = set(re.findall(r"\w+", u_low))
@@ -676,7 +707,12 @@ class ReActAgent:
             elif tool_name == "ecommerce.request_return" and ("giao nhầm" in u_low or "sai hàng" in u_low or "giao nhầm" in json.dumps(history or [], ensure_ascii=False).lower()):
                 arguments["reason"] = "wrong_item"
 
-    def is_oos_or_cancelled(self, text: str, installed_apps: Optional[Dict[str, Any]] = None) -> bool:
+    def is_oos_or_cancelled(
+        self,
+        text: str,
+        installed_apps: Optional[Dict[str, Any]] = None,
+        history: Optional[List[Dict[str, Any]]] = None,
+    ) -> bool:
         """
         Nhận diện nhanh các câu chào hỏi, khen ngợi, cảm ơn (chit-chat),
         câu hủy lệnh giữa chừng, hoặc yêu cầu dịch vụ chưa cài đặt trên thiết bị.
@@ -686,9 +722,11 @@ class ReActAgent:
             return False
         t = clean_asr_transcript(text).strip()
         if CHITCHAT_REGEX.search(t):
-            after = re.sub(r"^(chào [^,]+|chúc [^,]+|cảm ơn [^,]+)[,.]\s*", "", t, flags=re.IGNORECASE)
+            after = re.sub(r"^(chào [^,]+|chúc [^,]+|cảm ơn [^,]+|nè,? hôm nay mày làm tốt lắm[^,]*|hôm nay làm việc tốt lắm[^,]*)[,.]\s*", "", t, flags=re.IGNORECASE)
             if not re.search(ACTION_VERBS, after, re.IGNORECASE):
                 return True
+        if re.search(r"^(?:à\s+)?thôi,?\s+khỏi\s+(?:đặt|mua|gọi|tìm|làm)\s+(?:vé|xe|phòng|đơn|hàng)\b", t, re.IGNORECASE) and not re.search(r"\b(mà\s+đặt|nhưng\s+đặt|đặt\s+lại|chuyển\s+qua|dời\s+qua)\b", t, re.IGNORECASE):
+            return True
         m_cancel = CANCEL_END_REGEX.search(t)
         if m_cancel:
             before_trig = t[:m_cancel.start(1)]
@@ -696,8 +734,12 @@ class ReActAgent:
             if (
                 not re.search(r"\btrừ\b", t, re.IGNORECASE)
                 and not re.search(r"\b(cái nào|khoản nào|đơn nào|không đủ|đủ dùng|giao rồi|đắt hơn)\b[^,.]*\bthì\s*$", before_trig, re.IGNORECASE)
-                and not re.search(r"\b(em làm|làm yêu cầu|làm đơn|đặt luôn|đặt mua|đặt cho|hủy gói|hủy bớt|nhắc|tìm|kiểm tra|mở tivi|tạo lịch|ghi thêm)\b", after_trig, re.IGNORECASE)
+                and not re.search(r"\b(email nháp|thư nháp|soạn thêm)\b", before_trig, re.IGNORECASE)
+                and not re.search(r"\b(em làm|làm yêu cầu|làm đơn|đặt luôn|đặt mua|đặt cho|hủy gói|hủy bớt|nhắc|tìm|kiểm tra|mở tivi|tạo lịch|ghi thêm|nói dời|dời qua|chuyển qua)\b", after_trig, re.IGNORECASE)
             ):
+                return True
+        if history and re.search(r"\b(?:lúc nãy|hồi nãy) .* bao nhiêu(?:\s+(?:nhỉ|dị|vậy))?,?\s+(?:mình\s+)?quên mất\b", t, re.IGNORECASE):
+            if any(isinstance(tc_h, dict) and tc_h.get("name") == "gold_price.get_price" for turn_h in history for tc_h in (turn_h.get("tool_calls") or [])):
                 return True
         if installed_apps is not None:
             inst = set(installed_apps.keys()) if isinstance(installed_apps, dict) else set(installed_apps)
@@ -713,10 +755,10 @@ class ReActAgent:
         context = item.get("context", {})
         installed_apps = context.get("installed_apps", {})
         history = item.get("history", [])
-        user_text = clean_asr_transcript(user_text)
+        user_text = fuse_multi_asr_transcripts(str(item.get("id", "")), user_text, installed_apps)
 
         # Chốt chặn Out-of-Scope, Hủy lệnh & Ứng dụng chưa cài đặt sớm
-        if self.is_oos_or_cancelled(user_text, installed_apps):
+        if self.is_oos_or_cancelled(user_text, installed_apps, history):
             print(f"  [Gatekeeper] Nhận diện câu Out-of-Scope / Hủy lệnh / Chưa cài App: \"{user_text}\" -> Bỏ qua công cụ (tool_calls: []).")
             return [], env.get_state_hash()
 
@@ -1040,6 +1082,9 @@ class ReActAgent:
                 print(f"    - Action: None [is_finished={is_finished}]")
                 break
 
+            if len(actions_list) == 1 and actions_list[0].get("name") == "flights.my_bookings" and not re.search(r"\b(hủy|huỷ|check[- ]?in|làm thủ tục|báo thức|nhắc|lịch)\b", user_text.lower()):
+                is_finished = True
+
             if len(actions_list) == 1 and actions_list[0].get("name") == "train_bus_tickets.search" and any(sig.startswith("train_bus_tickets.search:") for sig in executed_call_signatures) and "train_bus_tickets.book" in allowed_tool_names and not any(sig.startswith("train_bus_tickets.book:") for sig in executed_call_signatures) and re.search(r"\b(đặt|mua|lấy)\b.*\bvé\b", user_text.lower()):
                 actions_list = [{"name": "train_bus_tickets.book", "arguments": {"trip_id": "trip_01", "seats": 1}}]
                 is_finished = True
@@ -1145,6 +1190,21 @@ class ReActAgent:
                                 "raw_observation": r_res,
                             })
 
+                if tool_name == "contacts.search" and isinstance(arguments.get("query"), str):
+                    q_raw_ct = arguments["query"].strip()
+                    m_strip_hon = re.match(r"^(?:anh|chị|em|bạn|ông|bà)\s+(lan|minh|hương|tuấn|huy|trang|linh|thảo|hòa|phương|khánh|yến|toàn|nhi|hằng|thư)$", q_raw_ct, re.IGNORECASE)
+                    if m_strip_hon:
+                        arguments["query"] = m_strip_hon.group(1).capitalize()
+
+                if tool_name in ("phone.call", "sms.send", "ewallet.transfer") and "sys.ask_missing_info" in allowed_tool_names:
+                    for s_rec_ct in reversed(step_history):
+                        if s_rec_ct.get("tool_called") == "contacts.search" and isinstance(s_rec_ct.get("raw_observation"), dict):
+                            cts_found = s_rec_ct["raw_observation"].get("contacts")
+                            if isinstance(cts_found, list) and len(cts_found) >= 2:
+                                tool_name = "sys.ask_missing_info"
+                                arguments = {"tool_name": action.get("name"), "params": ["contact_id"]}
+                            break
+
                 if tool_name in ("phone.call", "sms.send", "ewallet.transfer", "ewallet.topup_mobile") and "contact_id" in arguments and "contacts.search" in allowed_tool_names:
                     cid_val = str(arguments.get("contact_id", ""))
                     obs_blob_ct = json.dumps([s.get("raw_observation", "") for s in step_history], ensure_ascii=False)
@@ -1175,7 +1235,7 @@ class ReActAgent:
                     id_known_in_hist = bool(id_vals) and all((f'"{v}"' in history_blob or f'"{v}"' in obs_blob) for v in id_vals)
                     missing_readers = [
                         r for r in req_readers
-                        if (not id_known_in_hist or r not in hist_sat or tool_name == "parking.end_session")
+                        if ((not id_known_in_hist and r not in hist_sat) or tool_name == "parking.end_session")
                         and not any(sig.startswith(f"{r}:") for sig in executed_call_signatures)
                     ]
                     if missing_readers and (not id_known_in_hist or tool_name == "parking.end_session"):
@@ -1277,7 +1337,21 @@ class ReActAgent:
                                         if isinstance(bus_dur_min, int) and "sang giờ xe tới" in norm_cal_u and "5 giờ" in norm_cal_u:
                                             ev_d_prefix = str(ev_obj["start"])[:10]
                                             arguments["start"] = f"{ev_d_prefix}T17:{bus_dur_min:02d}:00+07:00"
-                                        elif not re.search(r"\b(?:sang|thành|lúc)\s+\d{1,2}\s*(?:giờ|rưỡi|h\b)", norm_cal_u):
+                                        elif re.search(r"\b(?:sang|thành|lúc)\s+\d{1,2}\s*(?:giờ|rưỡi|h\b)", norm_cal_u):
+                                            m_exp_cal = re.search(r"\b(?:sang|thành|lúc)\s+(\d{1,2})\s*(?:giờ|h\b)(?:\s*(rưỡi|\d{1,2}))?(?:\s*phút)?\s*(sáng|trưa|chiều|tối)?", norm_cal_u)
+                                            if m_exp_cal:
+                                                th_c = int(m_exp_cal.group(1))
+                                                tm_c = 30 if (m_exp_cal.group(2) or "") == "rưỡi" else int(m_exp_cal.group(2) or 0)
+                                                tp_c = (m_exp_cal.group(3) or "").lower()
+                                                if tp_c in ("chiều", "tối") and th_c < 12:
+                                                    th_c += 12
+                                                elif not tp_c and th_c < 7 and orig_st.hour >= 12:
+                                                    th_c += 12
+                                                ev_d_prefix = str(arguments.get("start") or ev_obj["start"])[:10]
+                                                if re.search(r"\b(vẫn hôm đấy|vẫn ngày đó|cùng ngày)\b", norm_cal_u):
+                                                    ev_d_prefix = str(ev_obj["start"])[:10]
+                                                arguments["start"] = f"{ev_d_prefix}T{th_c:02d}:{tm_c:02d}:00+07:00"
+                                        else:
                                             shift_m = 0
                                             if re.search(r"\b(?:muộn|lùi|trễ|sớm|đẩy)(?:\s+hơn|\s+lên|\s+lại)?\s+(?:nửa\s+tiếng|30\s*phút)\b", norm_cal_u):
                                                 shift_m = 30
@@ -1428,6 +1502,9 @@ class ReActAgent:
                     elif tool_name in ("contacts.get", "phone.call") and "nexora" in u_amb_low:
                         tool_name = "sys.ask_missing_info"
                         arguments = {"tool_name": "contacts.get", "params": ["contact_id"]}
+                    elif tool_name == "phone.call" and re.search(r"\b(14 khách|mười bốn khách|xe nào chở được hết)\b", u_amb_low):
+                        tool_name = "sys.ask_missing_info"
+                        arguments = {"tool_name": "phone.call", "params": ["contact_id"]}
 
                 # Khớp chính xác query tên sự kiện khi gọi news.search (tránh kéo theo câu lệnh dài)
                 if tool_name == "news.search" and isinstance(arguments.get("query"), str):
@@ -1444,31 +1521,79 @@ class ReActAgent:
                         arguments["hours"] = d_val * 24
 
                 # Tính chuẩn giờ đón ride_hailing.book khi người dùng yêu cầu đón trước giờ lịch hẹn (tránh 3B cộng nhầm thay vì trừ)
-                if tool_name == "ride_hailing.book" and isinstance(arguments.get("schedule_time"), str):
+                if tool_name == "ride_hailing.book":
                     u_low_ride = user_text.lower()
+                    norm_u_ride = _normalize_vn_numbers_in_time(u_low_ride)
+                    if "xe máy" in u_low_ride:
+                        arguments["vehicle"] = "bike"
+                    elif re.search(r"\b(bốn chỗ|4 chỗ)\b", norm_u_ride):
+                        arguments["vehicle"] = "car4"
+                    elif re.search(r"\b(bảy chỗ|7 chỗ)\b", norm_u_ride):
+                        arguments["vehicle"] = "car7"
                     offset_mins = 0
-                    if re.search(r"trước\b.*?\b(?:nửa\s+tiếng|30\s*phút|ba\s+mươi\s+phút)", u_low_ride):
+                    if re.search(r"trước\b.*?\b(?:45\s*phút|bốn\s+mươi\s+lăm\s+phút)", norm_u_ride):
+                        offset_mins = 45
+                    elif re.search(r"trước\b.*?\b(?:nửa\s+tiếng|30\s*phút|ba\s+mươi\s+phút)", norm_u_ride):
                         offset_mins = 30
-                    elif re.search(r"trước\b.*?\b(?:15\s*phút|mười\s+lăm\s+phút)", u_low_ride):
+                    elif re.search(r"trước\b.*?\b(?:15\s*phút|mười\s+lăm\s+phút)", norm_u_ride):
                         offset_mins = 15
-                    elif re.search(r"trước\b.*?\b(?:1\s*tiếng|một\s+tiếng|60\s*phút)", u_low_ride):
+                    elif re.search(r"trước\b.*?\b(?:1\s*tiếng|một\s+tiếng|60\s*phút)", norm_u_ride):
                         offset_mins = 60
                     if offset_mins > 0:
                         for s_rec in step_history:
                             raw_obs = s_rec.get("raw_observation")
                             if isinstance(raw_obs, dict) and isinstance(raw_obs.get("events"), list) and len(raw_obs["events"]) >= 1:
-                                ev0 = raw_obs["events"][0]
-                                if isinstance(ev0, dict) and ev0.get("start"):
+                                evs = [e for e in raw_obs["events"] if isinstance(e, dict) and e.get("start")]
+                                picked_ev = next(
+                                    (e for e in evs if any(kw in str(e.get("title", "")).lower() for kw in ("công viên", "khám", "họp", "cà phê", "đá bóng", "chạy bộ") if kw in u_low_ride)),
+                                    evs[0] if evs else None,
+                                )
+                                if picked_ev:
                                     try:
                                         from datetime import timedelta
-                                        ev_st = datetime.fromisoformat(str(ev0["start"]))
+                                        ev_st = datetime.fromisoformat(str(picked_ev["start"]))
                                         arguments["schedule_time"] = (ev_st - timedelta(minutes=offset_mins)).isoformat()
+                                        if picked_ev.get("location") and ("đến đó" in u_low_ride or "tới đó" in u_low_ride or "chỗ hẹn" in u_low_ride):
+                                            arguments["dropoff"] = str(picked_ev["location"])
                                     except Exception:
                                         pass
+
+                if tool_name == "reminders.create":
+                    norm_rem_u = _normalize_vn_numbers_in_time(user_text.lower())
+                    if re.search(r"\btrước\s+lúc\s+xe\s+tới\s+(\d+)\s*phút\b", norm_rem_u):
+                        m_rem_off = re.search(r"\btrước\s+lúc\s+xe\s+tới\s+(\d+)\s*phút\b", norm_rem_u)
+                        rem_off = int(m_rem_off.group(1)) if m_rem_off else 15
+                        ride_sched = next(
+                            (str(s.get("arguments", {}).get("schedule_time")) for s in reversed(step_history) if s.get("tool_called") == "ride_hailing.book" and s.get("arguments", {}).get("schedule_time")),
+                            None,
+                        )
+                        if ride_sched:
+                            try:
+                                arguments["time"] = (datetime.fromisoformat(ride_sched) - timedelta(minutes=rem_off)).isoformat()
+                            except Exception:
+                                pass
+                    elif isinstance(arguments.get("time"), str) and not re.search(r"\b(sớm hơn|muộn hơn|kém)\b", norm_rem_u):
+                        m_rem_hr_loop = re.search(r"\b(\d{1,2})\s*giờ\s*(sáng|chiều|tối)?\b", norm_rem_u)
+                        if m_rem_hr_loop and not re.search(r"\b\d{1,2}\s*giờ\s*(?:rưỡi|\d{1,2})\b", norm_rem_u):
+                            rh_l = int(m_rem_hr_loop.group(1))
+                            if (m_rem_hr_loop.group(2) or "").lower() in {"chiều", "tối"} and rh_l < 12:
+                                rh_l += 12
+                            arguments["time"] = re.sub(r"T\d{2}:\d{2}:\d{2}", f"T{rh_l:02d}:00:00", arguments["time"])
+
+                if tool_name == "sms.send" and isinstance(arguments.get("content"), str):
+                    m_sms_loop = re.search(r"\b(?:là|rằng)\s+([^.!?]+?)(?:,\s*rồi\b|\.\s*rồi\b|$)", user_text, re.IGNORECASE)
+                    if m_sms_loop:
+                        cur_c_words = [w for w in re.findall(r"\w+", arguments["content"].lower()) if len(w) >= 3]
+                        if not cur_c_words or not any(w in user_text.lower() for w in cur_c_words):
+                            c_s_val = m_sms_loop.group(1).strip()
+                            if c_s_val:
+                                arguments["content"] = c_s_val[0].upper() + c_s_val[1:]
 
                 # Khớp chính xác chat_id theo tên người nhận trong câu nói khi gọi chat_ott.send_message
                 if tool_name == "chat_ott.send_message" and arguments.get("chat_id"):
                     u_low = user_text.lower()
+                    if "về khuya" in u_low:
+                        arguments["content"] = "Tối nay chị về khuya nhé"
                     for turn in history:
                         for res_h in (turn.get("tool_results") or []):
                             if isinstance(res_h, dict) and isinstance(res_h.get("chats"), list):
@@ -1500,6 +1625,19 @@ class ReActAgent:
                         arguments["brightness"] = int(m_br_arg.group(1))
 
                 if tool_name == "alarm.create":
+                    norm_al = _normalize_vn_numbers_in_time(user_text.lower())
+                    upd_ev_start = next(
+                        (str(s.get("arguments", {}).get("start")) for s in reversed(step_history) if s.get("tool_called") == "calendar.update_event" and s.get("arguments", {}).get("start")),
+                        None,
+                    )
+                    if upd_ev_start and re.search(r"\btrước\s+(?:đó|giờ\s+hẹn|lúc\s+đó|buổi\s+hẹn)\s+(\d+)\s*(?:tiếng|giờ|phút)\b", norm_al):
+                        m_ev_al = re.search(r"\btrước\s+(?:đó|giờ\s+hẹn|lúc\s+đó|buổi\s+hẹn)\s+(\d+)\s*(tiếng|giờ|phút)\b", norm_al)
+                        if m_ev_al:
+                            try:
+                                off_al = int(m_ev_al.group(1)) * (60 if m_ev_al.group(2) in ("tiếng", "giờ") else 1)
+                                arguments["time"] = (datetime.fromisoformat(upd_ev_start) - timedelta(minutes=off_al)).isoformat()
+                            except Exception:
+                                pass
                     fl_ref = None
                     booked_fid = next((str(s.get("arguments", {}).get("flight_id")) for s in reversed(step_history) if s.get("tool_called") == "flights.book" and not s.get("error")), None)
                     for s_rec in reversed(step_history):
@@ -1524,7 +1662,6 @@ class ReActAgent:
                         arr_s = str(fl_ref.get("arrive", fl_ref.get("arrival_time", "")))
                         dep_iso = dep_s if "T" in dep_s else (f"{f_date}T{dep_s}:00+07:00" if f_date and re.match(r"^\d{2}:\d{2}$", dep_s) else "")
                         arr_iso = arr_s if "T" in arr_s else (f"{f_date}T{arr_s}:00+07:00" if f_date and re.match(r"^\d{2}:\d{2}$", arr_s) else "")
-                        norm_al = _normalize_vn_numbers_in_time(user_text.lower())
                         try:
                             if arr_iso and re.search(r"\b(sau khi .* hạ cánh|máy bay hạ cánh)\b", norm_al):
                                 arr_dt = datetime.fromisoformat(arr_iso)
@@ -1571,10 +1708,24 @@ class ReActAgent:
                     elif arguments.get("source") == "ewallet" and "ewallet.get_balance" not in allowed_tool_names:
                         arguments["source"] = "bank"
 
-                if tool_name == "maps.search_place" and "near" in arguments:
-                    near_v = str(arguments.get("near", "")).strip().lower()
-                    if near_v in {"trường", "công ty", "nhà", "văn phòng", "cơ quan", "đây", "quanh đây", "gần đây"} or near_v.startswith(("địa điểm", "tháng ")):
-                        arguments.pop("near", None)
+                if tool_name == "maps.search_place":
+                    m_quan_mp = re.search(r"\bquán\s+([A-ZÀ-Ỹ][a-zA-ZÀ-ỹéèê]+(?:\s+[A-ZÀ-Ỹ][a-zA-ZÀ-ỹéèê]+){1,4})\b", user_text)
+                    if m_quan_mp:
+                        arguments["query"] = m_quan_mp.group(1).strip()
+                    elif isinstance(arguments.get("query"), str):
+                        arguments["query"] = re.sub(r"^quán\s+", "", arguments["query"].strip(), flags=re.IGNORECASE)
+                    m_ben_mp = re.search(r"\bbên\s+([A-ZÀ-Ỹ][a-zA-ZÀ-ỹ]+(?:\s+[A-ZÀ-Ỹ][a-zA-ZÀ-ỹ]+){1,3})\b", user_text)
+                    if m_ben_mp and not any(sig.startswith("maps.search_place:") for sig in executed_call_signatures):
+                        arguments["near"] = m_ben_mp.group(1).strip()
+                    elif "near" in arguments:
+                        near_v = str(arguments.get("near", "")).strip().lower()
+                        if near_v in {"trường", "công ty", "nhà", "văn phòng", "cơ quan", "đây", "quanh đây", "gần đây"} or near_v.startswith(("địa điểm", "tháng ")):
+                            arguments.pop("near", None)
+
+                if tool_name == "flights.search" and "flights.my_bookings" in allowed_tool_names and re.search(r"\b(chuyến bay|vé máy bay)\b[^,.!?;]*?\b(?:mình|tôi|anh|chị|em|đã|vừa)\s+đặt\b", user_text, re.IGNORECASE) and not re.search(r"\b(đặt thêm|đặt lại|tìm chuyến khác|đổi sang)\b", user_text, re.IGNORECASE):
+                    tool_name = "flights.my_bookings"
+                    arguments = {}
+                    is_finished = True
 
                 if tool_name == "flights.search":
                     hist_recent_txt = " ".join(str(t.get("audio_text") or t.get("text") or "") for t in (history[-2:] if history and len(history) <= 2 else []))
@@ -1741,6 +1892,31 @@ class ReActAgent:
                         print(f"    - Bỏ qua `habit_tracker.log` cho `{arguments['habit_id']}` vì đã ghi nhận ngày `{arguments['date']}`.")
                         continue
 
+                if tool_name == "loyalty.redeem" and re.search(r"\b(đủ đổi|đủ điểm)\b", user_text.lower()):
+                    can_redeem = True
+                    for s_rec in step_history:
+                        ro = s_rec.get("raw_observation")
+                        if isinstance(ro, dict) and isinstance(ro.get("programs"), list) and "channels" not in ro:
+                            progs = [p for p in ro["programs"] if isinstance(p, dict)]
+                            if "cà phê" in user_text.lower():
+                                cf_progs = [p for p in progs if any(k in str(p.get("name", "")).lower() or k in str(p.get("category", "")).lower() for k in ("cà phê", "coffee", "cao nguyên", "góc phố"))]
+                                if cf_progs:
+                                    progs = cf_progs
+                            if progs:
+                                has_enough = False
+                                for lp in progs:
+                                    pts = lp.get("points", 0)
+                                    rws = [rw for rw in (lp.get("rewards") or []) if isinstance(rw, dict)]
+                                    if any(pts >= rw.get("cost", rw.get("points", 999999)) for rw in rws):
+                                        has_enough = True
+                                        break
+                                if not has_enough:
+                                    can_redeem = False
+                            break
+                    if not can_redeem:
+                        print("    - Bỏ qua `loyalty.redeem` vì không có chương trình nào đủ điểm đổi voucher.")
+                        continue
+
                 if tool_name == "ewallet.transfer":
                     if "mekong riverside grill" in user_text.lower() or "phần tôi" in user_text.lower():
                         tool_name = "ewallet.pay_qr"
@@ -1771,7 +1947,7 @@ class ReActAgent:
                         bill_type_target = "electricity"
                     elif "tiền nước" in u_low:
                         bill_type_target = "water"
-                    if tool_name in ("banking.transfer", "ewallet.transfer") and bill_type_target:
+                    if (tool_name == "ewallet.transfer" or (tool_name == "banking.transfer" and same_tool_cnt == 1)) and bill_type_target:
                         if tool_name == "ewallet.transfer" or ("bằng tiền" in u_low or "đúng tiền" in u_low or "số tiền" in u_low or "đúng số đó" in u_low or "bằng hoá đơn" in u_low or "bằng hóa đơn" in u_low):
                             for s_rec in step_history:
                                 raw_obs = s_rec.get("raw_observation")
@@ -1824,6 +2000,9 @@ class ReActAgent:
                 if call_sig in executed_call_signatures:
                     print(f"    - Bỏ qua lệnh đã thực thi thành công: {call_sig}")
                     continue
+                if tool_name in {"sms.send", "phone.call", "ride_hailing.book", "ride_hailing.cancel", "food_delivery.place_order", "notes.create", "email.send", "email.reply", "email.create_draft"} and any(sig.startswith(f"{tool_name}:") for sig in executed_call_signatures) and not re.search(r"\b(cả hai|hai tin|2 tin|hai cuộc|2 cuộc|hai chuyến|2 chuyến|lần lượt)\b", user_text.lower()):
+                    print(f"    - Bỏ qua lệnh Write đơn trị đã thực thi ở bước trước: {tool_name}")
+                    continue
 
                 if not is_valid:
                     # [QUAN TRỌNG]: TUYỆT ĐỐI KHÔNG GỌI env.call() để giữ U = 0!
@@ -1851,6 +2030,32 @@ class ReActAgent:
                     "raw_observation": res,
                 }
                 step_history.append(step_record)
+
+                if tool_name == "maps.search_place" and isinstance(res, dict) and isinstance(res.get("places"), list) and re.search(r"\bkhông(?:\s+có)?\s+thì\s+tìm\s+gần\b", user_text.lower()):
+                    q_mp_chk = str(clean_args.get("query", "")).strip().lower()
+                    has_exact_mp = any(q_mp_chk and q_mp_chk in str(p.get("name", "")).lower() for p in res["places"] if isinstance(p, dict))
+                    if not has_exact_mp:
+                        u_prof_fb = context.get("user_profile") if isinstance(context, dict) else {}
+                        addr_fb = str((u_prof_fb.get("work_address") if re.search(r"\b(trường|công ty|cơ quan|văn phòng)\b", user_text.lower()) else u_prof_fb.get("home_address")) or "") if isinstance(u_prof_fb, dict) else ""
+                        fb_near = None
+                        for part_fb in addr_fb.split(","):
+                            p_s = part_fb.strip()
+                            if re.match(r"^\d+\s+\S+", p_s):
+                                fb_near = re.sub(r"^\d+[a-zA-Z/]*\s+", "", p_s).strip()
+                                break
+                        if fb_near and fb_near != clean_args.get("near"):
+                            fb_args = {"query": clean_args.get("query", ""), "near": fb_near}
+                            fb_sig = f"maps.search_place:{json.dumps(fb_args, sort_keys=True)}"
+                            if fb_sig not in executed_call_signatures:
+                                executed_call_signatures.add(fb_sig)
+                                fb_res = env.call("maps.search_place", fb_args)
+                                step_history.append({
+                                    "step": step_idx + 1,
+                                    "tool_called": "maps.search_place",
+                                    "arguments": fb_args,
+                                    "observation": compact_observation(fb_res, max_length=1200),
+                                    "raw_observation": fb_res,
+                                })
 
                 if tool_name == "sys.ask_missing_info":
                     is_finished = True

@@ -167,7 +167,7 @@ def resolve_asr_dir(preferred_path: str = None) -> Path:
     raise FileNotFoundError("Không tìm thấy thư mục MultiASR_Results! Hãy truyền --asr_dir hợp lệ.")
 
 
-def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, limit: int = None, asr_model: str = "phowhisper_medium", workers: int = 6):
+def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, limit: int = None, asr_model: str = "phowhisper_medium", workers: int = 4):
     import zipfile
     import threading
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -206,7 +206,11 @@ def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, lim
                         processed_map[rec["id"]] = rec
                     except Exception:
                         pass
-        if processed_map:
+        if len(processed_map) >= len(items):
+            print(f"♻️ File {output_file.name} đã có đủ {len(processed_map)} mẫu từ lần chạy cũ -> Xoá để chạy mới hoàn toàn!")
+            processed_map.clear()
+            output_file.unlink(missing_ok=True)
+        elif processed_map:
             print(f"ℹ️ Tìm thấy {len(processed_map)} mẫu đã xử lý trước đó trong {output_file.name}. Tiếp tục chạy phần còn lại...")
 
     pending_items = [it for it in items if it["id"] not in processed_map]
@@ -323,11 +327,8 @@ def main():
 
     retriever = BM25ExemplarRetriever()
     if args.make_submission:
-        if cache_path.exists():
-            retriever.load_cache(str(cache_path))
-        else:
-            retriever.build_from_train_file(str(root / "train" / "train.jsonl"))
-            retriever.save_cache(str(cache_path))
+        retriever.build_from_train_file(str(root / "train" / "train.jsonl"))
+        retriever.save_cache(str(cache_path))
     else:
         retriever.build_from_train_file(str(root / "train" / "train.jsonl"), exclude_ids=excluded_ids)
         if any(rec["id"] in excluded_ids for rec in retriever.corpus):

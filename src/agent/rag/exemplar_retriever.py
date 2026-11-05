@@ -21,13 +21,24 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Set, Tuple
 
 
+_VN_TONE_NORM_RES = [
+    (re.compile(rf"(?<![qQ]){old_s}\b"), new_s)
+    for old_s, new_s in (
+        ("oà", "òa"), ("oá", "óa"), ("oả", "ỏa"), ("oã", "õa"), ("oạ", "ọa"),
+        ("uỳ", "ùy"), ("uý", "úy"), ("uỷ", "ủy"), ("uỹ", "ũy"), ("uỵ", "ụy"),
+    )
+]
+
+
 def normalize_vietnamese_text(text: str) -> str:
     """
-    Chuẩn hóa chuỗi tiếng Việt theo chuẩn NFC và lowercase.
+    Chuẩn hóa chuỗi tiếng Việt theo chuẩn NFC, đồng nhất vị trí dấu thanh và lowercase.
     """
     if not text:
         return ""
     text = unicodedata.normalize("NFC", text.strip().lower())
+    for comp_re, new_s in _VN_TONE_NORM_RES:
+        text = comp_re.sub(new_s, text)
     text = re.sub(r"[^\w\s]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text

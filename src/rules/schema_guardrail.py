@@ -76,6 +76,12 @@ class SafeSchemaGuardrail:
             for k_drop in STRIP_OPTIONAL_KEYS[tool_name]:
                 clean_args.pop(k_drop, None)
 
+        if tool_name in ("sms.send", "phone.call"):
+            if str(clean_args.get("contact_id", "")).startswith("ct_") and "phone_number" in clean_args:
+                clean_args.pop("phone_number", None)
+        elif tool_name == "ewallet.topup_mobile":
+            clean_args.pop("contact_id", None)
+
         if not tool_spec:
             return clean_args
 
