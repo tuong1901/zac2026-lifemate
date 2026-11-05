@@ -5,7 +5,8 @@ Tuân thủ nghiêm ngặt quy chế ZAC 2026:
 - Sinh ngẫu nhiên: Deterministic decoding (temperature = 0.0, do_sample = False).
 - Cố định seed: 42.
 - Sẵn sàng chạy offline trong môi trường Docker không có mạng (--network none).
-- Hiển thị trực tiếp log gọi API và thời gian phản hồi (Live Logging).
+- Hỗ trợ kết nối đồng thời nhiều luồng (Concurrency & Continuous Batching).
+- Tự động nạp cấu hình từ .env nếu không truyền tham số.
 """
 
 import os
@@ -36,20 +37,22 @@ class LocalHuggingFaceClient(BaseLLMClient):
     """
     def __init__(
         self,
-        model_name_or_path: str = "Qwen/Qwen2.5-3B-Instruct",
+        model_name_or_path: Optional[str] = None,
         device: Optional[str] = None,
         max_new_tokens: int = 512
     ):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
+        model_name = model_name_or_path or os.getenv("LLM_MODEL", "Qwen/Qwen2.5-3B-Instruct")
+
         torch.manual_seed(SEED)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(SEED)
 
-        print(f"[LLM] Đang nạp mô hình HuggingFace: {model_name_or_path}...", flush=True)
+        print(f"[LLM] Đang nạp mô hình HuggingFace: {model_name}...", flush=True)
         self.tokenizer = AutoTokenizer.from_pretrained(
-            model_name_or_path,
+            model_name,
             trust_remote_code=True
         )
 
@@ -65,7 +68,7 @@ class LocalHuggingFaceClient(BaseLLMClient):
             dtype = torch.float32 if device == "cpu" else torch.float16
 
         self.model = AutoModelForCausalLM.from_pretrained(
-            model_name_or_path,
+            model_name,
             device_map=device_map,
             torch_dtype=dtype,
             trust_remote_code=True
@@ -75,7 +78,6 @@ class LocalHuggingFaceClient(BaseLLMClient):
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         t0 = time.time()
-        print(f"      📡 [LLM Calling] Local HuggingFace đang sinh phản hồi...", flush=True)
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
@@ -103,74 +105,87 @@ class LocalHuggingFaceClient(BaseLLMClient):
         ]
         response = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
         elapsed = time.time() - t0
-        print(f"      📥 [LLM Response] Đã nhận phản hồi ({len(response)} ký tự, {elapsed:.2f}s)", flush=True)
         return response.strip()
 
 
 class OpenAICompatibleClient(BaseLLMClient):
     """
     Client kết nối tới vLLM, Ollama hoặc server tương thích OpenAI API (local hoặc dev).
-    Ví dụ:
-    - vLLM chạy local: http://localhost:8000/v1
-    - Ollama chạy local: http://localhost:11434/v1
-    - Server qua ngrok: https://...ngrok-free.app/v1
+    Hỗ trợ gọi đồng thời nhiều luồng (Concurrency & Continuous Batching).
+    Tích hợp cơ chế tự động thử lại (Retry with exponential backoff) chống đứt kết nối ngrok.
     """
     def __init__(
         self,
-        base_url: str = "http://localhost:8000/v1",
-        api_key: str = "EMPTY",
-        model: str = "Qwen/Qwen2.5-3B-Instruct",
-        max_tokens: int = 512
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        timeout: Optional[float] = None,
+        max_retries: int = 3
     ):
         try:
             from openai import OpenAI
         except ImportError:
             raise ImportError("Vui lòng cài đặt thư viện openai: pip install openai")
 
-        self.base_url = base_url
+        self.base_url = base_url or os.getenv("LLM_BASE_URL", "http://localhost:8000/v1")
+        self.api_key = api_key or os.getenv("LLM_API_KEY", "EMPTY")
+        self.model = model or os.getenv("LLM_MODEL", "Qwen/Qwen2.5-3B-Instruct")
+        self.max_tokens = max_tokens if max_tokens is not None else int(os.getenv("LLM_MAX_TOKENS", "512"))
+        self.timeout = timeout if timeout is not None else float(os.getenv("LLM_TIMEOUT", "60.0"))
+        self.max_retries = max_retries
+
         self.client = OpenAI(
-            base_url=base_url,
-            api_key=api_key,
+            base_url=self.base_url,
+            api_key=self.api_key,
             default_headers={"ngrok-skip-browser-warning": "true"},
-            timeout=30.0
+            timeout=self.timeout,
+            max_retries=self.max_retries
         )
-        self.model = model
-        self.max_tokens = max_tokens
-        print(f"[LLM Client] Sẵn sàng kết nối tới endpoint: {self.base_url} (Model: {self.model})", flush=True)
+        print(f"[LLM Client] Sẵn sàng kết nối tới endpoint: {self.base_url} (Model: {self.model}, Timeout: {self.timeout}s)", flush=True)
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         t0 = time.time()
-        print(f"      📡 [LLM Calling] Đang gửi prompt ({len(user_prompt)} ký tự) tới {self.model} qua {self.base_url}...", flush=True)
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.0,
-                max_tokens=self.max_tokens,
-                seed=SEED
-            )
-            content = response.choices[0].message.content or ""
-            elapsed = time.time() - t0
-            print(f"      📥 [LLM Response] Đã nhận phản hồi ({len(content)} ký tự, mất {elapsed:.2f}s)", flush=True)
-            return content
-        except Exception as e:
-            elapsed = time.time() - t0
-            print(f"      ❌ [LLM Error] Lỗi gọi endpoint sau {elapsed:.2f}s: {e}", flush=True)
-            raise e
+        for attempt in range(self.max_retries):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.0,
+                    max_tokens=self.max_tokens,
+                    seed=SEED
+                )
+                content = response.choices[0].message.content or ""
+                return content.strip()
+            except Exception as e:
+                elapsed = time.time() - t0
+                if attempt < self.max_retries - 1:
+                    wait_time = (attempt + 1) * 2
+                    print(f"      ⚠️ [LLM Retry {attempt+1}/{self.max_retries}] Lỗi ({elapsed:.1f}s): {e}. Thử lại sau {wait_time}s...", flush=True)
+                    time.sleep(wait_time)
+                else:
+                    print(f"      ❌ [LLM Error] Thất bại sau {self.max_retries} lần thử ({elapsed:.2f}s): {e}", flush=True)
+                    raise e
 
 
-def get_llm_client(client_type: str = "hf", **kwargs) -> BaseLLMClient:
+def get_llm_client(client_type: Optional[str] = None, **kwargs) -> BaseLLMClient:
     """
     Hàm khởi tạo nhanh LLM Client:
     - client_type="hf": Nạp trực tiếp mô hình HuggingFace Transformers
-    - client_type="openai": Kết nối tới local vLLM / server tương thích
+    - client_type="openai" / "server" / "vllm": Kết nối tới server API
+    Tự động đọc các biến môi trường LLM_MODE, LLM_BASE_URL, LLM_MODEL nếu không truyền vào.
     """
+    if client_type is None:
+        client_type = os.getenv("LLM_MODE", "server").lower()
+    else:
+        client_type = client_type.lower()
+
     if client_type == "hf":
         return LocalHuggingFaceClient(**kwargs)
-    elif client_type in ("openai", "vllm"):
+    elif client_type in ("openai", "vllm", "server"):
         return OpenAICompatibleClient(**kwargs)
     else:
         raise ValueError(f"Không hỗ trợ client_type: {client_type}")

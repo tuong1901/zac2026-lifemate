@@ -1,5 +1,5 @@
 """
-config.py — Cấu hình tập trung cho module ASR & Post-Processing (ZAC 2026 LifeMate).
+config.py — Cấu hình tập trung cho module ASR, Post-Processing, LLM Agent & Concurrency (ZAC 2026 LifeMate).
 Tự động nạp cấu hình từ file .env hoặc biến môi trường hệ thống.
 Tương thích 100% môi trường Kaggle (GPU T4/P100), Docker offline và Local.
 """
@@ -86,7 +86,7 @@ class ASRConfig:
     # Gợi ý: 'vinai/phowhisper-small', 'vinai/phowhisper-medium', 'vinai/phowhisper-large',
     # hoặc 'vinai/phoasr-base', 'openai/whisper-large-v3-turbo'
     model_name_or_path: str = field(
-        default_factory=lambda: os.getenv("ASR_MODEL_NAME_OR_PATH", "vinai/phowhisper-medium")
+        default_factory=lambda: os.getenv("ASR_MODEL_NAME_OR_PATH", "vinai/phowhisper-large")
     )
     
     # Thiết bị & kiểu dữ liệu GPU
@@ -130,7 +130,7 @@ class ASRConfig:
     # 6. Đường dẫn dữ liệu
     data_root: str = field(
         default_factory=lambda: os.getenv(
-            "DATA_ROOT", "D:/Download/train+public_test/train+public_test"
+            "DATA_ROOT", "/kaggle/input/datasets/n107hoangtuong/zalo-competion/train+public_test"
         )
     )
     output_dir: str = field(
@@ -167,3 +167,39 @@ def get_asr_config() -> ASRConfig:
     """Trả về instance cấu hình ASR hiện tại."""
     return ASRConfig()
 
+
+@dataclass
+class LLMConfig:
+    """Cấu hình toàn diện cho LLM Client, Batching & Concurrency."""
+    mode: str = field(default_factory=lambda: os.getenv("LLM_MODE", "server").lower())
+    base_url: str = field(default_factory=lambda: os.getenv("LLM_BASE_URL", "http://localhost:8000/v1"))
+    api_key: str = field(default_factory=lambda: os.getenv("LLM_API_KEY", "EMPTY"))
+    model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", "Qwen/Qwen2.5-3B-Instruct"))
+    max_tokens: int = field(default_factory=lambda: _get_int("LLM_MAX_TOKENS", 512))
+    timeout: float = field(default_factory=lambda: _get_float("LLM_TIMEOUT", 60.0))
+    concurrency: int = field(default_factory=lambda: _get_int("LLM_CONCURRENCY", _get_int("NUM_WORKERS", 8)))
+    batch_asr: bool = field(default_factory=lambda: _get_bool("BATCH_ASR", True))
+    eval_streams: str = field(default_factory=lambda: os.getenv("EVAL_STREAMS", "all").lower())
+    postproc_mode: str = field(default_factory=lambda: os.getenv("POSTPROC_MODE", "aggressive").lower())
+
+    def summary(self) -> str:
+        """Xuất thông tin cấu hình LLM & Concurrency."""
+        lines = [
+            "=" * 60,
+            "CẤU HÌNH LLM AGENT & CONCURRENCY (ZAC 2026 LIFEMATE)",
+            "=" * 60,
+            f"  - LLM Mode:                    {self.mode}",
+            f"  - LLM Model:                   {self.model}",
+            f"  - Base URL:                    {self.base_url}",
+            f"  - Concurrency (Workers):       {self.concurrency} threads",
+            f"  - Batch ASR Pre-pass:          {'BẬT (ON)' if self.batch_asr else 'TẮT (OFF)'}",
+            f"  - Eval Streams:                {self.eval_streams.upper()}",
+            f"  - PostProc Mode:               {self.postproc_mode.upper()}",
+            "=" * 60,
+        ]
+        return "\n".join(lines)
+
+
+def get_llm_config() -> LLMConfig:
+    """Trả về instance cấu hình LLM hiện tại."""
+    return LLMConfig()
