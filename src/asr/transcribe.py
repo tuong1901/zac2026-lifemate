@@ -191,6 +191,31 @@ class PhoWhisperEngine:
             torch_dtype=self.dtype,
             device=self.device_str
         )
+
+        # Context Biasing (Prompted ASR Decoding): Nạp prompt định hướng thực thể cho PhoWhisper
+        self.default_prompt = (
+            "Trợ lý ảo LifeMate tiếng Việt: điều hòa, tivi VTV1 VTV3, Kevin Walsh, Lumina Kitchen, "
+            "Marigold Foods, Evergreen Foods, ZaloPay, MoMo, phòng tiếp khách, dọn dẹp, tắt bếp, "
+            "check-in chuyến bay Đà Nẵng, thanh toán hoá đơn Sawaco EVN Vitech Telecom, "
+            "Bé Na, Chú Năm, Anh Kha, chị Yến, chị Linh, Lê Minh, Trần Văn Tuấn, phạt nguội xe."
+        )
+        self.prompt_ids = None
+        try:
+            if hasattr(self.processor, "get_prompt_ids"):
+                self.prompt_ids = self.processor.get_prompt_ids(self.default_prompt, return_tensors="pt")
+            elif hasattr(self.processor.tokenizer, "get_prompt_ids"):
+                self.prompt_ids = self.processor.tokenizer.get_prompt_ids(self.default_prompt, return_tensors="pt")
+            else:
+                p_tokens = self.processor.tokenizer.encode(self.default_prompt, add_special_tokens=False)
+                self.prompt_ids = torch.tensor(p_tokens, dtype=torch.long).unsqueeze(0)
+
+            if self.prompt_ids is not None and torch.cuda.is_available() and self.device_str == "cuda":
+                self.prompt_ids = self.prompt_ids.to(self.device_str)
+            print("[ASR PhoWhisper] Đã kích hoạt Prompted ASR Context Biasing cho thực thể LifeMate!", flush=True)
+        except Exception as pe:
+            print(f"[ASR PhoWhisper] Dùng gỡ băng tiêu chuẩn (prompt_ids info: {pe}).", flush=True)
+            self.prompt_ids = None
+
         print(f"[ASR PhoWhisper] Nạp thành công pipeline PhoWhisper! Sẵn sàng batch_size={batch_size}.")
 
     def transcribe(self, audio_path: Union[str, Path], context_hints: Optional[List[str]] = None) -> str:
@@ -223,13 +248,26 @@ class PhoWhisperEngine:
             "temperature": 0.0,
             "num_beams": 1,
         }
+        if self.prompt_ids is not None:
+            generate_kwargs["prompt_ids"] = self.prompt_ids
 
-        results = self.pipe(
-            audio_inputs,
-            batch_size=bs,
-            generate_kwargs=generate_kwargs,
-            return_timestamps=False
-        )
+        try:
+            results = self.pipe(
+                audio_inputs,
+                batch_size=bs,
+                generate_kwargs=generate_kwargs,
+                return_timestamps=False
+            )
+        except Exception:
+            # Fallback an toàn nếu pipeline transformers không nhận prompt_ids
+            if "prompt_ids" in generate_kwargs:
+                generate_kwargs.pop("prompt_ids")
+            results = self.pipe(
+                audio_inputs,
+                batch_size=bs,
+                generate_kwargs=generate_kwargs,
+                return_timestamps=False
+            )
 
         outputs = []
         if isinstance(results, dict):

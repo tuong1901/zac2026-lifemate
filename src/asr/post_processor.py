@@ -49,7 +49,6 @@ DOMAIN_PHONETIC_REPLACEMENTS = [
     (r"\bthể công sao ten\b", "Thể Công SaoTel"),
 
     # Thiết bị thông minh & Nhà thông minh (Smart Home)
-    (r"\b(máy điều hòa|máy lạnh|điều hoà)\b", "điều hòa"),
     (r"\bbình nóng lạnh\b", "bình nóng lạnh"),
     (r"\bmáy lọc không khí\b", "máy lọc không khí"),
     (r"\brèm cửa\b", "rèm cửa"),
@@ -62,13 +61,9 @@ DOMAIN_PHONETIC_REPLACEMENTS = [
     (r"\bnạp tiền điện thoại\b", "nạp tiền điện thoại"),
     (r"\b(chuyển khoản|chuyên khoan)\b", "chuyển khoản"),
 
-    # Thể thao & Đời sống (Fitness, Alarm, Reminder)
-    (r"\bbơi lội\b", "bơi"),
-    (r"\bchạy bộ\b", "chạy"),
-    (r"\bđi bộ\b", "đi bộ"),
+    # Thể thao & Đời sống (Fitness, Alarm, Reminder - Chỉ giữ lại sửa lỗi gõ/lỗi âm, không đổi từ đồng nghĩa)
     (r"\b(báo thức|bao thuc)\b", "báo thức"),
     (r"\b(nhắc nhở|nhac nho)\b", "nhắc nhở"),
-    (r"\b(rời lịch|rời hẹn)\b", "dời lịch"),
 ]
 
 COMPILED_DOMAIN_REPLACEMENTS = [
