@@ -1,4 +1,4 @@
-﻿"""
+"""
 transcribe.py — Bộ chuyển đổi giọng nói thành văn bản (Speech-to-Text) hỗ trợ PhoWhisper, PhoASR và Faster-Whisper.
 Tối ưu hóa xử lý theo LÔ (BATCH PROCESSING) trên GPU Kaggle (NVIDIA T4 / P100 / A100).
 Tuân thủ nghiêm ngặt quy chế ZAC 2026:
@@ -11,9 +11,22 @@ Tuân thủ nghiêm ngặt quy chế ZAC 2026:
 import os
 import sys
 import random
+import warnings
 from typing import List, Dict, Any, Optional, Union
 from pathlib import Path
 import numpy as np
+
+# Tắt các cảnh báo deprecation từ transformers để giữ terminal sạch sẽ
+warnings.filterwarnings("ignore", message=".*generation_config.*")
+warnings.filterwarnings("ignore", message=".*clean_up_tokenization_spaces.*")
+warnings.filterwarnings("ignore", message=".*chunk_length_s.*")
+warnings.filterwarnings("ignore", message=".*torch_dtype.*")
+
+try:
+    from transformers.utils import logging as hf_logging
+    hf_logging.set_verbosity_error()
+except Exception:
+    pass
 
 # Cố định random seed cho khả năng tái lập (Reproducibility)
 SEED = 42

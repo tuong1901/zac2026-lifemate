@@ -280,13 +280,13 @@ class ReActAgent:
             # Lọc các action hợp lệ (có trường name)
             actions_list = [a for a in actions_raw if isinstance(a, dict) and a.get("name")]
 
-            print(f"  [ReAct Bước {step_idx + 1}]")
-            print(f"    - Thought: {thought}")
+            print(f"  [ReAct Bước {step_idx + 1}]", flush=True)
+            print(f"    - Thought: {thought}", flush=True)
             if actions_list:
                 for a in actions_list:
-                    print(f"    - Action: {a.get('name')}({a.get('arguments', {})}) [is_finished={is_finished}]")
+                    print(f"    - Action: {a.get('name')}({a.get('arguments', {})}) [is_finished={is_finished}]", flush=True)
             else:
-                print(f"    - Action: None [is_finished={is_finished}]")
+                print(f"    - Action: None [is_finished={is_finished}]", flush=True)
                 break
 
             # Kiểm tra nếu toàn bộ actions trong lượt này đều đã thực thi xong từ trước -> Hoàn thành
@@ -295,7 +295,7 @@ class ReActAgent:
                 for a in actions_list
             )
             if all_duplicate:
-                print(f"    - Tất cả các lệnh trong lượt này đều đã được thực thi từ trước: Hoàn tất trọn vẹn.")
+                print(f"    - Tất cả các lệnh trong lượt này đều đã được thực thi từ trước: Hoàn tất trọn vẹn.", flush=True)
                 break
 
             needs_replan = False
@@ -338,7 +338,7 @@ class ReActAgent:
                 # Chống lặp lệnh đã thực thi thành công
                 call_sig = f"{tool_name}:{json.dumps(arguments, sort_keys=True)}"
                 if call_sig in executed_call_signatures:
-                    print(f"    - Bỏ qua lệnh đã thực thi thành công: {call_sig}")
+                    print(f"    - Bỏ qua lệnh đã thực thi thành công: {call_sig}", flush=True)
                     continue
 
                 # 4. Người 1 - Pha 2: Chốt chặn an toàn SafeSchemaGuardrail
@@ -346,7 +346,7 @@ class ReActAgent:
 
                 if not is_valid:
                     # [QUAN TRỌNG]: TUYỆT ĐỐI KHÔNG GỌI env.call() để giữ U = 0!
-                    print(f"    - Guardrail phát hiện lỗi (CHẶN ĐỨNG GỌI ENV): {err_msg}")
+                    print(f"    - Guardrail phát hiện lỗi (CHẶN ĐỨNG GỌI ENV): {err_msg}", flush=True)
                     step_history.append({
                         "step": step_idx + 1,
                         "tool_called": tool_name,
@@ -360,7 +360,7 @@ class ReActAgent:
                 # 5. Thực thi an toàn trên ToolEnv
                 res = env.call(tool_name, clean_args)
                 compact_res = compact_observation(res, max_length=1000)
-                print(f"    - Thực thi env.call() thành công: {compact_res[:100]}...")
+                print(f"    - Thực thi env.call() thành công: {compact_res[:100]}...", flush=True)
 
                 step_record = {
                     "step": step_idx + 1,
