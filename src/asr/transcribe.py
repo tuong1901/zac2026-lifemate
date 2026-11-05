@@ -197,7 +197,8 @@ class PhoWhisperEngine:
             "Trợ lý ảo LifeMate tiếng Việt: điều hòa, tivi VTV1 VTV3, Kevin Walsh, Lumina Kitchen, "
             "Marigold Foods, Evergreen Foods, ZaloPay, MoMo, phòng tiếp khách, dọn dẹp, tắt bếp, "
             "check-in chuyến bay Đà Nẵng, thanh toán hoá đơn Sawaco EVN Vitech Telecom, "
-            "Bé Na, Chú Năm, Anh Kha, chị Yến, chị Linh, Lê Minh, Trần Văn Tuấn, phạt nguội xe."
+            "Bé Na, Chú Năm, Anh Kha, chị Yến, chị Linh, Lê Minh, Trần Văn Tuấn, phạt nguội xe, "
+            "cửa kho phụ, trực kho, The Lemon Tree, đặt báo thức, nhận thùng hàng."
         )
         self.prompt_ids = None
         try:

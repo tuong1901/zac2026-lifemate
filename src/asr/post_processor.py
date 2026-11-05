@@ -109,10 +109,11 @@ class LexiconPostProcessor:
 AGGRESSIVE_PHONETIC_REPLACEMENTS = [
     # 1. Thương hiệu, ứng dụng, nhà hàng, đơn vị đối tác
     (r"\b(lumia kroos|lumina kitch(en)?|lumi na kịt chen|lumi na)\b", "Lumina Kitchen"),
-    (r"\b(marilyn goldford|mari gold foods?|mari gold|mari gôn)\b", "Marigold Foods"),
+    (r"\b(marilyn goldford|marico phước|vinh marico phước|vinh marico|mari gold foods?|mari gold|mari gôn)\b", "Marigold Foods"),
     (r"\b(evergreenwood|ever green foods?|e vơ grin)\b", "Evergreen Foods"),
     (r"\b(cabin quá chặt chẽ|ke vin oắt|kê vin oát|kê vin quách|cabin quách)\b", "Kevin Walsh dặn nhé"),
     (r"\b(ke vin oen|ke vin welsh)\b", "Kevin Welsh"),
+    (r"\b(the lemmen trey|lemmen trey)\b", "The Lemon Tree"),
     (r"\b(thể công sao ten|sao ten)\b", "SaoTel"),
     (r"\b(vi tech telecom|vi tếch|vitech)\b", "Vitech Telecom"),
     (r"\b(sa wa co|xa va co|sa va cô)\b", "Sawaco"),
@@ -125,7 +126,7 @@ AGGRESSIVE_PHONETIC_REPLACEMENTS = [
     (r"\b(check in|chếch in)\b", "check-in"),
 
     # 2. Tên riêng, nhân vật, danh bạ
-    (r"\b(giai đô vía na|giao đô vía na)\b", "giao cho Bé Na"),
+    (r"\b(giai đô vía na|giao đô vía na|giai đối phương a|giao đối phương na|đối phương a)\b", "giao cho Bé Na"),
     (r"\b(vía na|ve na)\b", "Bé Na"),
     (r"\b(chú năm|chu nam)\b", "Chú Năm"),
     (r"\b(bà nội|ba noi)\b", "Bà nội"),
@@ -137,6 +138,16 @@ AGGRESSIVE_PHONETIC_REPLACEMENTS = [
     (r"\b(anh đan)\b", "Lan"),
 
     # 3. Can thiệp sửa lỗi phát âm và từ vựng đời sống
+    (r"\b(cửa khoa cũ|cửa kho cũ)\b", "cửa kho phụ"),
+    (r"\b(trực hoa)\b", "trực kho"),
+    (r"\b(khoá và nắp|khoá và nắp\.)\b", "khóa rồi đó"),
+    (r"\b(dọn thùng hạng|dọn thùng hàng)\b", "nhận thùng hàng bên"),
+    (r"\b(mặc nhặt nhăn vào|nhặt nhăn vào)\b", "bật giặt nhanh"),
+    (r"\b(đội chính giai năm mươi|chín giai năm mươi)\b", "chín giờ năm mươi"),
+    (r"\b(anh rời đi đồ điểm phở|đồ điểm phở|đi đồ điểm phở)\b", "nhắc anh ra lấy đồ đem phơi"),
+    (r"\b(đếch báo thức)\b", "đặt báo thức"),
+    (r"\b(nhết tui|nhết tôi)\b", "nhắc tui"),
+    (r"\b(tắm duễ|tắm dưởi)\b", "tám rưỡi"),
     (r"\b(máy hoa đơn|mấy khóa đơn|máy khoá đơn|hoa đơn)\b", "mấy hoá đơn"),
     (r"\b(đến hàng trăm năm ngày|đến hàng trong năm ngày)\b", "đến hạn trong năm ngày"),
     (r"\b(ngân hàng nhà)\b", "ngân hàng nha"),
