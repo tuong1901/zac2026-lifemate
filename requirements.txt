@@ -2,17 +2,21 @@
 pydantic>=2.0
 tqdm>=4.66.0
 pyyaml>=6.0
+python-dotenv>=1.0.0
 
-# Speech / ASR
+# Speech / ASR & Audio
 faster-whisper>=1.0.0
 soundfile>=0.12.1
+av<14.0.0
+scipy>=1.10.0
+librosa>=0.10.0
 
-# LLM & Generation
-openai>=1.30.0
+# LLM & Transformers & Post-Processing (ViT5, ViBERT-capu)
 transformers>=4.40.0
 accelerate>=0.29.0
+sentencepiece>=0.2.0
 scikit-learn>=1.4.0
+openai>=1.30.0
 
-# Optional speedups / deployment
-# vllm>=0.6.0
-# unsloth
+# Evaluation
+# jiwer>=3.0.0
