@@ -1,4 +1,4 @@
-"""
+﻿"""
 transcribe.py — Bộ chuyển đổi giọng nói thành văn bản (Speech-to-Text) hỗ trợ PhoWhisper, PhoASR và Faster-Whisper.
 Tối ưu hóa xử lý theo LÔ (BATCH PROCESSING) trên GPU Kaggle (NVIDIA T4 / P100 / A100).
 Tuân thủ nghiêm ngặt quy chế ZAC 2026:
@@ -93,7 +93,7 @@ def normalize_hf_model_id(model_name: str, engine_type: str) -> str:
     if engine_type in ("phoasr", "wav2vec2") or "phoasr" in lower:
         if "wav2vec2" in lower or "nguyenvulebinh" in lower:
             return "nguyenvulebinh/wav2vec2-base-vietnamese-250h"
-        return "vinai/phoasr-base"
+        return "Qualcomm-AI-Research/PhoASR-whisper-small"
 
     return model_name
 

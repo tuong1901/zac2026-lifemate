@@ -1,7 +1,7 @@
 """
 compare_asr_postproc_llm.py — Kiểm thử đối chiếu trực tiếp tác động của ASR và Post-Processing tới LLM Agent:
-1. Luồng 1 (PhoASR Raw -> LLM): Văn bản thô từ ASR đưa trực tiếp vào LLM sinh tool_calls & state_hash.
-2. Luồng 2 (PhoASR + Post-Processing -> LLM): Văn bản ASR sau khi qua hậu xử lý đưa vào LLM.
+1. Luồng 1 (ASR Raw -> LLM): Văn bản thô từ ASR đưa trực tiếp vào LLM sinh tool_calls & state_hash.
+2. Luồng 2 (ASR + Post-Processing -> LLM): Văn bản ASR sau khi qua hậu xử lý đưa vào LLM.
 3. Luồng 3 (Gold Text -> LLM): Dùng văn bản chuẩn của BTC để đối chứng trần điểm số (Upper bound).
 
 Đo lường chính xác theo công thức chấm điểm chính thức của ZAC 2026 LifeMate:
@@ -14,13 +14,20 @@ import os
 import sys
 import copy
 import json
+import time
 import random
+import warnings
 import argparse
+import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from tqdm import tqdm
 
-# Đảm bảo in tiếng Việt chuẩn
+# Tắt cảnh báo không cần thiết từ transformers
+warnings.filterwarnings("ignore")
+logging.getLogger("transformers").setLevel(logging.ERROR)
+
+# Đảm bảo in tiếng Việt chuẩn trên mọi console và Jupyter Notebook
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 if hasattr(sys.stderr, "reconfigure"):
@@ -86,12 +93,12 @@ def main():
     parser.add_argument("--data_root", type=str, default=None, help="Thư mục train+public_test")
     parser.add_argument("--eval_file", type=str, default="data/val_benchmark_200.jsonl", help="File dữ liệu kiểm thử (JSONL)")
     parser.add_argument("--sample_id", type=str, default=None, help="Chạy thử nghiệm trên 1 ID duy nhất (VD: train_1364)")
-    parser.add_argument("--limit", type=int, default=10, help="Số lượng mẫu kiểm thử (Mặc định: 10 mẫu để test nhanh)")
+    parser.add_argument("--limit", type=int, default=5, help="Số lượng mẫu kiểm thử (Mặc định: 5 mẫu để xem nhanh)")
     parser.add_argument("--mode", choices=["server", "hf"], default="server", help="Chế độ LLM: server (vLLM/Ollama/ngrok) hoặc hf (HuggingFace local)")
     parser.add_argument("--base_url", type=str, default="http://localhost:8000/v1", help="Base URL server LLM")
     parser.add_argument("--api_key", type=str, default="EMPTY", help="API Key nếu cần")
     parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="Tên model LLM")
-    parser.add_argument("--asr_engine", choices=["phoasr", "phowhisper", "faster_whisper"], default="phoasr", help="Engine ASR (Mặc định: phoasr)")
+    parser.add_argument("--asr_engine", choices=["phowhisper", "phoasr", "faster_whisper"], default="phowhisper", help="Engine ASR (Mặc định: phowhisper)")
     parser.add_argument("--asr_model", type=str, default=None, help="Tên hoặc checkpoint của model ASR")
     parser.add_argument("--report_file", type=str, default="data/compare_asr_postproc_report.md", help="Đường dẫn file báo cáo kết quả Markdown")
     args = parser.parse_args()
@@ -106,18 +113,18 @@ def main():
 
     fuzzy_map = load_fuzzy_map(catalog_file)
 
-    print("=" * 72)
-    print(" SO SÁNH ĐỐI CHIẾU: ASR RAW vs ASR + POST-PROCESSING -> LLM AGENT")
-    print("=" * 72)
-    print(f"  - LLM Mode:         {args.mode} ({args.model})")
+    print("=" * 72, flush=True)
+    print(" SO SÁNH ĐỐI CHIẾU: ASR RAW vs ASR + POST-PROCESSING -> LLM AGENT", flush=True)
+    print("=" * 72, flush=True)
+    print(f"  - LLM Mode:         {args.mode} ({args.model})", flush=True)
     if args.mode == "server":
-        print(f"  - LLM Base URL:     {args.base_url}")
-    print(f"  - ASR Engine:       {args.asr_engine} ({args.asr_model or 'Default'})")
-    print(f"  - Data Root:        {root}")
-    print("-" * 72)
+        print(f"  - LLM Base URL:     {args.base_url}", flush=True)
+    print(f"  - ASR Engine:       {args.asr_engine} ({args.asr_model or 'Default'})", flush=True)
+    print(f"  - Data Root:        {root}", flush=True)
+    print("-" * 72, flush=True)
 
     # 1. Khởi tạo LLM Client
-    print("\n[1/4] Khởi tạo LLM Client...")
+    print("\n[1/4] Khởi tạo LLM Client...", flush=True)
     if args.mode == "hf":
         llm_client = get_llm_client(client_type="hf", model_name_or_path=args.model)
     else:
@@ -129,7 +136,7 @@ def main():
         )
 
     # 2. Khởi tạo Agent Modules
-    print("[2/4] Nạp các module RAG, Guardrail & Catalog...")
+    print("[2/4] Nạp các module RAG, Guardrail & Catalog...", flush=True)
     catalog_filter = CatalogFilter(str(catalog_file))
     retriever = BM25ExemplarRetriever()
     if cache_path.exists():
@@ -147,17 +154,17 @@ def main():
     )
 
     # 3. Khởi tạo ASR Engine & Post-Processor
-    print(f"[3/4] Khởi tạo ASR Engine ({args.asr_engine})...")
+    print(f"[3/4] Khởi tạo ASR Engine ({args.asr_engine})...", flush=True)
     asr_cfg = ASRConfig(
         asr_engine=args.asr_engine,
-        model_name_or_path=args.asr_model or ("vinai/phoasr-base" if args.asr_engine == "phoasr" else "vinai/PhoWhisper-medium"),
+        model_name_or_path=args.asr_model or ("vinai/PhoWhisper-medium" if args.asr_engine == "phowhisper" else "Qualcomm-AI-Research/PhoASR-whisper-small"),
         device="auto"
     )
     transcriber = UnifiedASRTranscriber(asr_cfg)
     post_processor = LexiconPostProcessor()
 
     # 4. Nạp dữ liệu kiểm thử
-    print(f"[4/4] Nạp dữ liệu kiểm thử từ {args.eval_file}...")
+    print(f"[4/4] Nạp dữ liệu kiểm thử từ {args.eval_file}...", flush=True)
     eval_path = Path(args.eval_file) if Path(args.eval_file).is_absolute() else PROJECT_ROOT / args.eval_file
     if not eval_path.exists():
         eval_path = root / "val_benchmark_200.jsonl"
@@ -179,8 +186,8 @@ def main():
                 if args.limit and len(items) >= args.limit:
                     break
 
-    print(f"-> Sẵn sàng kiểm thử trên {len(items)} mẫu.")
-    print("=" * 72)
+    print(f"-> Sẵn sàng kiểm thử trên {len(items)} mẫu.", flush=True)
+    print("=" * 72, flush=True)
 
     # 5. Vòng lặp chạy so sánh chi tiết
     results = []
@@ -192,10 +199,12 @@ def main():
     state_match_raw = 0
     state_match_postproc = 0
 
-    for idx, item in enumerate(tqdm(items, desc="Đang đánh giá"), 1):
+    for idx, item in enumerate(items, 1):
         sample_id = item["id"]
         gold_text = item.get("audio_text", "")
         gold_calls = item.get("label", {}).get("tool_calls", [])
+
+        print(f"\n[{idx}/{len(items)}] 🚀 BẮT ĐẦU XỬ LÝ MẪU: {sample_id}...", flush=True)
 
         # Audio file path
         rel_audio = item.get("audio", "")
@@ -203,32 +212,44 @@ def main():
         if not audio_path.exists():
             audio_path = root / rel_audio
 
-        # Gỡ băng âm thanh bằng ASR
+        # Bước 5.1: Gỡ băng âm thanh bằng ASR
+        print(f"   [1/4] Gỡ băng âm thanh từ file .wav...", flush=True)
+        t_asr = time.time()
         if audio_path.exists():
             raw_text = transcriber.transcribe(audio_path)
         else:
             raw_text = gold_text  # Fallback nếu thiếu audio
-
-        # Áp dụng Hậu xử lý
         postproc_text = post_processor.process(raw_text)
+        print(f"         * ASR Raw:     \"{raw_text}\" ({time.time() - t_asr:.2f}s)", flush=True)
+        print(f"         * + PostProc:  \"{postproc_text}\"", flush=True)
+        print(f"         * Gold Label:  \"{gold_text}\"", flush=True)
 
-        # 5.1. Tính Gold State Hash chuẩn của BTC
+        # Bước 5.2: Tính Gold State Hash chuẩn của BTC
         gold_env = ToolEnv("train", sample_id, root=root)
         for c in gold_calls:
             gold_env.call(c["name"], c.get("arguments") or {})
         hash_gold = gold_env.get_state_hash()
 
-        # 5.2. Chạy Luồng 1: ASR Raw -> LLM
+        # Bước 5.3: Chạy Luồng 1: ASR Raw -> LLM Agent
+        print(f"   [2/4] Gọi LLM Agent với ASR Raw qua {args.base_url}...", flush=True)
+        t_llm1 = time.time()
         res_raw = run_pipeline_for_text(agent, item, raw_text, split="train", root=root, desc="Raw ASR")
         score_raw = evaluate_sample(res_raw["pred_calls"], gold_calls, res_raw["hash_sys"], hash_gold, fuzzy_map) * 100
+        print(f"         -> Điểm Raw: {score_raw:.2f}/100 | Khớp Hash: {'✅' if res_raw['hash_sys'] == hash_gold else '❌'} ({time.time() - t_llm1:.2f}s)", flush=True)
 
-        # 5.3. Chạy Luồng 2: ASR + Post-Processing -> LLM
+        # Bước 5.4: Chạy Luồng 2: ASR + Post-Processing -> LLM Agent
+        print(f"   [3/4] Gọi LLM Agent với Post-Processing...", flush=True)
+        t_llm2 = time.time()
         res_post = run_pipeline_for_text(agent, item, postproc_text, split="train", root=root, desc="ASR + PostProc")
         score_post = evaluate_sample(res_post["pred_calls"], gold_calls, res_post["hash_sys"], hash_gold, fuzzy_map) * 100
+        print(f"         -> Điểm PostProc: {score_post:.2f}/100 | Khớp Hash: {'✅' if res_post['hash_sys'] == hash_gold else '❌'} ({time.time() - t_llm2:.2f}s)", flush=True)
 
-        # 5.4. Chạy Luồng 3: Gold Text -> LLM (Chuẩn đối chứng)
+        # Bước 5.5: Chạy Luồng 3: Gold Text -> LLM (Chuẩn đối chứng)
+        print(f"   [4/4] Gọi LLM Agent với Gold Text (Đối chứng)...", flush=True)
+        t_llm3 = time.time()
         res_gold = run_pipeline_for_text(agent, item, gold_text, split="train", root=root, desc="Gold Text")
         score_gold = evaluate_sample(res_gold["pred_calls"], gold_calls, res_gold["hash_sys"], hash_gold, fuzzy_map) * 100
+        print(f"         -> Điểm Gold: {score_gold:.2f}/100 | Khớp Hash: {'✅' if res_gold['hash_sys'] == hash_gold else '❌'} ({time.time() - t_llm3:.2f}s)", flush=True)
 
         # Thống kê tích lũy
         total_score_raw += score_raw
@@ -259,51 +280,43 @@ def main():
         }
         results.append(rec)
 
-        # In nhanh kết quả từng mẫu ra màn hình
-        print(f"\n[{idx}/{len(items)}] Sample: {sample_id}")
-        print(f"  * Gold Text:       \"{gold_text}\"")
-        print(f"  * PhoASR Raw:      \"{raw_text}\"")
-        print(f"  * + PostProc:      \"{postproc_text}\"")
-        print(f"  -> State Match:    Raw={'✅' if rec['match_raw'] else '❌'} | PostProc={'✅' if rec['match_postproc'] else '❌'} | Gold={'✅' if rec['match_gold'] else '❌'}")
-        print(f"  -> ĐIỂM SỐ (/100): Raw={score_raw:.2f} | PostProc={score_post:.2f} | Gold={score_gold:.2f}")
-
     # 6. Bảng tổng kết chung cuộc
     n = max(len(items), 1)
     avg_raw = total_score_raw / n
     avg_post = total_score_postproc / n
     avg_gold = total_score_gold / n
 
-    print("\n" + "=" * 76)
-    print(" BẢNG TỔNG KẾT SO SÁNH HIỆU NĂNG LLM AGENT TRÊN TOÀN BỘ MẪU")
-    print("=" * 76)
-    print(f"{'Luồng thực thi':<32} | {'Tỷ lệ Khớp State':<18} | {'ĐIỂM TRUNG BÌNH (/100)'}")
-    print("-" * 76)
-    print(f"{'1. PhoASR Raw -> LLM':<32} | {state_match_raw/n*100:>6.1f}% ({state_match_raw}/{n})     | {avg_raw:>8.4f} / 100")
-    print(f"{'2. PhoASR + PostProc -> LLM':<32} | {state_match_postproc/n*100:>6.1f}% ({state_match_postproc}/{n})     | {avg_post:>8.4f} / 100")
-    print(f"{'3. Gold Text -> LLM (Trần tối đa)':<32} | {state_match_gold/n*100:>6.1f}% ({state_match_gold}/{n})     | {avg_gold:>8.4f} / 100")
-    print("=" * 76)
+    print("\n" + "=" * 76, flush=True)
+    print(" BẢNG TỔNG KẾT SO SÁNH HIỆU NĂNG LLM AGENT TRÊN TOÀN BỘ MẪU", flush=True)
+    print("=" * 76, flush=True)
+    print(f"{'Luồng thực thi':<32} | {'Tỷ lệ Khớp State':<18} | {'ĐIỂM TRUNG BÌNH (/100)'}", flush=True)
+    print("-" * 76, flush=True)
+    print(f"{'1. ASR Raw -> LLM':<32} | {state_match_raw/n*100:>6.1f}% ({state_match_raw}/{n})     | {avg_raw:>8.4f} / 100", flush=True)
+    print(f"{'2. ASR + PostProc -> LLM':<32} | {state_match_postproc/n*100:>6.1f}% ({state_match_postproc}/{n})     | {avg_post:>8.4f} / 100", flush=True)
+    print(f"{'3. Gold Text -> LLM (Trần tối đa)':<32} | {state_match_gold/n*100:>6.1f}% ({state_match_gold}/{n})     | {avg_gold:>8.4f} / 100", flush=True)
+    print("=" * 76, flush=True)
 
     diff = avg_post - avg_raw
     if diff > 0:
-        print(f"🎉 KẾT LUẬN: Post-Processing GIÚP TĂNG +{diff:.2f} ĐIỂM cho LLM Agent!")
+        print(f"🎉 KẾT LUẬN: Post-Processing GIÚP TĂNG +{diff:.2f} ĐIỂM cho LLM Agent!", flush=True)
     elif diff < 0:
-        print(f"⚠️ KẾT LUẬN: Post-Processing LÀM GIẢM {diff:.2f} ĐIỂM của LLM Agent (Cần tinh chỉnh lại từ điển)!")
+        print(f"⚠️ KẾT LUẬN: Post-Processing LÀM GIẢM {diff:.2f} ĐIỂM của LLM Agent!", flush=True)
     else:
-        print("ℹ️ KẾT LUẬN: Điểm số ngang bằng nhau giữa Raw và Post-Processing.")
+        print("ℹ️ KẾT LUẬN: Điểm số ngang bằng nhau giữa Raw và Post-Processing.", flush=True)
 
     # 7. Xuất báo cáo Markdown
     rep_path = Path(args.report_file) if Path(args.report_file).is_absolute() else PROJECT_ROOT / args.report_file
     rep_path.parent.mkdir(parents=True, exist_ok=True)
     with open(rep_path, "w", encoding="utf-8") as f:
-        f.write("# Báo Cáo Đối Chiếu: PhoASR Raw vs PhoASR + PostProc -> LLM Agent\n\n")
+        f.write("# Báo Cáo Đối Chiếu: ASR Raw vs ASR + PostProc -> LLM Agent\n\n")
         f.write(f"- **Tổng số mẫu:** {n}\n")
         f.write(f"- **Mô hình LLM:** {args.model}\n")
         f.write(f"- **Engine ASR:** {args.asr_engine}\n\n")
         f.write("## 1. Bảng Tổng Hợp Chỉ Số\n\n")
         f.write("| Luồng thực thi | Khớp State Hash (%) | Điểm số trung bình (/100) |\n")
         f.write("| :--- | :---: | :---: |\n")
-        f.write(f"| **1. PhoASR Raw $\\rightarrow$ LLM** | {state_match_raw/n*100:.1f}% ({state_match_raw}/{n}) | **{avg_raw:.4f}** |\n")
-        f.write(f"| **2. PhoASR + PostProc $\\rightarrow$ LLM** | {state_match_postproc/n*100:.1f}% ({state_match_postproc}/{n}) | **{avg_post:.4f}** |\n")
+        f.write(f"| **1. ASR Raw $\\rightarrow$ LLM** | {state_match_raw/n*100:.1f}% ({state_match_raw}/{n}) | **{avg_raw:.4f}** |\n")
+        f.write(f"| **2. ASR + PostProc $\\rightarrow$ LLM** | {state_match_postproc/n*100:.1f}% ({state_match_postproc}/{n}) | **{avg_post:.4f}** |\n")
         f.write(f"| **3. Gold Text $\\rightarrow$ LLM (Upper bound)** | {state_match_gold/n*100:.1f}% ({state_match_gold}/{n}) | **{avg_gold:.4f}** |\n\n")
         f.write("## 2. Chi Tiết Từng Mẫu Kiểm Thử\n\n")
         for r in results:
@@ -312,7 +325,7 @@ def main():
             f.write(f"- **Raw:** `{r['raw_text']}` (Điểm: {r['score_raw']:.1f}, State: {'✅' if r['match_raw'] else '❌'})\n")
             f.write(f"- **PostProc:** `{r['postproc_text']}` (Điểm: {r['score_postproc']:.1f}, State: {'✅' if r['match_postproc'] else '❌'})\n\n")
 
-    print(f"\n[Báo cáo] Đã lưu file Markdown chi tiết tại: {rep_path}\n")
+    print(f"\n[Báo cáo] Đã lưu file Markdown chi tiết tại: {rep_path}\n", flush=True)
 
 
 if __name__ == "__main__":
