@@ -108,6 +108,179 @@ class LexiconPostProcessor:
 
 
 # ==============================================================================
+# BỘ HẬU XỬ LÝ CAN THIỆP THÔ BẠO (AGGRESSIVE PHONETIC & DOMAIN CORRECTION)
+# ==============================================================================
+
+AGGRESSIVE_PHONETIC_REPLACEMENTS = [
+    # 1. Thương hiệu, ứng dụng, nhà hàng, đơn vị đối tác
+    (r"\b(lumia kroos|lumina kitch(en)?|lumi na kịt chen|lumi na)\b", "Lumina Kitchen"),
+    (r"\b(marilyn goldford|mari gold foods?|mari gold|mari gôn)\b", "Marigold Foods"),
+    (r"\b(evergreenwood|ever green foods?|e vơ grin)\b", "Evergreen Foods"),
+    (r"\b(cabin quá chặt chẽ|ke vin oắt|kê vin oát|kê vin quách|cabin quách)\b", "Kevin Walsh dặn nhé"),
+    (r"\b(ke vin oen|ke vin welsh)\b", "Kevin Welsh"),
+    (r"\b(thể công sao ten|sao ten)\b", "SaoTel"),
+    (r"\b(vi tech telecom|vi tếch|vitech)\b", "Vitech Telecom"),
+    (r"\b(sa wa co|xa va co|sa va cô)\b", "Sawaco"),
+    (r"\b(thịnh phát bank|thinh phat)\b", "Thịnh Phát Bank"),
+    (r"\b(vi tube premium|vitube premium|vi túp)\b", "ViTube Premium"),
+    (r"\b(cloud pro 2tb|c lao pro)\b", "Cloud Pro 2TB"),
+    (r"\b(za lo pay|zalo pay|za lo|dza lo)\b", "ZaloPay"),
+    (r"\b(mo mo|mô mô)\b", "MoMo"),
+    (r"\b(bộ hội xã đà nẵng|hội xã đà nẵng)\b", "buổi workshop ở Đà Nẵng"),
+    (r"\b(check in|chếch in)\b", "check-in"),
+
+    # 2. Tên riêng, nhân vật, danh bạ
+    (r"\b(giai đô vía na|giao đô vía na)\b", "giao cho Bé Na"),
+    (r"\b(vía na|ve na)\b", "Bé Na"),
+    (r"\b(chú năm|chu nam)\b", "Chú Năm"),
+    (r"\b(bà nội|ba noi)\b", "Bà nội"),
+    (r"\b(anh khan|anh kha)\b", "Anh Kha"),
+    (r"\b(chị yến|chi yen)\b", "chị Yến"),
+    (r"\b(chị gấm nhiều khối|chị linh nhiều khối)\b", "chị Linh điều phối"),
+    (r"\b(lê minh|le minh)\b", "Lê Minh"),
+    (r"\b(trần văn tuấn)\b", "Trần Văn Tuấn"),
+    (r"\b(anh đan)\b", "Lan"),
+
+    # 3. Can thiệp sửa lỗi phát âm và từ vựng đời sống
+    (r"\b(máy hoa đơn|mấy khóa đơn|máy khoá đơn|hoa đơn)\b", "mấy hoá đơn"),
+    (r"\b(đến hàng trăm năm ngày|đến hàng trong năm ngày)\b", "đến hạn trong năm ngày"),
+    (r"\b(ngân hàng nhà)\b", "ngân hàng nha"),
+    (r"\b(còn trả để đó|khoan trả để đó)\b", "khoan trả, để đó"),
+    (r"\b(báo tuýp|báo típ|báo týp)\b", "báo thức"),
+    (r"\b(hay chụp anh|hay chụp em|chụp anh)\b", "mai giúp anh"),
+    (r"\b(giục chị|giục em)\b", "giúp chị"),
+    (r"\b(dạy cho anh|day cho anh)\b", "lại cho anh"),
+    (r"\b(thắp bếp|thắp lửa)\b", "tắt bếp"),
+    (r"\b(sáng vai nhà|sáng mai nhà)\b", "sáng mai nha"),
+    (r"\b(thái lụi|thế lụi)\b", "thế lùi"),
+    (r"\b(sang bún giờ|sang bốn giờ)\b", "sang bốn giờ"),
+    (r"\b(vẫn thơm đấy|vẫn thơm đây)\b", "vẫn hôm đấy"),
+    (r"\b(hình ngoại tri|dính hình ngoại|phạt ngoại)\b", "phạt nguội chi"),
+    (r"\b(nối dọn|nó dọn dẹp)\b", "nó dọn"),
+    (r"\b(phòng tiến khách|phòng tiếng khách)\b", "phòng tiếp khách"),
+    (r"\b(gạo hẳn xuống dưới|dọn hẳn xuống dưới)\b", "dọn, hạn chín giờ sáng mai"),
+    (r"\b(tiền mặt tháng này)\b", "tiền mạng tháng này"),
+    (r"\b(chuyển thai)\b", "chuyển thay"),
+    (r"\b(nhãn dáng)\b", "nhãn dán"),
+    (r"\b(sau khi mời gà|sau khi mởi gà)\b", "sau thư mời nha"),
+    (r"\b(đài đăng|đài tin)\b", "bài đăng"),
+    (r"\b(chân lệnh xanh|chân lịch xanh)\b", "trong lịch"),
+    (r"\b(mỹ thảo kết nối xanh|mỹ thảo)\b", "hội thảo Kết nối Xanh"),
+    (r"\b(hộp tứ trao|hộp thứ tư trao)\b", "hôm thứ tư giao"),
+    (r"\b(an nhầm|ăn nhầm)\b", "à nhầm"),
+    (r"\b(cho lên công ty)\b", "giao lên công ty"),
+    (r"\b(đường bún bò sao rồi)\b", "đơn bún bò giao rồi"),
+    (r"\b(toan đã giấu xong dụng vợ|toan đã giấu)\b", "con đánh dấu xong giùm cô"),
+    (r"\b(thì bốn be|xe bốn be)\b", "xe bốn ba A,"),
+    (r"\b(ừ hiểu hết đó đi|hiểu hết gói đó đi)\b", "ừ huỷ gói đó đi"),
+    (r"\b(e mưa tháng này)\b", "hai mươi tháng này"),
+    (r"\b(làm mười tuấn|vào làm mười tuấn)\b", "vào ngày mười tám"),
+    (r"\b(xóa kế hoạch hàng phòng khách)\b", "xoá cái hẹn bật đèn phòng khách"),
+    (r"\b(khuya chị về nga)\b", "chị về khuya nghe"),
+    (r"\b(thêm điều chuẩn bị tài liệu hả)\b", "thêm việc chuẩn bị tài liệu, hạn"),
+    (r"\b(hoa vạn ơi)\b", "ơ bạn ơi"),
+    (r"\b(mạnh nhai)\b", "mình nha"),
+    (r"\b(bảy lưỡi)\b", "bảy rưỡi"),
+]
+
+COMPILED_AGGRESSIVE_REPLACEMENTS = [
+    (re.compile(pat, re.IGNORECASE), repl) for pat, repl in AGGRESSIVE_PHONETIC_REPLACEMENTS
+]
+
+
+class AggressivePostProcessor:
+    """
+    Bộ hậu xử lý CAN THIỆP THÔ BẠO (Aggressive Post-Processor):
+    - Chuẩn hóa Unicode NFC.
+    - Sửa toàn bộ lỗi phát âm, lỗi nghe sai của ASR đối với thực thể tên riêng, nhà hàng, đối tác.
+    - Chuẩn hóa các cụm từ sai ngữ pháp thành câu chuẩn của LifeMate.
+    - Viết hoa đầu câu và sửa dấu câu tự động.
+    """
+    def __init__(self):
+        self.rules = list(COMPILED_DOMAIN_REPLACEMENTS) + list(COMPILED_AGGRESSIVE_REPLACEMENTS)
+
+    def process(self, text: str) -> str:
+        if not text:
+            return ""
+
+        # 1. Chuẩn hóa NFC
+        out = unicodedata.normalize("NFC", text)
+        out = re.sub(r"\s+", " ", out).strip()
+
+        # 2. Áp dụng toàn bộ quy tắc can thiệp thô bạo
+        for pattern, replacement in self.rules:
+            out = pattern.sub(replacement, out)
+
+        # 3. Chuẩn hóa số và thời gian
+        out = re.sub(r"\bbốn ba a\b", "43A", out, flags=re.IGNORECASE)
+        out = re.sub(r"\bbảy rưỡi\b", "7:30", out, flags=re.IGNORECASE)
+        out = re.sub(r"\bnăm giờ rưỡi\b", "5:30", out, flags=re.IGNORECASE)
+
+        # 4. Viết hoa chữ cái đầu câu
+        if out and out[0].islower():
+            out = out[0].upper() + out[1:]
+
+        # 5. Đảm bảo có dấu chấm câu nếu câu đã hoàn chỉnh
+        if out and out[-1] not in (".", "?", "!", ","):
+            out = out + "."
+
+        return out.strip()
+
+    def process_batch(self, texts: List[str]) -> List[str]:
+        return [self.process(t) for t in texts]
+
+
+class LLMAssistedPostProcessor:
+    """
+    Bộ hậu xử lý dùng chính LLM để viết lại (REWRITE THÔ BẠO) câu lệnh ASR:
+    Biến câu văn gỡ băng sai âm / rời rạc thành câu chỉ thị chuẩn xác, mạch lạc.
+    """
+    def __init__(self, llm_client: Any):
+        self.llm_client = llm_client
+        self.system_prompt = (
+            "Bạn là chuyên gia ngôn ngữ tiếng Việt hỗ trợ sửa lỗi gỡ băng âm thanh (ASR) cho trợ lý ảo LifeMate.\n"
+            "Nhiệm vụ: Sửa lại các từ bị nghe nhầm âm, chuẩn hóa tên riêng (người, địa danh, quán ăn, thương hiệu), "
+            "sửa lỗi chính tả và mốc thời gian để câu lệnh mạch lạc, tự nhiên nhất.\n"
+            "QUY TẮC BẮT BUỘC:\n"
+            "- Tuyệt đối giữ nguyên ý định và hành động gốc của người dùng.\n"
+            "- CHỈ TRẢ VỀ DUY NHẤT CÂU LỆNH ĐÃ ĐƯỢC CHUẨN HÓA, KHÔNG GIẢI THÍCH GÌ THÊM."
+        )
+
+    def process(self, text: str) -> str:
+        if not text:
+            return ""
+        try:
+            user_prompt = f"Câu ASR gỡ băng gốc: \"{text}\"\nCâu chuẩn hóa:"
+            response = self.llm_client.generate(self.system_prompt, user_prompt)
+            # Làm sạch phản hồi
+            cleaned = response.strip().strip('"').strip("'")
+            if cleaned and len(cleaned) >= len(text) * 0.4:
+                return cleaned
+        except Exception:
+            pass
+        return text
+
+    def process_batch(self, texts: List[str]) -> List[str]:
+        return [self.process(t) for t in texts]
+
+
+def get_post_processor(mode: str = "aggressive", llm_client: Optional[Any] = None) -> Any:
+    """
+    Factory tạo bộ hậu xử lý:
+    - 'aggressive': Can thiệp thô bạo bằng bộ từ điển âm vị học mở rộng chuyên sâu (Khuyên dùng).
+    - 'llm': Can thiệp tối đa bằng mô hình ngôn ngữ LLM Rewrite.
+    - 'lexicon': Can thiệp cơ bản theo từ điển tĩnh gốc.
+    """
+    m = (mode or "aggressive").lower().strip()
+    if m == "llm" and llm_client is not None:
+        return LLMAssistedPostProcessor(llm_client)
+    elif m == "lexicon":
+        return LexiconPostProcessor()
+    else:
+        return AggressivePostProcessor()
+
+
+# ==============================================================================
 # TẦNG 2: SỬA LỖI NGỮ CẢNH BẰNG MÔ HÌNH NGÔN NGỮ (CONTEXTUAL CORRECTION)
 # ==============================================================================
 

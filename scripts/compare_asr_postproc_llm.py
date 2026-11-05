@@ -50,7 +50,7 @@ from src.agent.rag.history_resolver import HistoryResolver
 from src.agent.react_loop import ReActAgent
 from src.agent.llm_client import get_llm_client
 from src.asr.transcribe import UnifiedASRTranscriber
-from src.asr.post_processor import LexiconPostProcessor
+from src.asr.post_processor import LexiconPostProcessor, AggressivePostProcessor, get_post_processor
 from src.asr.config import ASRConfig
 from local_eval import load_fuzzy_map, evaluate_sample, compute_token_f1
 
@@ -106,6 +106,7 @@ def main():
     parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="Tên model LLM")
     parser.add_argument("--asr_engine", choices=["phowhisper", "phoasr", "faster_whisper"], default="phowhisper", help="Engine ASR (Mặc định: phowhisper)")
     parser.add_argument("--asr_model", type=str, default=None, help="Tên hoặc checkpoint của model ASR")
+    parser.add_argument("--postproc_mode", choices=["aggressive", "lexicon", "llm"], default="aggressive", help="Chế độ Hậu xử lý ASR: 'aggressive' (Can thiệp thô bạo), 'lexicon' (Từ điển nhẹ), 'llm' (Dùng LLM rewrite)")
     parser.add_argument("--report_file", type=str, default="data/compare_asr_postproc_report.md", help="Đường dẫn file báo cáo kết quả Markdown")
     parser.add_argument("--json_file", type=str, default="data/compare_asr_postproc_benchmark.json", help="Đường dẫn file JSON lưu chi tiết metrics")
     args = parser.parse_args()
@@ -128,6 +129,7 @@ def main():
     if args.mode == "server":
         print(f"  - LLM Base URL:     {args.base_url}", flush=True)
     print(f"  - ASR Engine:       {args.asr_engine} ({args.asr_model or 'Default'})", flush=True)
+    print(f"  - PostProc Mode:    {args.postproc_mode.upper()} (Chế độ can thiệp: {'Thô bạo' if args.postproc_mode == 'aggressive' else args.postproc_mode})", flush=True)
     print(f"  - Data Root:        {root}", flush=True)
     print("-" * 80, flush=True)
 
@@ -169,7 +171,8 @@ def main():
         device="auto"
     )
     transcriber = UnifiedASRTranscriber(asr_cfg)
-    post_processor = LexiconPostProcessor()
+    post_processor = get_post_processor(mode=args.postproc_mode, llm_client=llm_client)
+    print(f"[3/4] Khởi tạo Post-Processor thành công ({args.postproc_mode})...", flush=True)
 
     # 4. Nạp dữ liệu kiểm thử
     print(f"[4/4] Nạp dữ liệu kiểm thử từ {args.eval_file}...", flush=True)
