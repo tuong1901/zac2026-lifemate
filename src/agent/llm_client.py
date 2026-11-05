@@ -128,7 +128,15 @@ class OpenAICompatibleClient(BaseLLMClient):
         except ImportError:
             raise ImportError("Vui lòng cài đặt thư viện openai: pip install openai")
 
-        self.base_url = base_url or os.getenv("LLM_BASE_URL", "http://localhost:8000/v1")
+        self.base_url = (base_url or os.getenv("LLM_BASE_URL", "http://localhost:8000/v1")).strip()
+        if "<" in self.base_url or ">" in self.base_url or "ngrok_của_bạn" in self.base_url.lower():
+            raise ValueError(
+                f"\n❌ [LỖI CẤU HÌNH BASE_URL]: URL endpoint hiện tại là '{self.base_url}'\n"
+                f"   Bạn đang để nguyên chuỗi mẫu placeholder '<URL_NGROK_CỦA_BẠN>'.\n"
+                f"👉 Hãy thay thế bằng URL ngrok thực tế của bạn (hoặc bỏ cờ --base_url nếu đã điền trong file .env).\n"
+                f"   Ví dụ: --base_url https://5b4d-34-16-234-74.ngrok-free.app/v1"
+            )
+
         self.api_key = api_key or os.getenv("LLM_API_KEY", "EMPTY")
         self.model = model or os.getenv("LLM_MODEL", "Qwen/Qwen2.5-3B-Instruct")
         self.max_tokens = max_tokens if max_tokens is not None else int(os.getenv("LLM_MAX_TOKENS", "512"))
