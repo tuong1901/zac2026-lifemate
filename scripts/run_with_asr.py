@@ -1,4 +1,4 @@
-"""
+﻿"""
 run_with_asr.py — Đánh giá và so sánh trực tiếp điểm số giữa:
 1. Benchmark với DB chuẩn của BTC (Gold audio_text trong val_benchmark_200.jsonl)
 2. Benchmark với DB thực tế đã tối ưu ASR của Khoa (MultiASR_Results: PhoWhisper-medium / Whisper-turbo / PhoWhisper-small)
@@ -144,6 +144,10 @@ def eval_dataset(agent, eval_items, root: Path, fuzzy_map: dict, asr_map: dict =
 def resolve_data_root(preferred_path: str = None) -> Path:
     candidates = [
         preferred_path,
+        os.getenv("DATA_ROOT"),
+        "/kaggle/input/datasets/n107hoangtuong/zalo-competion/train+public_test",
+        "/kaggle/input/zalo-ai-challenge-2026/train+public_test",
+        "/kaggle/input/train+public_test",
         "D:/Download/train+public_test/train+public_test",
         "D:/TOOL_TH/ZAC_2026/train+public_test/train+public_test",
         "/content/train+public_test/train+public_test",
@@ -157,6 +161,8 @@ def resolve_data_root(preferred_path: str = None) -> Path:
 def resolve_asr_dir(preferred_path: str = None) -> Path:
     candidates = [
         preferred_path,
+        os.getenv("OUTPUT_DIR"),
+        "/kaggle/working/MultiASR_Results",
         str(PROJECT_ROOT / "data" / "MultiASR_Results"),
         "C:/Users/Admin/Downloads/MultiASR_Results",
         "D:/TOOL_TH/ZAC_2026/MultiASR_Results",
@@ -240,7 +246,7 @@ def main():
     parser = argparse.ArgumentParser(description="Chạy so sánh Benchmark BTC vs DB ASR của Khoa")
     parser.add_argument("--data_root", type=str, default=None)
     parser.add_argument("--asr_dir", type=str, default=None)
-    parser.add_argument("--eval_file", type=str, default="data/val_benchmark_200.jsonl")
+    parser.add_argument("--eval_file", "--benchmark_file", dest="eval_file", type=str, default="data/val_benchmark_200.jsonl")
     parser.add_argument("--limit", type=int, default=None, help="Số lượng mẫu tối đa (mặc định: toàn bộ)")
     parser.add_argument("--sample_ids", type=str, default=None, help="Danh sách ID cần chấm, phân tách bằng dấu phẩy")
     parser.add_argument("--mode", choices=["hf", "server"], default="server")
