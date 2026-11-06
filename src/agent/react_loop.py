@@ -19,6 +19,7 @@ from src.agent.rag.history_resolver import HistoryResolver
 from src.agent.rag.fuzzy_entity_matcher import extract_candidate_entities, repair_utterance_with_context_entities
 from src.rules.catalog_filter import CatalogFilter
 from src.rules.schema_guardrail import SafeSchemaGuardrail
+from src.agent.entity_grounding import observed_entities, select_observed_entity
 from src.agent.execution import ActionFeedback, GuardedToolEnv, RunBudget, RunLimitReached, successful_history_reads, current_read_signatures, observation_frontier, history_cart_has_items, result_failed
 from src.agent.prompt import NEVER_HISTORY_SATISFIED_TOOLS, _get_multi_asr_variants, _get_atomic_retriever
 
@@ -419,45 +420,41 @@ class ReActAgent:
             return
 
         if tool_name == "maps.save_place":
-            for src in raw_sources:
-                if isinstance(src.get("places"), list) and src["places"]:
-                    pl0 = src["places"][0]
-                    if isinstance(pl0, dict) and pl0.get("id"):
-                        arguments["place_id"] = str(pl0["id"])
-                        arguments.pop("address", None)
-                        break
+            places = observed_entities(history, steps, {"maps.search_place"}, "places")
+            selected = select_observed_entity(tool_name, arguments, "place_id", places, user_text)
+            if selected and selected.get("id") is not None:
+                arguments["place_id"] = str(selected["id"])
+                arguments.pop("address", None)
             return
 
-        if tool_name == "phone.call":
-            for src in raw_sources:
-                if isinstance(src.get("calls"), list):
-                    calls_l = [c for c in src["calls"] if isinstance(c, dict) and c.get("phone_number")]
-                    if calls_l:
-                        picked_c = next((c for c in calls_l if str(c.get("name", "")).lower() and str(c.get("name", "")).lower() in u_low_pre), calls_l[0])
-                        arguments.pop("contact_id", None)
-                        arguments["phone_number"] = str(picked_c["phone_number"])
-                        return
+        if tool_name == "phone.call" and not arguments.get("contact_id") and not arguments.get("phone_number"):
+            calls = observed_entities(history, steps, {"phone.recent_calls"}, "calls")
+            if calls:
+                selected = select_observed_entity(tool_name, arguments, "contact_id", calls, user_text)
+                if selected and selected.get("phone_number"):
+                    arguments["phone_number"] = str(selected["phone_number"])
+                    return
 
         if tool_name in ("ewallet.topup_mobile", "ewallet.transfer", "sms.send", "phone.call"):
-            ct_steps = [
-                s.get("raw_observation", {}).get("contacts", [])
-                for s in steps
-                if s.get("tool_called") == "contacts.search" and isinstance(s.get("raw_observation"), dict) and s.get("raw_observation", {}).get("contacts")
-            ]
-            if ct_steps:
+            # An explicitly selected number is a valid independent recipient;
+            # unrelated contact searches must not replace it with a contact ID.
+            if tool_name in ("sms.send", "phone.call") and arguments.get("phone_number"):
+                return
+            if tool_name == "ewallet.topup_mobile" and arguments.get("phone"):
+                return
+            contacts = observed_entities(history, steps, {"contacts.search", "contacts.get"}, "contacts", "contact")
+            selected = select_observed_entity(tool_name, arguments, "contact_id", contacts, user_text)
+            if selected:
                 if tool_name == "ewallet.topup_mobile":
-                    arguments.pop("contact_id", None)
-                    if ct_steps[0] and isinstance(ct_steps[0][0], dict) and ct_steps[0][0].get("phone"):
-                        arguments["phone"] = str(ct_steps[0][0]["phone"])
-                    return
-                elif tool_name == "ewallet.transfer" and len(ct_steps) >= 2:
-                    arguments["contact_id"] = str(ct_steps[1][0]["id"])
-                    return
-                elif len(ct_steps) == 1:
-                    arguments["contact_id"] = str(ct_steps[0][0]["id"])
+                    number = selected.get("phone") or selected.get("phone_number")
+                    if number:
+                        arguments.pop("contact_id", None)
+                        arguments["phone"] = str(number)
+                elif selected.get("id") is not None:
+                    arguments["contact_id"] = str(selected["id"])
                     if tool_name in ("sms.send", "phone.call"):
                         arguments.pop("phone_number", None)
-                    return
+                return
 
         if tool_name not in TOOL_ARG_COLLECTION_MAP:
             return
@@ -756,11 +753,16 @@ class ReActAgent:
         """
         Nhận diện nhanh các câu chào hỏi, khen ngợi, cảm ơn (chit-chat),
         câu hủy lệnh giữa chừng, hoặc yêu cầu dịch vụ chưa cài đặt trên thiết bị.
-        Đạt độ chính xác 100% (0 false positives trên toàn bộ 1.545 mẫu train).
+        Các yêu cầu nhiều mệnh đề cần được lập kế hoạch theo catalog thực tế.
         """
         if not text:
             return False
         t = clean_asr_transcript(text).strip()
+        # A cancelled/unsupported clause must not discard a separate actionable
+        # clause. Let the planner resolve mixed intent and corrections.
+        if re.search(r"(?:\b(?:và|rồi|nhưng|đồng thời|sau đó)\b|[,;.])\s*(?:hãy\s+)?" + ACTION_VERBS,
+                     t, re.IGNORECASE):
+            return False
         if CHITCHAT_REGEX.search(t):
             after = re.sub(r"^(chào [^,]+|chúc [^,]+|cảm ơn [^,]+|nè,? hôm nay mày làm tốt lắm[^,]*|hôm nay làm việc tốt lắm[^,]*)[,.]\s*", "", t, flags=re.IGNORECASE)
             if not re.search(ACTION_VERBS, after, re.IGNORECASE):
@@ -791,7 +793,9 @@ class ReActAgent:
     def run(self, env: Any, item: Dict[str, Any], user_text: str) -> Tuple[List[Dict[str, Any]], str]:
         budget = RunBudget.start(self.time_budget, self.max_calls)
         allowed = self.catalog_filter.get_allowed_tools(item.get("context", {}).get("installed_apps", {}))
-        guarded = GuardedToolEnv(env, allowed, self.guardrail, budget, READ_TOOLS)
+        read_tools = {tool['name'] for tool in allowed if tool.get('kind') == 'read'
+                      or (not tool.get('kind') and tool['name'] in READ_TOOLS)}
+        guarded = GuardedToolEnv(env, allowed, self.guardrail, budget, read_tools)
         try:
             return self._run(guarded, item, user_text, budget)
         except RunLimitReached as error:
@@ -902,30 +906,13 @@ class ReActAgent:
                 if step_history and actions_list:
                     # Only identical successful queries are duplicates. A second date,
                     # search term or filter requires its own observation.
-                    read_signatures = current_read_signatures(step_history, READ_TOOLS)
+                    read_signatures = current_read_signatures(step_history, env.read_tools)
                     actions_list = [a for a in actions_list if
                                     (a["name"], json.dumps(a.get("arguments", {}), sort_keys=True))
                                     not in read_signatures]
 
-                if step_history and not actions_list and "TẤT CẢ CÔNG CỤ CẦN THIẾT ĐÃ CHẠY XONG" not in prompt and "YÊU CẦU NGOÀI PHẠM VI ỨNG DỤNG" not in prompt:
-                    m_cur_turn = re.search(r"\[👉 LƯỢT HIỆN TẠI CẦN GỌI NGAY\] \(is_finished=(true|false)\): `(\[.*?\])`", prompt)
-                    if m_cur_turn:
-                        try:
-                            exec_all_names = {s.get("tool_called") for s in step_history if not s.get("error")}
-                            cand_turn_acts = [c for c in json.loads(m_cur_turn.group(2)) if isinstance(c, dict) and c.get("name") and c.get("name") not in exec_all_names]
-                            if cand_turn_acts:
-                                actions_list = cand_turn_acts
-                                is_finished = (m_cur_turn.group(1) == "true")
-                                if "PHÁT HIỆN TRÙNG TÊN DANH BẠ" in prompt and is_finished:
-                                    for a in actions_list:
-                                        if a["name"] in {"phone.call", "sms.send", "ewallet.transfer", "chat_ott.call", "chat_ott.send_message"}:
-                                            a["arguments"] = {"tool_name": a["name"], "params": ["contact_id"]}
-                                            a["name"] = "sys.ask_missing_info"
-                        except Exception:
-                            pass
-
                 # Execute the ordered frontier, then observe before dependent writes.
-                actions_list, deferred = observation_frontier(actions_list, READ_TOOLS)
+                actions_list, deferred = observation_frontier(actions_list, env.read_tools)
                 if deferred:
                     is_finished = False
 
@@ -1176,7 +1163,7 @@ class ReActAgent:
                         break
 
                     # Reuse only a successful observation from this exact tool.
-                    history_reads = successful_history_reads(history, READ_TOOLS, NEVER_HISTORY_SATISFIED_TOOLS)
+                    history_reads = successful_history_reads(history, env.read_tools, NEVER_HISTORY_SATISFIED_TOOLS)
                     if (tool_name in hist_sat and not arguments and tool_name in history_reads
                         and tool_name.split(".")[0] not in env.mutated_domains):
                         hist_res_obj = history_reads[tool_name]
@@ -1239,36 +1226,12 @@ class ReActAgent:
                         if m_strip_hon:
                             arguments["query"] = m_strip_hon.group(1).capitalize()
 
-                    if tool_name in ("phone.call", "sms.send", "ewallet.transfer") and "sys.ask_missing_info" in allowed_tool_names:
-                        for s_rec_ct in reversed(step_history):
-                            if s_rec_ct.get("tool_called") == "contacts.search" and isinstance(s_rec_ct.get("raw_observation"), dict):
-                                cts_found = s_rec_ct["raw_observation"].get("contacts")
-                                if isinstance(cts_found, list) and len(cts_found) >= 2:
-                                    tool_name = "sys.ask_missing_info"
-                                    arguments = {"tool_name": action.get("name"), "params": ["contact_id"]}
-                                break
-
-                    if tool_name in ("phone.call", "sms.send", "ewallet.transfer", "ewallet.topup_mobile") and "contact_id" in arguments and "contacts.search" in allowed_tool_names:
-                        cid_val = str(arguments.get("contact_id", ""))
-                        obs_blob_ct = json.dumps([s.get("raw_observation", "") for s in step_history], ensure_ascii=False)
-                        if cid_val and f'"{cid_val}"' not in history_blob and f'"{cid_val}"' not in obs_blob_ct and not any(sig.startswith("contacts.search:") for sig in executed_call_signatures):
-                            q_ct = "Lan"
-                            for cand_ct in ("Cô giáo Mai", "Bác Ba", "Chú Năm", "Sếp Dũng", "Anh Kha", "Anh Lộc", "Anh Sáu", "Thằng Út", "Minh", "Lan", "Hương", "Tuấn", "Bình", "Bố", "Mẹ", "Mạ"):
-                                if cand_ct.lower() in user_text.lower():
-                                    q_ct = cand_ct
-                                    break
-                            c_res = env.call("contacts.search", {"query": q_ct})
-                            executed_call_signatures.add(f'contacts.search:{json.dumps({"query": q_ct}, sort_keys=True)}')
-                            step_history.append({
-                                "step": step_idx + 1,
-                                "tool_called": "contacts.search",
-                                "arguments": {"query": q_ct},
-                                "observation": compact_observation(c_res, max_length=1200),
-                                "raw_observation": c_res,
-                            })
-                            if isinstance(c_res, dict) and isinstance(c_res.get("contacts"), list) and len(c_res["contacts"]) >= 2 and "sys.ask_missing_info" in allowed_tool_names:
-                                tool_name = "sys.ask_missing_info"
-                                arguments = {"tool_name": action.get("name"), "params": ["contact_id"]}
+                    if tool_name in ("phone.call", "sms.send", "ewallet.transfer", "ewallet.topup_mobile") and "contact_id" in arguments:
+                        contacts = observed_entities(history, step_history, {"contacts.search", "contacts.get"}, "contacts", "contact")
+                        if not contacts and "contacts.search" in allowed_tool_names:
+                            raise ActionFeedback(tool_name, arguments,
+                                "Recipient ID has not been observed. Search contacts using the recipient in the request/history, "
+                                "or ask for contact_id if the recipient is missing; do not guess a name.")
 
                     # Tự động gọi 0-arg Reader trước nếu LLM nhảy cóc gọi Write tool với ID bịa (chưa có trong history hay step_history)
                     if self.resolve_lock_ids and tool_name in ZERO_ARG_WRITE_TO_READERS:
@@ -1283,7 +1246,7 @@ class ReActAgent:
                         ]
                         if missing_readers and (not id_known_in_hist or tool_name == "parking.end_session"):
                             for reader in missing_readers:
-                                valid_reader, reader_args, _ = self.guardrail.guard_and_validate(env, reader, {})
+                                valid_reader, reader_args, _ = env.guardrail.guard_and_validate(env, reader, {})
                                 if valid_reader:
                                     reader_result = env.call(reader, reader_args)
                                     executed_call_signatures.add(f"{reader}:{{}}")
@@ -1332,7 +1295,7 @@ class ReActAgent:
                             qty_c = int(m_qty_c.group(1)) if m_qty_c else 1
                             add_args = {"product_id": "gro_01" if app_pfx == "grocery" else "prod_01", "quantity": qty_c}
                             self._resolve_grounded_arguments(add_tool, add_args, history, step_history, user_text)
-                            ok_add, clean_add, _ = self.guardrail.guard_and_validate(env, add_tool, add_args)
+                            ok_add, clean_add, _ = env.guardrail.guard_and_validate(env, add_tool, add_args)
                             if ok_add:
                                 a_res = env.call(add_tool, clean_add)
                                 executed_call_signatures.add(f"{add_tool}:{json.dumps(clean_add, sort_keys=True)}")
@@ -1961,19 +1924,12 @@ class ReActAgent:
                             continue
 
                     if tool_name == "ewallet.transfer":
-                        if "mekong riverside grill" in user_text.lower() or "phần tôi" in user_text.lower():
-                            tool_name = "ewallet.pay_qr"
-                            arguments = {"merchant_id": "mch_01", "amount": 340000}
-                            self._resolve_grounded_arguments(tool_name, arguments, history, step_history, user_text)
-                        elif "350 nghìn" in user_text.lower() and arguments.get("amount") == 3500000:
-                            arguments["amount"] = 350000
-                        elif not re.search(r"\b(\d+|một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười)\s*(?:nghìn|ngàn|triệu|củ|đồng|chục|trăm|k\b|rưỡi)", user_text.lower()) and not re.search(r"\b(hết bao nhiêu|mỗi người|phần của|chia đôi|cưa đôi|số đó|khoản đó)\b", user_text.lower()):
+                        # A recipient transfer is not a QR payment. Keep the model's
+                        # grounded recipient and amount instead of applying canned
+                        # restaurant/"my share" replacements.
+                        if not re.search(r"\b(\d+|một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười)\s*(?:nghìn|ngàn|triệu|củ|đồng|chục|trăm|k\b|rưỡi)", user_text.lower()) and not re.search(r"\b(hết bao nhiêu|mỗi người|phần của|chia đôi|cưa đôi|số đó|khoản đó)\b", user_text.lower()):
                             tool_name = "sys.ask_missing_info"
                             arguments = {"tool_name": "ewallet.transfer", "params": ["amount"]}
-
-                    if tool_name == "ewallet.pay_qr" and isinstance(arguments.get("amount"), (int, float)):
-                        if "phần tôi" in user_text.lower():
-                            arguments["amount"] = 340000
 
                     # Đồng bộ hóa số tiền hoá đơn và tài khoản đủ số dư khi gọi banking.transfer / banking.open_savings / ewallet.transfer sau khi tra cứu list_bills / get_balance
                     if tool_name in ("banking.transfer", "banking.open_savings", "ewallet.transfer"):
@@ -2034,7 +1990,7 @@ class ReActAgent:
                                                 arguments["from_account_id"] = str(valid_acc["id"])
 
                     # 4. Người 1 - Pha 2: Chốt chặn an toàn SafeSchemaGuardrail
-                    is_valid, clean_args, err_msg = self.guardrail.guard_and_validate(env, tool_name, arguments)
+                    is_valid, clean_args, err_msg = env.guardrail.guard_and_validate(env, tool_name, arguments)
                     if tool_name == "calendar.update_event" and "title" in arguments and "đổi tên lịch thành" in user_text.lower():
                         clean_args["title"] = arguments["title"]
 

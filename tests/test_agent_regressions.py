@@ -121,7 +121,7 @@ class GuardrailTests(unittest.TestCase):
         guard = SafeSchemaGuardrail()
         for name, key, kind, value in cases:
             with self.subTest(name=name, key=key):
-                spec = {'parameters': {'properties': {key: {'type': kind}}}}
+                spec = {'parameters': {'properties': {key: {'type': kind}}, 'additionalProperties': False}}
                 self.assertEqual(guard.sanitize_arguments(name, {key: value, 'unknown': 1}, spec), {key: value})
 
     def test_integer_repair_does_not_truncate_or_coerce_boolean(self):

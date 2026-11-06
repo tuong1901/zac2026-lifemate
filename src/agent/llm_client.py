@@ -53,9 +53,14 @@ class LocalHuggingFaceClient(BaseLLMClient):
         max_new_tokens: int = 512,
         context_window: int = 16384,
     ):
+        if not 0 < max_new_tokens < context_window <= 16384:
+            raise ValueError("Invalid context/output token budget")
         import torch
+        import numpy as np
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
+        random.seed(SEED)
+        np.random.seed(SEED)
         torch.manual_seed(SEED)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(SEED)
@@ -63,7 +68,8 @@ class LocalHuggingFaceClient(BaseLLMClient):
         print(f"[LLM] Đang nạp mô hình: {model_name_or_path}...")
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name_or_path,
-            trust_remote_code=True
+            local_files_only=True,
+            trust_remote_code=False
         )
 
         if device is None:
@@ -81,11 +87,14 @@ class LocalHuggingFaceClient(BaseLLMClient):
             model_name_or_path,
             device_map=device_map,
             torch_dtype=dtype,
-            trust_remote_code=True
+            local_files_only=True,
+            trust_remote_code=False
         )
-        if not 0 < max_new_tokens < context_window <= 16384:
-            raise ValueError("Invalid context/output token budget")
+        if self.model.num_parameters() >= 5_000_000_000:
+            raise ValueError("Competition inference requires an LLM with fewer than 5B parameters")
         self.context_window = min(context_window, getattr(self.model.config, "max_position_embeddings", context_window))
+        if self.context_window <= max_new_tokens:
+            raise ValueError("Model context is too small for the output token budget")
         self.max_new_tokens = max_new_tokens
         self.model.eval()
         print(f"[LLM] Đã nạp thành công mô hình trên thiết bị: {self.model.device}")

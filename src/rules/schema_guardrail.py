@@ -1,10 +1,11 @@
 """
 schema_guardrail.py — Bộ gác cổng kiểm tra và tự động sửa lỗi Schema (Pha 2 - Thành viên 1).
-Bảo vệ tuyệt đối Agent không bị phạt điểm U (Penalized Calls).
+Kiểm tra schema trước khi thực thi, giảm lời gọi bị từ chối.
 """
 
 import re
 import math
+import copy
 from typing import Dict, Any, Tuple, Optional
 
 
@@ -13,11 +14,18 @@ class SafeSchemaGuardrail:
     Lá chắn an toàn đứng trước ToolEnv:
     1. Tự động sửa lỗi kỹ thuật định dạng (Type Casting, Datetime ISO-8601, dọn dẹp key rác).
     2. Chạy thử vô hại bằng `env.validate()` (KHÔNG bị ghi vào bài nộp, KHÔNG bị phạt U).
-    3. Chặn đứng 100% các call lỗi không cho lọt vào `env.call()`.
+    3. Chặn lời gọi không vượt qua validate; lỗi thực thi vẫn được ghi nhận.
     """
 
     def __init__(self, timezone_offset: str = "+07:00"):
         self.timezone_offset = timezone_offset
+        self._tool_specs = {}
+
+    def bind(self, tools):
+        """Bind the public catalog per sample without inspecting ToolEnv internals."""
+        bound = copy.copy(self)
+        bound._tool_specs = {tool['name']: copy.deepcopy(tool) for tool in tools}
+        return bound
 
     def sanitize_arguments(
         self,
@@ -43,13 +51,7 @@ class SafeSchemaGuardrail:
             return clean_args
 
         # Optional schema fields can encode explicit user intent (speed, repeat,
-        # color, title, etc.). Preserve them; only undeclared keys are removed below.
-
-        if tool_name in ("sms.send", "phone.call"):
-            if str(clean_args.get("contact_id", "")).startswith("ct_") and "phone_number" in clean_args:
-                clean_args.pop("phone_number", None)
-        elif tool_name == "ewallet.topup_mobile":
-            clean_args.pop("contact_id", None)
+        # color, title, etc.). Only a closed schema permits removing extra keys.
 
         if not tool_spec:
             return clean_args
@@ -58,6 +60,12 @@ class SafeSchemaGuardrail:
 
     def _repair_schema(self, value, schema, key=""):
         """Repair nested declared fields without manufacturing missing values."""
+        if not isinstance(schema, dict):
+            return value
+        # Branch selection and references belong to the authoritative validator.
+        # Guessing a branch can erase fields which another branch requires.
+        if any(k in schema for k in ('$ref', 'allOf', 'anyOf', 'oneOf', 'if', 'patternProperties')):
+            return value
         if value is None:
             return None
         kind = schema.get("type")
@@ -69,7 +77,7 @@ class SafeSchemaGuardrail:
             for name, child in value.items():
                 if name in properties:
                     repaired[name] = self._repair_schema(child, properties[name], name)
-                elif schema.get("additionalProperties") is True:
+                elif schema.get("additionalProperties", True) is True:
                     repaired[name] = child
                 elif isinstance(schema.get("additionalProperties"), dict):
                     repaired[name] = self._repair_schema(child, schema["additionalProperties"], name)
@@ -104,7 +112,7 @@ class SafeSchemaGuardrail:
         # Ép kiểu number (float/int)
         elif prop_type == "number":
             if isinstance(val, (int, float)) and not isinstance(val, bool):
-                return float(val)
+                return val
             if isinstance(val, str):
                 try:
                     number = float(val.strip())
@@ -172,10 +180,13 @@ class SafeSchemaGuardrail:
         """
         if not isinstance(arguments, dict):
             return False, {}, "Arguments must be an object"
-        tool_spec = None
-        if hasattr(env, "tools") and isinstance(env.tools, dict):
-            tool_spec = env.tools.get(tool_name)
-
+        # A valid argument object must survive unchanged: even a harmless-looking
+        # normalization can change an exact-match field or the final state hash.
+        original = copy.deepcopy(arguments)
+        check_result = env.validate(tool_name, original)
+        if check_result.get("ok", False):
+            return True, original, None
+        tool_spec = self._tool_specs.get(tool_name)
         clean_args = self.sanitize_arguments(tool_name, arguments, tool_spec)
         check_result = env.validate(tool_name, clean_args)
 

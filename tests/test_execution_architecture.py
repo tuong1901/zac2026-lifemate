@@ -279,7 +279,7 @@ class AgentArchitectureTests(unittest.TestCase):
 class NestedSchemaTests(unittest.TestCase):
     def test_nested_numbers_null_and_empty_values(self):
         spec = {'parameters': {'properties': {'rows': {'type': 'array', 'items': {
-            'type': 'object', 'properties': {'count': {'type': 'integer'}}}},
+            'type': 'object', 'properties': {'count': {'type': 'integer'}}, 'additionalProperties': False}},
             'optional': {'type': ['string', 'null']}}}}
         result = SafeSchemaGuardrail().sanitize_arguments('demo.write',
             {'rows': [{'count': '3', 'garbage': 4}], 'optional': None}, spec)

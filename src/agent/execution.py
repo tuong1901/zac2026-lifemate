@@ -17,6 +17,17 @@ class RunLimitReached(RuntimeError):
     pass
 
 
+def affected_domains(name, arguments):
+    """Invalidate app reads, including a payment's explicitly named funding app."""
+    domains = {name.split('.')[0]}
+    source = (arguments or {}).get('source')
+    if source in ('bank', 'banking'):
+        domains.add('banking')
+    elif source == 'ewallet':
+        domains.add('ewallet')
+    return domains
+
+
 class ActionFeedback(RuntimeError):
     def __init__(self, name, arguments, message, result=None, executed=False):
         super().__init__(message)
@@ -55,14 +66,20 @@ class GuardedToolEnv:
     def __init__(self, env, allowed_tools, guardrail, budget, read_tools=()):
         self._env = env
         self._allowed = {tool['name'] for tool in allowed_tools}
-        self._guardrail = guardrail
+        self.guardrail = guardrail.bind(allowed_tools)
         self.budget = budget
         self.read_tools = frozenset(read_tools)
         self.mutated_domains = set()
         self.successful_signatures = set()
 
-    def __getattr__(self, name):
-        return getattr(self._env, name)
+    def validate(self, name, arguments):
+        return self._env.validate(name, arguments)
+
+    def get_tool_calls(self):
+        return self._env.get_tool_calls()
+
+    def get_state_hash(self):
+        return self._env.get_state_hash()
 
     def call(self, name, arguments):
         self.budget.before_call()
@@ -74,17 +91,17 @@ class GuardedToolEnv:
             json.dumps(arguments, allow_nan=False)
         except (ValueError, TypeError) as error:
             raise ActionFeedback(name, arguments, "Arguments must be finite JSON values") from error
-        valid, clean, error = self._guardrail.guard_and_validate(self._env, name, arguments)
+        valid, clean, error = self.guardrail.guard_and_validate(self._env, name, arguments)
         if not valid:
             raise ActionFeedback(name, clean, str(error))
         self.budget.before_call()
         self.budget.calls += 1
         if name not in self.read_tools:
-            domain = name.split(".")[0]
-            self.mutated_domains.add(domain)
+            domains = affected_domains(name, clean)
+            self.mutated_domains.update(domains)
             stale = {signature for signature in self.successful_signatures
                      if signature.split(":", 1)[0] in self.read_tools
-                     and signature.split(".", 1)[0] == domain}
+                     and signature.split(".", 1)[0] in domains}
             self.successful_signatures.difference_update(stale)
         # An exception has an unknown mutation outcome: deliberately do not retry it.
         result = self._env.call(name, clean)
@@ -107,10 +124,10 @@ def successful_history_reads(history, read_tools, volatile_tools=()):
             if not isinstance(call, dict):
                 continue
             name = call.get('name', '')
-            domain = name.split('.')[0]
             if name not in read_tools:
                 # Even an uncertain/failed mutation makes older observations unsafe.
-                cache = {key: value for key, value in cache.items() if key.split('.')[0] != domain}
+                domains = affected_domains(name, call.get('arguments'))
+                cache = {key: value for key, value in cache.items() if key.split('.')[0] not in domains}
                 continue
             if name in volatile_tools or index >= len(results):
                 continue
@@ -130,9 +147,9 @@ def current_read_signatures(steps, read_tools):
         name = step.get('tool_called', '')
         if not name:
             continue
-        domain = name.split('.')[0]
         if name not in read_tools:
-            signatures = {entry for entry in signatures if entry[0].split('.')[0] != domain}
+            domains = affected_domains(name, step.get('arguments'))
+            signatures = {entry for entry in signatures if entry[0].split('.')[0] not in domains}
         elif not step.get('error'):
             signatures.add((name, json.dumps(step.get('arguments', {}), sort_keys=True)))
     return signatures

@@ -12,6 +12,7 @@ import os
 import re
 import json
 import functools
+from collections import Counter
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Set, Tuple
@@ -4013,45 +4014,18 @@ def format_exemplar_by_turns(
     fallback_str: str,
     previous_steps: Optional[List[Dict[str, Any]]] = None
 ) -> str:
-    """Hiển thị bài mẫu tổng hợp dưới dạng Kế hoạch thực thi theo từng Lượt ReAct kèm trạng thái tiến độ."""
+    """Show reference calls as examples, never as executable current-sample plans."""
     if not exemplars:
         return fallback_str or "Không có ví dụ mẫu."
-
     ex = exemplars[0]
-    ex_utt = ex.get("audio_text", "")
-    ex_calls = ex.get("tool_calls", [])
-    turns = decompose_tool_calls(ex_calls)
-
-    lines = [f"- Câu mẫu tương đồng: \"{ex_utt}\""]
-    if not turns:
-        lines.append("- Kế hoạch thực thi chuẩn (Out-of-scope / Không gọi tool):")
-        lines.append("  * Lượt 1/1 (is_finished=true): `[]`")
-        return "\n".join(lines)
-
-    executed_tools = {s.get("tool_called") for s in (previous_steps or []) if not s.get("error")}
-    total_turns = len(turns)
-    cur_turn_idx = total_turns
-    for idx, turn_calls in enumerate(turns, 1):
-        turn_tool_names = {c.get("name") for c in turn_calls}
-        if not turn_tool_names.issubset(executed_tools):
-            cur_turn_idx = idx
-            break
-
-    lines.append(f"- Kế hoạch phân tách {total_turns} lượt ReAct chuẩn:")
-    for t_idx, turn_calls in enumerate(turns, 1):
-        is_fin = "true" if t_idx == total_turns else "false"
-        formatted_calls = json.dumps(
-            [{"name": c.get("name"), "arguments": c.get("arguments", {})} for c in turn_calls],
-            ensure_ascii=False
-        )
-        if t_idx < cur_turn_idx:
-            status_tag = "✅ ĐÃ CHẠY XONG Ở BƯỚC TRƯỚC - TUYỆT ĐỐI KHÔNG GỌI LẠI"
-        elif t_idx == cur_turn_idx:
-            status_tag = "👉 LƯỢT HIỆN TẠI CẦN GỌI NGAY"
-        else:
-            status_tag = "⏳ CHỜ LƯỢT SAU"
-        lines.append(f"  * Lượt {t_idx}/{total_turns} [{status_tag}] (is_finished={is_fin}): `{formatted_calls}`")
-    return "\n".join(lines)
+    calls = ex.get("tool_calls", [])
+    return (
+        "Bài mẫu chỉ minh họa cách dùng công cụ, không quyết định hành động hiện tại.\n"
+        f"- Câu mẫu: {ex.get('audio_text', '')}\n"
+        f"- Chuỗi lệnh của mẫu (giữ nguyên thứ tự): {json.dumps(calls, ensure_ascii=False)}\n"
+        "Không sao chép ID, số tiền, thời gian hoặc thông tin thiếu từ mẫu. "
+        "Danh sách rỗng của mẫu không chứng minh yêu cầu hiện tại nằm ngoài phạm vi."
+    )
 
 
 # ==============================================================================
@@ -4221,7 +4195,7 @@ def analyze_observations(
                         f"⚠️ PHÁT HIỆN TRÙNG TÊN DANH BẠ: `contacts.search` trả về {len(contacts)} người trùng tên: {', '.join(c_list)}. "
                         f"Do chưa rõ người nhận, bạn TUYỆT ĐỐI KHÔNG gọi lại `contacts.search` nữa mà BẮT BUỘC gọi `sys.ask_missing_info` "
                         f"với `\"tool_name\"` là công cụ hành động đích (như `\"phone.call\"`, `\"sms.send\"`, `\"ewallet.transfer\"` - KHÔNG dùng `contacts.get`) "
-                        f"và `\"params\": [\"contact_id\"]`, đồng thời đặt `\"is_finished\": true`!"
+                        f"và `\"params\": [\"contact_id\"]` nếu ngữ cảnh chưa phân biệt được người nhận. Tiếp tục xử lý các phần độc lập đủ thông tin."
                     )
             elif len(contacts) == 1:
                 c = contacts[0]
@@ -4326,7 +4300,7 @@ def analyze_observations(
                         dup_ids = ", ".join(f"{d.get('id')} ({d.get('name')})" for d in dup_list)
                         facts.append(
                             f"⚠️ PHÁT HIỆN TRÙNG TÊN CHAT ZALO: `chat_ott.list_chats` có {len(dup_list)} tài khoản trùng tên \"{dup_list[0].get('name')}\": {dup_ids}. "
-                            f"Do chưa rõ tài khoản nhận, bạn BẮT BUỘC gọi `sys.ask_missing_info` với `\"tool_name\"` là `\"chat_ott.send_message\"` (hoặc `\"chat_ott.call\"`) và `\"params\": [\"chat_id\"]`, đồng thời đặt `\"is_finished\": true`!"
+                            f"Nếu ngữ cảnh chưa phân biệt được tài khoản nhận, gọi `sys.ask_missing_info` với `\"tool_name\"` là `\"chat_ott.send_message\"` (hoặc `\"chat_ott.call\"`) và `\"params\": [\"chat_id\"]`. Tiếp tục xử lý các phần độc lập đủ thông tin."
                         )
             for ch in obs.get("chats") or []:
                 members = ch.get("members") or []
@@ -4831,121 +4805,38 @@ def build_step_directive(
     user_utterance: str = "",
     current_time: str = "N/A"
 ) -> str:
-    """
-    Sinh chỉ dẫn bước hiện tại dựa trên Máy trạng thái Lượt ReAct của bài mẫu tổng hợp,
-    khóa chặt số lượng lệnh và danh sách argument keys của lượt hiện tại.
-    """
-    executed_tools = [s.get("tool_called") for s in previous_steps if not s.get("error")]
-    lines: List[str] = []
-
-    if executed_tools:
-        lines.append(f"- Công cụ ĐÃ chạy xong trong phiên này: {executed_tools} -> TUYỆT ĐỐI KHÔNG gọi lặp lại bất kỳ công cụ nào trong danh sách đã chạy!")
-
-    time_hints = build_time_arithmetic_hints(user_utterance, current_time)
-    if time_hints:
-        lines.extend(time_hints)
-
-    if not exemplars:
-        if not executed_tools:
-            lines.append("- Nếu cần tra cứu ID thực thể chưa có trong bộ nhớ, hãy gọi công cụ `list_*`/`get_*`/`search` trước với `\"is_finished\": false`. Nếu đã đủ thông tin, gọi công cụ hành động và đặt `\"is_finished\": true`.")
+    """Use references as hints; completion follows actual user intent and results."""
+    successful = [step for step in previous_steps
+                  if step.get("tool_called") and not step.get("error")]
+    lines = [
+        "- Ưu tiên yêu cầu hiện tại, ngữ cảnh, schema và kết quả công cụ thực tế. Bài mẫu chỉ tham khảo.",
+        "- Chỉ thêm tham số có căn cứ trong yêu cầu/ngữ cảnh/kết quả; giữ tham số tùy chọn người dùng yêu cầu.",
+        "- Dùng ID đã quan sát, không đoán ID. Nếu cần dữ liệu, gọi công cụ đọc phù hợp rồi quan sát trước khi ghi.",
+        "- Không gọi lại cùng thao tác đã thành công; cùng tên công cụ vẫn có thể cần cho đối tượng/tham số khác.",
+        "- Khi thiếu thông tin, gọi sys.ask_missing_info với tool_name và các params thực sự còn thiếu; "
+        "có thể hỏi sau khi đã thực hiện phần độc lập đủ thông tin.",
+        "- Chỉ đặt is_finished=true khi mọi phần yêu cầu đã được xử lý, đã hỏi phần thiếu hoặc không có công cụ phù hợp. "
+        "Một phần ngoài phạm vi không làm mất phần độc lập mà ứng dụng có thể xử lý."
+    ]
+    lines.extend(build_time_arithmetic_hints(user_utterance, current_time))
+    if successful:
+        done = [{"name": step["tool_called"], "arguments": step.get("arguments", {})} for step in successful]
+        lines.append("- Các lệnh đã thành công: " + json.dumps(done, ensure_ascii=False))
+    if exemplars:
+        # Consume each occurrence once. A single notes.create does not satisfy
+        # two notes.create calls in a multi-action reference.
+        counts = Counter(step["tool_called"] for step in successful)
+        remaining = []
+        for call in exemplars[0].get("tool_calls", []):
+            name = call.get("name", "")
+            if counts[name] > 0:
+                counts[name] -= 1
+            elif name:
+                remaining.append(name)
+        if remaining:
+            lines.append("- Công cụ còn lại trong bài mẫu, chỉ dùng nếu phù hợp yêu cầu hiện tại: " + str(remaining))
         else:
-            lines.append("- Sử dụng ID thực tế từ [OBSERVATION] phía trên để gọi các công cụ hành động còn lại và đặt `\"is_finished\": true`.")
-        return "\n".join(lines)
-
-    ex_calls = exemplars[0].get("tool_calls", [])
-    turns = decompose_tool_calls(ex_calls)
-
-    if not turns:
-        lines.append(
-            "- ⚠️ YÊU CẦU NGOÀI PHẠM VI ỨNG DỤNG (OUT-OF-SCOPE): Yêu cầu này không có công cụ phù hợp hoặc không cần gọi tool. "
-            "Trong `\"actions\"`, bạn BẮT BUỘC trả về danh sách rỗng `\"actions\": []` (TUYỆT ĐỐI KHÔNG gọi bất kỳ công cụ nào!) và đặt `\"is_finished\": true`."
-        )
-        return "\n".join(lines)
-
-    total_turns = len(turns)
-    exec_counts: Dict[str, int] = {}
-    for t in executed_tools:
-        if t:
-            exec_counts[t] = exec_counts.get(t, 0) + 1
-
-    cur_turn_idx = total_turns
-    all_turns_done = True
-    for idx, turn_calls in enumerate(turns, 1):
-        turn_tool_names = {c.get("name") for c in turn_calls}
-        if not all(exec_counts.get(tname, 0) > 0 for tname in turn_tool_names):
-            cur_turn_idx = idx
-            all_turns_done = False
-            break
-
-    if all_turns_done and executed_tools:
-        lines.append(
-            "- ⚠️ TẤT CẢ CÔNG CỤ CẦN THIẾT ĐÃ CHẠY XONG HOẶC ĐIỀU KIỆN KHÔNG THỎA MÃN: "
-            "Trong `\"actions\"`, bạn BẮT BUỘC trả về danh sách rỗng `\"actions\": []` (TUYỆT ĐỐI KHÔNG gọi thêm công cụ nào nữa!) và đặt `\"is_finished\": true`."
-        )
-        return "\n".join(lines)
-
-    cur_turn_calls = [
-        c for c in turns[cur_turn_idx - 1]
-        if exec_counts.get(c.get("name"), 0) == 0
-    ] or turns[cur_turn_idx - 1]
-    is_final_turn = (cur_turn_idx == total_turns)
-    has_dup_contacts = "PHÁT HIỆN TRÙNG TÊN DANH BẠ" in obs_analysis
-    has_dup_chats = "PHÁT HIỆN TRÙNG TÊN CHAT ZALO" in obs_analysis
-
-    if is_final_turn:
-        if "CHỈ GỌI ĐÚNG 1 LỆNH `bill_payment.schedule_autopay`" in obs_analysis:
-            seen_autopay = False
-            filtered_calls = []
-            for c in cur_turn_calls:
-                if c.get("name") == "bill_payment.schedule_autopay":
-                    if not seen_autopay:
-                        filtered_calls.append(c)
-                        seen_autopay = True
-                else:
-                    filtered_calls.append(c)
-            cur_turn_calls = filtered_calls
-        m_ev_cnt = re.search(r"EVENING_MED_COUNT=(\d+)", obs_analysis)
-        if m_ev_cnt and any(c.get("name") == "medication.log_taken" for c in cur_turn_calls) and "ngủ" in user_utterance.lower():
-            target_cnt = int(m_ev_cnt.group(1))
-            if target_cnt > 0:
-                med_template = next(c for c in cur_turn_calls if c.get("name") == "medication.log_taken")
-                other_calls = [c for c in cur_turn_calls if c.get("name") != "medication.log_taken"]
-                cur_turn_calls = [med_template] * target_cnt + other_calls
-
-    call_specs = []
-    for c in cur_turn_calls:
-        cname = c.get("name", "")
-        cargs = c.get("arguments") or {}
-        if cname == "sys.ask_missing_info":
-            call_specs.append(f"`sys.ask_missing_info` (BẮT BUỘC truyền đúng `\"arguments\": {json.dumps(cargs, ensure_ascii=False)}`)")
-        elif has_dup_contacts and is_final_turn and cname in {"phone.call", "sms.send", "ewallet.transfer", "chat_ott.call", "chat_ott.send_message"}:
-            ask_args = {"tool_name": cname, "params": ["contact_id"]}
-            call_specs.append(f"`sys.ask_missing_info` (BẮT BUỘC truyền đúng `\"arguments\": {json.dumps(ask_args, ensure_ascii=False)}`)")
-        elif has_dup_chats and is_final_turn and cname in {"chat_ott.call", "chat_ott.send_message"}:
-            ask_args = {"tool_name": cname, "params": ["chat_id"]}
-            call_specs.append(f"`sys.ask_missing_info` (BẮT BUỘC truyền đúng `\"arguments\": {json.dumps(ask_args, ensure_ascii=False)}`)")
-        elif not cargs:
-            call_specs.append(f"`{cname}` (arguments: `{{}}` rỗng, KHÔNG truyền tham số!)")
-        elif cname == "calendar.list_events" and cargs:
-            call_specs.append(f"`calendar.list_events` (BẮT BUỘC truyền đúng `\"arguments\": {json.dumps(cargs, ensure_ascii=False)}`)")
-        elif cname in {"contacts.search", "podcast_radio.search", "maps.search_place"}:
-            call_specs.append(f"`{cname}` (truyền đúng trường `{list(cargs.keys())}`, ví dụ chuẩn theo mẫu: `{json.dumps(cargs, ensure_ascii=False)}`)")
-        else:
-            call_specs.append(f"`{cname}` (BẮT BUỘC truyền đầy đủ và chỉ đúng {len(cargs)} trường: `{list(cargs.keys())}`)")
-
-    if not is_final_turn:
-        lines.append(
-            f"- Bạn đang ở **Lượt ReAct {cur_turn_idx}/{total_turns}** (Bước thu thập dữ liệu). "
-            f"Trong `\"actions\"`, BẮT BUỘC chỉ gọi đúng {len(call_specs)} lệnh của Lượt {cur_turn_idx}: {', '.join(call_specs)} "
-            f"và đặt `\"is_finished\": false` (TUYỆT ĐỐI chưa gọi công cụ của Lượt {cur_turn_idx + 1} và KHÔNG gọi thêm công cụ ngoài danh sách!)."
-        )
-    else:
-        lines.append(
-            f"- Bạn đang ở **Lượt ReAct Cuối ({cur_turn_idx}/{total_turns})**. "
-            f"Trong `\"actions\"`, BẮT BUỘC gọi đúng {len(call_specs)} lệnh của Lượt {cur_turn_idx}: {', '.join(call_specs)}.\n"
-            f"- QUAN TRỌNG: Phải truyền ĐẦY ĐỦ tất cả các trường (keys) đã liệt kê ở trên cho mỗi lệnh (không được bỏ sót trường nào trong danh sách và TUYỆT ĐỐI KHÔNG tự thêm tham số tùy chọn ngoài danh sách!). Đặt `\"is_finished\": true`."
-        )
-
+            lines.append("- Bài mẫu không còn gợi ý; kiểm tra các phần yêu cầu thực tế còn chưa xử lý trước khi kết thúc.")
     return "\n".join(lines)
 
 
@@ -4958,16 +4849,16 @@ Nhiệm vụ của bạn là phân tích yêu cầu tiếng Việt của ngườ
 QUY TẮC VẬN HÀNH CỐT LÕI:
 1. TUÂN THỦ DANH MỤC CÔNG CỤ & ĐÚNG SỐ TRƯỜNG THAM SỐ:
    - Chỉ gọi các công cụ có trong [ALLOWED TOOLS CATALOG]. Tuân thủ nghiêm ngặt `enum=[...]`.
-   - Chỉ truyền đúng các trường tham số (argument keys) được chỉ định trong [CURRENT STEP DIRECTIVE] và [CLOSEST REFERENCE EXEMPLAR]. Nếu mẫu gọi `{}` rỗng thì truyền `{}` rỗng; KHÔNG tự ý thêm các tham số tùy chọn (như `time`, `note`, `type`, `label`, `location`) khi mẫu không dùng.
+   - Tham số phải tuân thủ schema và yêu cầu hiện tại. Giữ các tham số tùy chọn có căn cứ; không sao chép giá trị hoặc giới hạn các trường theo bài mẫu.
 2. GIỮ NGUYÊN TIẾNG VIỆT & LẤY ĐÚNG NGÀY/GIỜ:
    - Viết `"thought"` bằng tiếng Việt ngắn gọn.
    - Giữ nguyên tiếng Việt có dấu (không dịch sang tiếng Anh) cho các tham số `query`, `near`, `title`, `content`, `note`, `location`, `address`, `origin`, `destination`, `assignee`, `label`. Với `contacts.search`, chỉ tìm tên người nhận của hành động gọi/nhắn tin/chuyển tiền (TUYỆT ĐỐI KHÔNG tìm đại từ tự xưng của người nói như "đặt báo thức cho anh/hộ chị/giúp em") và luôn viết hoa chữ cái đầu (ví dụ: `"Bố"`, `"Mẹ"`, `"Mạ"`, `"Bác Ba"`, `"Chú Năm"`, `"Sếp Dũng"`, `"Cô giáo Mai"`, `"Anh Kha"`, `"Thằng Út"`, `"Minh"`, `"Lan"`). Với `podcast_radio.search`, tham số `"query"` chỉ truyền tên tác giả/host hoặc tên chương trình (ví dụ `"Ryan Cooper"`, `"Khoa học mỗi ngày"`), KHÔNG kèm số tập hoặc từ loại `"Số "` ở đầu vào `"query"`. Với `maps.search_place`, tham số `"query"` là loại địa điểm/tên quán cần tìm từ cuộc hội thoại (ví dụ `"quán chay"`, `"cây xăng"`), TUYỆT ĐỐI KHÔNG truyền `"nhà tôi"` vào `"query"`.
    - Khi người dùng nói ngày cụ thể trong tháng (ví dụ "hôm hai tám", "ngày 18") hoặc thứ trong tuần ("thứ sáu này") thì dùng đúng ngày đã tính sẵn trong [CURRENT STEP DIRECTIVE]. Khi người dùng tự đính chính ("à nhầm", "à không", "à thôi", "à khoan"), luôn lấy lựa chọn được đính chính sau cùng.
 3. TUÂN THỦ KẾ HOẠCH LƯỢT REACT & DỮ KIỆN PHÂN TÍCH TRONG [OBSERVATION ANALYSIS]:
-   - Gọi đúng danh sách công cụ và đặt đúng `"is_finished"` (`false` hoặc `true`) theo [CURRENT STEP DIRECTIVE].
+   - Lập kế hoạch theo yêu cầu thực tế và kết quả quan sát. Bài mẫu và chỉ dẫn là gợi ý; không tự kết thúc chỉ vì các tên công cụ trong mẫu đã được gọi.
    - Lấy đúng `id` thực thể, mốc thời gian và nguồn thanh toán (`source`: `"ewallet"` hoặc `"bank"`) theo đối chiếu trong [OBSERVATION ANALYSIS].
 4. XỬ LÝ NGOÀI PHẠM VI (OUT-OF-SCOPE) & HỦY BỎ:
-   - Nếu câu nói là chào hỏi, chúc mừng, cảm ơn, khen ngợi đơn thuần (chit-chat); hoặc người dùng hủy lệnh ("thôi khỏi", "không cần", "bỏ qua đi"); hoặc dịch vụ được yêu cầu không có trong [ALLOWED TOOLS CATALOG]; hoặc câu điều kiện không thỏa mãn ("nếu X thì làm Y, còn không thì thôi"):
+   - Nếu câu nói là chào hỏi, chúc mừng, cảm ơn, khen ngợi đơn thuần (chit-chat); hoặc người dùng hủy lệnh ("thôi khỏi", "không cần", "bỏ qua đi"); hoặc toàn bộ yêu cầu không có dịch vụ phù hợp trong [ALLOWED TOOLS CATALOG]; hoặc câu điều kiện không thỏa mãn ("nếu X thì làm Y, còn không thì thôi"):
    -> BẮT BUỘC trả về `"actions": []` rỗng và `"is_finished": true`.
 
 ĐỊNH DẠNG ĐẦU RA:

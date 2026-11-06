@@ -1,5 +1,8 @@
 # Rà soát và cải tiến cơ chế agent
 
+Báo cáo đợt `a1dc83c`; các thay đổi tiếp theo theo tài liệu BTC nằm trong
+[AGENT_RULES_REFINEMENT.md](AGENT_RULES_REFINEMENT.md).
+
 Mốc đối chiếu là commit `8cca472`; điểm BTC đã xác nhận từ người dùng là
 **34,73/100**. Các điểm cao trong lịch sử benchmark nội bộ không được dùng để
 khẳng định điểm leaderboard hoặc bảo đảm mục tiêu 95.
@@ -46,7 +49,7 @@ không tự gọi lại một thao tác có thể đã thay đổi state.
 ## Giới hạn và chi phí
 
 - `ReActAgent` mặc định giữ 7 lượt, thêm ngân sách 28 giây và 48 lời gọi tool cho
-  toàn bộ mẫu, kể cả helper. Hết ngân sách thì trả log/state hiện có và ghi thông
+  vòng agent, kể cả helper; chưa bao gồm ASR chạy trước đó. Hết ngân sách thì trả log/state hiện có và ghi thông
   báo giới hạn. Đây là kết quả có thể chưa hoàn tất yêu cầu, không phải thành công.
 - Budget không ngắt cứng native kernel hoặc một `ToolEnv.call` đang chạy. HF dùng
   `max_time`, server dùng timeout và tắt retry SDK. Cần đo trên GPU đích để xác

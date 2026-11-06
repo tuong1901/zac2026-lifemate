@@ -130,6 +130,14 @@ class BM25ExemplarRetriever:
         Đánh chỉ mục Inverted Index BM25 cho danh sách bản ghi.
         """
         self.corpus = records
+        self.doc_len = []
+        self.doc_freq = {}
+        self.inverted_index = {}
+        self.idf = {}
+        self.avgdl = 0.0
+        self.is_indexed = False
+        for derived in ('_catalog_exemplars_indexed', '_atomic_retriever'):
+            self.__dict__.pop(derived, None)
         num_docs = len(records)
         if num_docs == 0:
             return
@@ -173,7 +181,7 @@ class BM25ExemplarRetriever:
         """
         Tìm kiếm Top-K ví dụ mẫu tương đồng nhất bằng BM25.
         """
-        if not self.is_indexed or not self.corpus:
+        if not self.is_indexed or not self.corpus or top_k <= 0:
             return []
 
         query_tokens = tokenize_vietnamese(query_text)
@@ -188,16 +196,34 @@ class BM25ExemplarRetriever:
                 allowed_apps = set(installed_apps)
         allowed_apps.add("sys")
 
+        def compatible(record):
+            for call in record.get('tool_calls', []):
+                names = [call.get('name', '')]
+                if names[0] == 'sys.ask_missing_info':
+                    names.append((call.get('arguments') or {}).get('tool_name', ''))
+                for name in names:
+                    app = name.split('.')[0]
+                    if app not in allowed_apps:
+                        return False
+                    if app != 'sys' and isinstance(installed_apps, dict):
+                        info = installed_apps.get(app) or {}
+                        specific = info.get('tools') if isinstance(info, dict) else None
+                        if specific and name not in specific:
+                            return False
+            return True
+
+        eligible = None
+        if hard_app_filter and installed_apps is not None:
+            eligible = {i for i, record in enumerate(self.corpus) if compatible(record)}
+
         scores: Dict[int, float] = {}
         for t in query_tokens:
             if t not in self.inverted_index:
                 continue
             t_idf = self.idf[t]
             for doc_idx, tf in self.inverted_index[t]:
-                if hard_app_filter and allowed_apps:
-                    rec_called = self.corpus[doc_idx]["called_apps"]
-                    if not rec_called or not rec_called.issubset(allowed_apps):
-                        continue
+                if eligible is not None and doc_idx not in eligible:
+                    continue
 
                 d_len = self.doc_len[doc_idx]
                 denominator = tf + self.k1 * (1.0 - self.b + self.b * (d_len / self.avgdl))
@@ -206,8 +232,6 @@ class BM25ExemplarRetriever:
                 scores[doc_idx] = scores.get(doc_idx, 0.0) + term_score
 
         if not scores:
-            if hard_app_filter and allowed_apps:
-                return self.retrieve(query_text, installed_apps, top_k, hard_app_filter=False)
             return []
 
         sorted_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
