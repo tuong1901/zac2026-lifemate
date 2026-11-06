@@ -4,37 +4,7 @@ Bảo vệ tuyệt đối Agent không bị phạt điểm U (Penalized Calls).
 """
 
 import re
-from typing import Dict, Any, Tuple, Optional, List, Set
-
-# Danh sách các tham số tùy chọn mà Gold chuẩn gần như không bao giờ dùng (trừ khi bắt buộc)
-STRIP_OPTIONAL_KEYS: Dict[str, Set[str]] = {
-    "smart_home.light_set": {"color"},
-    "smart_home.fan_set": {"speed"},
-    "alarm.create": {"label", "repeat"},
-    "alarm.update": {"label", "repeat", "enabled"},
-    "reminders.create": {"repeat"},
-    "calendar.create_event": {"attendees"},
-    "calendar.update_event": {"title"},
-    "tasks.list": {"status"},
-    "tasks.add": {"priority"},
-    "sms.read_recent": {"limit"},
-    "chat_ott.read_chat": {"limit"},
-    "email.list": {"unread_only"},
-    "email.create_draft": {"cc"},
-    "banking.list_transactions": {"limit"},
-    "banking.transfer": {"note"},
-    "ewallet.transfer": {"note"},
-    "bill_payment.list_bills": {"type"},
-    "food_delivery.order_history": {"limit"},
-    "food_delivery.place_order": {"address", "payment"},
-    "ride_hailing.book": {"payment"},
-    "ride_hailing.get_ride": {"ride_id"},
-    "flights.search": {"passengers"},
-    "flights.book": {"seat_class"},
-    "package_tracking.track": {"tracking_id"},
-    "music.play": {"device"},
-    "door_lock.grant_guest_code": {"label"},
-}
+from typing import Dict, Any, Tuple, Optional
 
 
 class SafeSchemaGuardrail:
@@ -71,10 +41,8 @@ class SafeSchemaGuardrail:
                     clean_args["params"] = []
             return clean_args
 
-        # Loại bỏ các tham số tùy chọn dư thừa gây lệch exact-match với Gold
-        if tool_name in STRIP_OPTIONAL_KEYS:
-            for k_drop in STRIP_OPTIONAL_KEYS[tool_name]:
-                clean_args.pop(k_drop, None)
+        # Optional schema fields can encode explicit user intent (speed, repeat,
+        # color, title, etc.). Preserve them; only undeclared keys are removed below.
 
         if tool_name in ("sms.send", "phone.call"):
             if str(clean_args.get("contact_id", "")).startswith("ct_") and "phone_number" in clean_args:
@@ -87,7 +55,6 @@ class SafeSchemaGuardrail:
 
         spec_params = tool_spec.get("parameters", {})
         properties = spec_params.get("properties", {})
-        required = set(spec_params.get("required", []))
 
         sanitized: Dict[str, Any] = {}
 
@@ -99,10 +66,6 @@ class SafeSchemaGuardrail:
             prop_def = properties[key]
             prop_type = prop_def.get("type")
             prop_format = prop_def.get("format")
-
-            # Xử lý giá trị rỗng cho trường không bắt buộc
-            if val in (None, "", [], {}) and key not in required:
-                continue
 
             fixed_val = self._repair_value(key, val, prop_type, prop_format)
             sanitized[key] = fixed_val
@@ -116,8 +79,10 @@ class SafeSchemaGuardrail:
         # Ép kiểu integer
         if prop_type == "integer":
             if isinstance(val, bool):
-                return 1 if val else 0
-            if isinstance(val, (int, float)):
+                return val  # Let schema validation reject bool-as-integer.
+            if isinstance(val, int):
+                return val
+            if isinstance(val, float) and val.is_integer():
                 return int(val)
             if isinstance(val, str):
                 s = val.strip()

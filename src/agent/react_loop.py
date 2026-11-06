@@ -188,7 +188,7 @@ class ReActAgent:
         Trích xuất và phân tích JSON từ chuỗi sinh của LLM.
         Hỗ trợ dọn dẹp markdown ```json ... ``` và sửa lỗi cú pháp nhẹ.
         """
-        if not response:
+        if not isinstance(response, str) or not response.strip():
             return None
 
         clean = response.strip()
@@ -203,7 +203,25 @@ class ReActAgent:
             clean = match.group(1)
 
         try:
-            return json.loads(clean)
+            def reject_constant(value):
+                raise ValueError(f"Invalid JSON number: {value}")
+            parsed = json.loads(clean, parse_constant=reject_constant)
+            if not isinstance(parsed, dict) or not isinstance(parsed.get("is_finished", False), bool):
+                return None
+            if "actions" in parsed and "action" in parsed:
+                return None
+            actions = parsed.get("actions", parsed.get("action"))
+            if isinstance(actions, dict):
+                actions = [actions]
+            if actions is not None:
+                if not isinstance(actions, list):
+                    return None
+                for action in actions:
+                    if not isinstance(action, dict) or (not isinstance(action.get("name"), str) or not action["name"]):
+                        return None
+                    if not isinstance(action.get("arguments", {}), dict):
+                        return None
+            return parsed
         except Exception:
             return None
 
@@ -822,17 +840,10 @@ class ReActAgent:
             response = self.llm_client.generate(SYSTEM_PROMPT, prompt)
             parsed = self.parse_llm_json(response)
 
-            if not parsed:
-                m_fb = re.search(r"\[👉 LƯỢT HIỆN TẠI CẦN GỌI NGAY\] \(is_finished=(true|false)\): `(\[.*?\])`", prompt)
-                if m_fb:
-                    try:
-                        fb_acts = json.loads(m_fb.group(2))
-                        parsed = {"thought": "Khôi phục từ kế hoạch mẫu.", "actions": fb_acts, "is_finished": (m_fb.group(1) == "true")}
-                    except Exception:
-                        pass
-                if not parsed:
-                    print(f"  [ReAct Bước {step_idx + 1}] Không phân tích được JSON từ LLM: {response[:100]}...")
-                    break
+            if parsed is None:
+                step_history.append({"step": step_idx + 1,
+                                     "error": "Invalid JSON action plan. Return actions with object arguments and a boolean is_finished. No tool was called."})
+                continue
 
             thought = parsed.get("thought", "")
             is_finished = parsed.get("is_finished", False)
@@ -848,20 +859,15 @@ class ReActAgent:
 
             # Loại bỏ các công cụ Read đã chạy ở bước trước để tránh kích hoạt nhầm chốt chặn Read-before-Write hoặc gọi lặp phạt U
             if step_history and actions_list:
-                exec_read_names = {s.get("tool_called") for s in step_history if not s.get("error") and s.get("tool_called") in READ_TOOLS}
-                filtered_acts = []
-                for a in actions_list:
-                    aname = a.get("name")
-                    if aname in exec_read_names:
-                        if aname in ("contacts.search", "stocks.get_quote"):
-                            q_k = "query" if aname == "contacts.search" else "symbol"
-                            q_v = str((a.get("arguments") or {}).get(q_k, "")).strip().lower()
-                            prev_qs = {str((s.get("arguments") or {}).get(q_k, "")).strip().lower() for s in step_history if s.get("tool_called") == aname}
-                            if q_v and q_v not in prev_qs:
-                                filtered_acts.append(a)
-                        continue
-                    filtered_acts.append(a)
-                actions_list = filtered_acts
+                # Only identical successful queries are duplicates. A second date,
+                # search term or filter requires its own observation.
+                read_signatures = {
+                    (s.get("tool_called"), json.dumps(s.get("arguments", {}), sort_keys=True))
+                    for s in step_history if not s.get("error") and s.get("tool_called") in READ_TOOLS
+                }
+                actions_list = [a for a in actions_list if
+                                (a["name"], json.dumps(a.get("arguments", {}), sort_keys=True))
+                                not in read_signatures]
 
             if step_history and not actions_list and "TẤT CẢ CÔNG CỤ CẦN THIẾT ĐÃ CHẠY XONG" not in prompt and "YÊU CẦU NGOÀI PHẠM VI ỨNG DỤNG" not in prompt:
                 m_cur_turn = re.search(r"\[👉 LƯỢT HIỆN TẠI CẦN GỌI NGAY\] \(is_finished=(true|false)\): `(\[.*?\])`", prompt)
@@ -1121,6 +1127,11 @@ class ReActAgent:
             for action in actions_list:
                 tool_name = action.get("name")
                 arguments = dict(action.get("arguments", {}))
+                if tool_name not in allowed_tool_names:
+                    step_history.append({"step": step_idx + 1, "tool_called": tool_name,
+                                         "arguments": arguments, "error": "Tool is not installed/allowed. No call executed."})
+                    needs_replan = True
+                    break
 
                 # Chống gọi thừa (phạt U) cho các công cụ Read 0-tham số đã có sẵn dữ liệu trong history
                 if tool_name in hist_sat and not arguments:
@@ -2000,9 +2011,8 @@ class ReActAgent:
                 if call_sig in executed_call_signatures:
                     print(f"    - Bỏ qua lệnh đã thực thi thành công: {call_sig}")
                     continue
-                if tool_name in {"sms.send", "phone.call", "ride_hailing.book", "ride_hailing.cancel", "food_delivery.place_order", "notes.create", "email.send", "email.reply", "email.create_draft"} and any(sig.startswith(f"{tool_name}:") for sig in executed_call_signatures) and not re.search(r"\b(cả hai|hai tin|2 tin|hai cuộc|2 cuộc|hai chuyến|2 chuyến|lần lượt)\b", user_text.lower()):
-                    print(f"    - Bỏ qua lệnh Write đơn trị đã thực thi ở bước trước: {tool_name}")
-                    continue
+                # Different recipients, content or bookings are distinct actions.
+                # Exact successful call signatures above already prevent duplicates.
 
                 if not is_valid:
                     # [QUAN TRỌNG]: TUYỆT ĐỐI KHÔNG GỌI env.call() để giữ U = 0!
@@ -2013,14 +2023,13 @@ class ReActAgent:
                         "arguments": clean_args,
                         "error": err_msg
                     })
-                    continue
-
-                executed_call_signatures.add(call_sig)
+                    needs_replan = True
+                    break
 
                 # 5. Thực thi an toàn trên ToolEnv
                 res = env.call(tool_name, clean_args)
                 compact_res = compact_observation(res, max_length=1200)
-                print(f"    - Thực thi env.call() thành công: {compact_res[:100]}...")
+                print(f"    - Kết quả env.call(): {compact_res[:100]}...")
 
                 step_record = {
                     "step": step_idx + 1,
@@ -2029,6 +2038,13 @@ class ReActAgent:
                     "observation": compact_res,
                     "raw_observation": res,
                 }
+                failed = isinstance(res, dict) and (bool(res.get("error")) or res.get("ok") is False or res.get("done") is False)
+                if failed:
+                    step_record["error"] = res.get("error") or "Tool execution failed"
+                    step_history.append(step_record)
+                    needs_replan = True
+                    break
+                executed_call_signatures.add(call_sig)
                 step_history.append(step_record)
 
                 if tool_name == "maps.search_place" and isinstance(res, dict) and isinstance(res.get("places"), list) and re.search(r"\bkhông(?:\s+có)?\s+thì\s+tìm\s+gần\b", user_text.lower()):
