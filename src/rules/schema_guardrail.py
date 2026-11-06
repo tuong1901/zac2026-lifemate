@@ -4,6 +4,7 @@ Bảo vệ tuyệt đối Agent không bị phạt điểm U (Penalized Calls).
 """
 
 import re
+import math
 from typing import Dict, Any, Tuple, Optional
 
 
@@ -53,24 +54,35 @@ class SafeSchemaGuardrail:
         if not tool_spec:
             return clean_args
 
-        spec_params = tool_spec.get("parameters", {})
-        properties = spec_params.get("properties", {})
+        return self._repair_schema(clean_args, tool_spec.get("parameters", {}))
 
-        sanitized: Dict[str, Any] = {}
-
-        # 1. Dọn dẹp key rác (chỉ giữ lại các trường có trong properties của schema)
-        for key, val in clean_args.items():
-            if key not in properties:
-                continue
-
-            prop_def = properties[key]
-            prop_type = prop_def.get("type")
-            prop_format = prop_def.get("format")
-
-            fixed_val = self._repair_value(key, val, prop_type, prop_format)
-            sanitized[key] = fixed_val
-
-        return sanitized
+    def _repair_schema(self, value, schema, key=""):
+        """Repair nested declared fields without manufacturing missing values."""
+        if value is None:
+            return None
+        kind = schema.get("type")
+        if kind == "object" or "properties" in schema:
+            if not isinstance(value, dict):
+                return value
+            properties = schema.get("properties", {})
+            repaired = {}
+            for name, child in value.items():
+                if name in properties:
+                    repaired[name] = self._repair_schema(child, properties[name], name)
+                elif schema.get("additionalProperties") is True:
+                    repaired[name] = child
+                elif isinstance(schema.get("additionalProperties"), dict):
+                    repaired[name] = self._repair_schema(child, schema["additionalProperties"], name)
+            return repaired
+        if kind == "array":
+            items = schema.get("items", {})
+            # Do not turn a scalar into a list: that changes argument structure.
+            if not isinstance(value, list):
+                return value
+            if isinstance(items, dict):
+                return [self._repair_schema(child, items, key) for child in value]
+            return value
+        return self._repair_value(key, value, kind, schema.get("format"))
 
     def _repair_value(self, key: str, val: Any, prop_type: Optional[str], prop_format: Optional[str]) -> Any:
         """
@@ -95,7 +107,8 @@ class SafeSchemaGuardrail:
                 return float(val)
             if isinstance(val, str):
                 try:
-                    return float(val.strip())
+                    number = float(val.strip())
+                    return number if math.isfinite(number) else val
                 except ValueError:
                     pass
 
@@ -105,11 +118,11 @@ class SafeSchemaGuardrail:
                 return val
             if isinstance(val, str):
                 s = val.strip().lower()
-                if s in ("true", "1", "yes", "có", "bật", "khoá", "mở", "on"):
+                if s in ("true", "1", "yes", "có", "bật", "on"):
                     return True
                 if s in ("false", "0", "no", "không", "tắt", "off"):
                     return False
-            if isinstance(val, (int, float)):
+            if isinstance(val, (int, float)) and val in (0, 1):
                 return bool(val)
 
         # Ép kiểu array
@@ -157,6 +170,8 @@ class SafeSchemaGuardrail:
         1. Tự động sửa lỗi tham số (Auto-sanitize).
         2. Chạy thử nghiệm bằng env.validate() (KHÔNG gây phạt U).
         """
+        if not isinstance(arguments, dict):
+            return False, {}, "Arguments must be an object"
         tool_spec = None
         if hasattr(env, "tools") and isinstance(env.tools, dict):
             tool_spec = env.tools.get(tool_name)

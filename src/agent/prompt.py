@@ -11,20 +11,10 @@ Thiết kế tổng quát hóa 100% cho mô hình Qwen 2.5 3B trên mọi miền
 import os
 import re
 import json
-import time
-import inspect
 import functools
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Set, Tuple
-
-
-class _MultiRedeemSignatureSet(set):
-    """Set chữ ký lệnh cho phép loyalty.redeem được thực thi nhiều lần trong cùng một lượt đổi nhiều vé."""
-    def __contains__(self, item: object) -> bool:
-        if isinstance(item, str) and item.startswith("loyalty.redeem:"):
-            return False
-        return super().__contains__(item)
 
 
 # ==============================================================================
@@ -1346,24 +1336,15 @@ def extract_full_history_memory(history: List[Dict[str, Any]], fallback_memory: 
 
 
 def format_tools_with_enums(allowed_tools: List[Dict[str, Any]], fallback_desc: str) -> str:
-    """Định dạng danh sách tool cô đọng kèm enum=[...] cho từng tham số."""
+    """Keep the complete executable schema, including nested items and constraints."""
     if not allowed_tools:
         return fallback_desc
-    lines = []
-    for t in allowed_tools:
-        name = t["name"]
-        params = t.get("parameters", {}).get("properties", {})
-        required = t.get("parameters", {}).get("required", [])
-        param_str = []
-        for p_name, p_info in params.items():
-            req_tag = "*" if p_name in required else ""
-            p_type = p_info.get("type", "any")
-            if "enum" in p_info:
-                p_type = f"enum={p_info['enum']}"
-            param_str.append(f"{p_name}{req_tag}: {p_type}")
-        desc = t.get("description", "").split(".")[0][:45]
-        lines.append(f"- `{name}`({', '.join(param_str)}) - {desc}")
-    return "\n".join(lines)
+    return "\n".join(json.dumps({
+        "name": tool["name"],
+        "description": tool.get("description", ""),
+        "parameters": tool.get("parameters", {}),
+    }, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        for tool in sorted(allowed_tools, key=lambda tool: tool["name"]))
 
 
 # ==============================================================================
@@ -2531,94 +2512,11 @@ NEVER_HISTORY_SATISFIED_TOOLS: Set[str] = {
 
 
 def get_history_satisfied_reads(history: Optional[List[Dict[str, Any]]], u_text: str = "") -> Set[str]:
-    """Xác định các công cụ Đọc đã được thực thi và có sẵn dữ liệu trong history."""
-    sat: Set[str] = set()
-    u_low = (u_text or "").lower()
-    is_short_followup = len(u_low.split()) <= 16 or bool(re.search(r"\b(cái đó|buổi đó|hôm đó|người đó|số đó|khoản đó|bài đó|bản đó|đơn đó|mấy bài đó|như thế|vừa chọn|hồi nãy|lúc sáng|chuyến đó|món đó|vé đó|bãi đó)\b", u_low))
-    hist_list = history or []
-    is_long_multi_session = len(hist_list) >= 12
-    for idx_t, t in enumerate(hist_list):
-        is_recent_turn = (not is_long_multi_session) or (idx_t >= len(hist_list) - 4)
-        for tc in (t.get("tool_calls") or []):
-            tname = tc.get("name", "")
-            targs = tc.get("arguments") or {}
-            if tname in READ_TOOLS and tname not in NEVER_HISTORY_SATISFIED_TOOLS:
-                if targs and not is_recent_turn and not is_short_followup:
-                    continue
-                if tname == "calendar.list_events" and targs and not is_short_followup and not re.search(r"\b(dời lịch|sửa lịch|đổi tên lịch)\b", u_low):
-                    continue
-                if tname == "contacts.search" and targs.get("query") and str(targs["query"]).lower() not in u_low and not is_short_followup:
-                    continue
-                if tname == "food_delivery.list_restaurants" and not is_short_followup and not re.search(r"\b(cô ba|nhà mèo|nhà làm|sài gòn 168)\b", u_low):
-                    continue
-                if tname in {"food_delivery.order_history", "ecommerce.order_status"} and re.search(r"\b(tới đâu rồi|xem .* đơn|kiểm tra .* đơn)\b", u_low):
-                    continue
-                if tname == "bike_rental.find_bikes" and re.search(r"\bở\s+trạm\b", u_low) and not re.search(r"\b(lúc nãy|vừa nãy|hồi nãy)\b", u_low):
-                    continue
-                if tname == "maps.search_place" and not re.search(r"\b(lưu|đánh dấu|chỉ đường tới chỗ đó|chỉ đường ra đó)\b", u_low):
-                    continue
-                sat.add(tname)
-                if tname == "email.read":
-                    sat.add("email.list")
-            elif tname in {"grocery.add_to_cart", "ecommerce.add_to_cart"} and is_recent_turn:
-                sat.add(tname)
-            elif tname == "home_automation.create_rule":
-                sat.add("home_automation.list_rules")
-            elif tname == "food_delivery.place_order" and is_recent_turn:
-                sat.add("food_delivery.order_history")
-            elif tname == "smart_home.get_status" and idx_t >= len(hist_list) - 2 and len(u_low.split()) <= 16 and not re.search(r"\b(phòng nào|xem|kiểm tra|coi)\b", u_low):
-                sat.add(tname)
-        for res in (t.get("tool_results") or []):
-            if isinstance(res, dict) and ("rules" in res or "rule" in res):
-                sat.add("home_automation.list_rules")
-            if not isinstance(res, dict) or (not is_recent_turn and not is_short_followup):
-                continue
-            if "alerts" in res or "alert" in res:
-                sat.add("home_security.list_alerts")
-            if "rules" in res or "rule" in res:
-                sat.add("home_automation.list_rules")
-            if "chats" in res or "chat" in res:
-                sat.add("chat_ott.list_chats")
-            if "messages" in res and is_recent_turn:
-                sat.add("chat_ott.read_chat")
-                sat.add("sms.read_recent")
-            if "tasks" in res or "task" in res:
-                sat.add("tasks.list")
-            if "bookings" in res:
-                sat.add("flights.my_bookings")
-                sat.add("train_bus_tickets.my_bookings")
-            if "flights" in res and is_recent_turn:
-                sat.add("flights.search")
-            if "trips" in res:
-                sat.add("train_bus_tickets.search")
-            if "events" in res and isinstance(res["events"], list) and any(isinstance(x, dict) and ("venue" in x or "available" in x or "price" in x) for x in res["events"]):
-                sat.add("event_tickets.search")
-            if "calls" in res:
-                sat.add("phone.recent_calls")
-            if "places" in res and is_recent_turn and re.search(r"\b(lưu|đánh dấu|chỉ đường tới chỗ đó|chỉ đường ra đó)\b", u_low):
-                sat.add("maps.search_place")
-            if "products" in res and is_recent_turn:
-                sat.add("ecommerce.search")
-                sat.add("grocery.search")
-            if "notes" in res or "note" in res:
-                sat.add("notes.list")
-            if "programs" in res and "channels" in res:
-                sat.add("tv.guide")
-            if "habits" in res:
-                sat.add("habit_tracker.list_habits")
-            if "items" in res and any(isinstance(x, dict) and str(x.get("id", "")).startswith("pan_") for x in (res.get("items") or [])):
-                sat.add("pantry.list_items")
-            if "sessions" in res:
-                sat.add("parking.list_sessions")
-            if "lots" in res and is_recent_turn:
-                sat.add("parking.find")
-            if "portfolio" in res or "holdings" in res:
-                sat.add("stocks.get_portfolio")
-            if "recipes" in res and is_recent_turn:
-                sat.add("recipes.search")
-            if "routes" in res:
-                sat.add("public_transit.find_routes")
-    return sat
+    """Use tool provenance, not similarly named result fields, to reuse reads."""
+    from src.agent.execution import successful_history_reads
+    if re.search(r"\b(kiểm tra lại|xem lại|hiện tại|bây giờ|cập nhật)\b", u_text, re.IGNORECASE):
+        return set()
+    return set(successful_history_reads(history, READ_TOOLS, NEVER_HISTORY_SATISFIED_TOOLS))
 
 
 def _extract_contact_query_from_text(u_lower: str) -> Optional[str]:
@@ -5114,7 +5012,13 @@ def build_user_prompt(
     history_entities: str,
     tools_description: str,
     few_shot_examples: str,
-    previous_steps: List[Dict[str, Any]]
+    previous_steps: List[Dict[str, Any]],
+    *,
+    history: Optional[List[Dict[str, Any]]] = None,
+    allowed_tools: Optional[List[Dict[str, Any]]] = None,
+    exemplars: Optional[List[Dict[str, Any]]] = None,
+    retriever: Any = None,
+    asr_variants: Optional[Dict[str, str]] = None,
 ) -> str:
     """
     Ghép nối toàn bộ ngữ cảnh thành User Prompt hoàn chỉnh cho LLM.
@@ -5129,95 +5033,23 @@ def build_user_prompt(
 
     enriched_memory = clean_asr_transcript(history_entities) if history_entities else "Không có lịch sử hội thoại trước đó."
     enriched_tools = tools_description
-    raw_exemplars: List[Dict[str, Any]] = []
-    raw_history: Optional[List[Dict[str, Any]]] = None
-    sample_id: Optional[str] = None
-    asr_variants: Dict[str, str] = {}
-
-    try:
-        caller_frame = inspect.currentframe().f_back
-        if caller_frame and caller_frame.f_locals:
-            f_locals = caller_frame.f_locals
-            item_obj = f_locals.get("item")
-            if isinstance(item_obj, dict):
-                sample_id = item_obj.get("id")
-            raw_history = f_locals.get("history")
-            if isinstance(raw_history, list) and raw_history:
-                enriched_memory = extract_full_history_memory(raw_history, enriched_memory)
-            raw_allowed_tools = f_locals.get("allowed_tools")
-            if isinstance(raw_allowed_tools, list) and raw_allowed_tools:
-                enriched_tools = format_tools_with_enums(raw_allowed_tools, tools_description)
-
-            if sample_id:
-                asr_variants = _get_multi_asr_variants(sample_id, user_utterance)
-
-            agent_self = f_locals.get("self")
-            if agent_self and getattr(agent_self, "llm_client", None):
-                llm_c = agent_self.llm_client
-                if not getattr(llm_c, "_retry_wrapped", False):
-                    llm_c._retry_wrapped = True
-                    orig_gen = llm_c.generate
-                    def _gen_with_retry(sys_p: str, usr_p: str, _orig=orig_gen) -> str:
-                        cur_usr_p = usr_p
-                        for attempt in range(6):
-                            try:
-                                raw_out = _orig(sys_p, cur_usr_p)
-                                if raw_out:
-                                    cleaned_out = re.sub(r",\s*([\]\}])", r"\1", raw_out.strip())
-                                    return cleaned_out
-                                return raw_out
-                            except Exception:
-                                if attempt == 5:
-                                    raise
-                                if "PREVIOUS STEPS IN THIS SESSION" in cur_usr_p:
-                                    p1, rest = cur_usr_p.split("[PREVIOUS STEPS IN THIS SESSION]\n", 1)
-                                    next_match = re.search(r"\n\n\[", rest)
-                                    if next_match:
-                                        step_part = rest[:next_match.start()]
-                                        rest_tail = rest[next_match.start():]
-                                        limit = max(200, 600 // (attempt + 1))
-                                        cur_usr_p = p1 + "[PREVIOUS STEPS IN THIS SESSION]\n" + step_part[-limit:] + rest_tail
-                                marker_start = "[ACTIVE MEMORY FROM PREVIOUS DIALOGUE]\n"
-                                if marker_start in cur_usr_p:
-                                    p1, rest = cur_usr_p.split(marker_start, 1)
-                                    next_match = re.search(r"\n\n\[", rest)
-                                    if next_match:
-                                        mem_part = rest[:next_match.start()]
-                                        rest_tail = rest[next_match.start():]
-                                        limit = max(100, 500 // (attempt + 1))
-                                        cur_usr_p = p1 + marker_start + mem_part[-limit:] + rest_tail
-                                time.sleep(0.5 * (attempt + 1))
-                        return ""
-                    llm_c.generate = _gen_with_retry
-                    llm_c._retry_wrapped = True
-
-            exec_sigs = f_locals.get("executed_call_signatures")
-            if isinstance(exec_sigs, set) and not isinstance(exec_sigs, _MultiRedeemSignatureSet):
-                new_sigs = _MultiRedeemSignatureSet(exec_sigs)
-                exec_sigs.clear()
-                f_locals["executed_call_signatures"] = new_sigs
-                try:
-                    import ctypes
-                    ctypes.pythonapi.PyFrame_LocalsToFast(ctypes.py_object(caller_frame), ctypes.c_int(1))
-                except Exception:
-                    pass
-
-            installed_apps = f_locals.get("installed_apps") or context.get("installed_apps", {})
-            fallback_ex = f_locals.get("exemplars") if isinstance(f_locals.get("exemplars"), list) else []
-            if agent_self and getattr(agent_self, "exemplar_retriever", None):
-                raw_exemplars = compose_best_exemplar(
-                    retriever=agent_self.exemplar_retriever,
-                    user_text=cleaned_utterance,
-                    installed_apps=installed_apps,
-                    history=raw_history,
-                    current_time_str=current_time,
-                    fallback_exemplars=fallback_ex,
-                    previous_steps=previous_steps,
-                )
-            elif fallback_ex:
-                raw_exemplars = fallback_ex
-    except Exception:
-        pass
+    raw_history = history or []
+    if raw_history:
+        enriched_memory = extract_full_history_memory(raw_history, enriched_memory)
+    if allowed_tools is not None:
+        enriched_tools = format_tools_with_enums(allowed_tools, tools_description)
+    asr_variants = dict(asr_variants or {})
+    raw_exemplars = list(exemplars or [])
+    if retriever is not None:
+        raw_exemplars = compose_best_exemplar(
+            retriever=retriever,
+            user_text=cleaned_utterance,
+            installed_apps=context.get("installed_apps", {}),
+            history=raw_history,
+            current_time_str=current_time,
+            fallback_exemplars=raw_exemplars,
+            previous_steps=previous_steps,
+        )
 
     formatted_exemplar = format_exemplar_by_turns(raw_exemplars, few_shot_examples, previous_steps)
 
@@ -5263,7 +5095,7 @@ def build_user_prompt(
             obs = step.get("observation", step.get("result", ""))
             err = step.get("error")
             if err:
-                prompt_parts.append(f"- Step {s_idx}: REJECTED `{t_name}({json.dumps(t_args, ensure_ascii=False)})` -> [SCHEMA ERROR]: {err}. Sửa lại tham số cho đúng schema!")
+                prompt_parts.append(f"- Step {s_idx}: REJECTED `{t_name}({json.dumps(t_args, ensure_ascii=False)})` -> [ACTION FEEDBACK]: {err}. Kiểm tra lỗi và sửa kế hoạch; không lặp lại hành động đã thành công!")
             else:
                 prompt_parts.append(f"- Step {s_idx}: COMPLETED `{t_name}({json.dumps(t_args, ensure_ascii=False)})` -> [OBSERVATION]: {obs}")
         prompt_parts.append("")

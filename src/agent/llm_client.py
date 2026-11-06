@@ -9,11 +9,25 @@ Tuân thủ nghiêm ngặt quy chế ZAC 2026:
 
 import os
 import random
+import time
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any
 
 SEED = 42
 random.seed(SEED)
+
+
+class ContextBudgetExceeded(ValueError):
+    """The complete grounding/schema context does not fit the configured model."""
+
+
+def drop_reference_examples(prompt):
+    """Drop optional demonstrations as one section, preserving actual observations."""
+    start = prompt.find("[CLOSEST REFERENCE EXEMPLAR]")
+    end = prompt.find("[USER UTTERANCE]", start)
+    if start >= 0 and end > start:
+        return prompt[:start] + prompt[end:]
+    return prompt
 
 
 class BaseLLMClient(ABC):
@@ -36,7 +50,8 @@ class LocalHuggingFaceClient(BaseLLMClient):
         self,
         model_name_or_path: str = "Qwen/Qwen2.5-3B-Instruct",
         device: Optional[str] = None,
-        max_new_tokens: int = 512
+        max_new_tokens: int = 512,
+        context_window: int = 16384,
     ):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -68,39 +83,44 @@ class LocalHuggingFaceClient(BaseLLMClient):
             torch_dtype=dtype,
             trust_remote_code=True
         )
+        if not 0 < max_new_tokens < context_window <= 16384:
+            raise ValueError("Invalid context/output token budget")
+        self.context_window = min(context_window, getattr(self.model.config, "max_position_embeddings", context_window))
         self.max_new_tokens = max_new_tokens
+        self.model.eval()
         print(f"[LLM] Đã nạp thành công mô hình trên thiết bị: {self.model.device}")
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        
-        prompt_text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True
-        )
-        
-        inputs = self.tokenizer([prompt_text], return_tensors="pt").to(self.model.device)
-        
-        # Greedy decoding (temperature=0.0, do_sample=False) theo luật BTC
-        outputs = self.model.generate(
-            **inputs,
-            max_new_tokens=self.max_new_tokens,
-            do_sample=False,
-            temperature=None,
-            top_p=None,
-            pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
-        )
-        
-        # Chỉ lấy phần tokens mới sinh ra
-        generated_ids = [
-            out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, outputs)
-        ]
-        response = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-        return response.strip()
+        return self.generate_with_budget(system_prompt, user_prompt, 28.0)
+
+    def generate_with_budget(self, system_prompt: str, user_prompt: str, seconds: float) -> str:
+        import torch
+        deadline = time.monotonic() + seconds
+
+        def encode(prompt):
+            messages = [{"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt}]
+            text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            return self.tokenizer([text], return_tensors="pt", add_special_tokens=False).to(self.model.device)
+
+        inputs = encode(user_prompt)
+        if inputs.input_ids.shape[-1] + self.max_new_tokens > self.context_window:
+            inputs = encode(drop_reference_examples(user_prompt))
+        if inputs.input_ids.shape[-1] + self.max_new_tokens > self.context_window:
+            raise ContextBudgetExceeded("Schema, observations and request exceed context budget; no silent truncation")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            from src.agent.execution import RunLimitReached
+            raise RunLimitReached("Time budget exhausted while tokenizing")
+        with torch.inference_mode():
+            outputs = self.model.generate(
+                **inputs, max_new_tokens=self.max_new_tokens, max_time=remaining,
+                do_sample=False, temperature=None, top_p=None,
+                pad_token_id=(self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None
+                              else self.tokenizer.eos_token_id),
+            )
+        generated_ids = [out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, outputs)]
+        return self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
 
 
 class OpenAICompatibleClient(BaseLLMClient):
@@ -115,7 +135,8 @@ class OpenAICompatibleClient(BaseLLMClient):
         base_url: str = "http://localhost:8000/v1",
         api_key: str = "EMPTY",
         model: str = "Qwen/Qwen2.5-3B-Instruct",
-        max_tokens: int = 512
+        max_tokens: int = 512,
+        timeout: float = 25.0,
     ):
         try:
             from openai import OpenAI
@@ -125,22 +146,36 @@ class OpenAICompatibleClient(BaseLLMClient):
         self.client = OpenAI(
             base_url=base_url,
             api_key=api_key,
-            default_headers={"ngrok-skip-browser-warning": "true"}
+            default_headers={"ngrok-skip-browser-warning": "true"},
+            timeout=timeout,
+            max_retries=0,
         )
         self.model = model
         self.max_tokens = max_tokens
+        self.timeout = timeout
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.0,
-            max_tokens=self.max_tokens,
-            seed=SEED
-        )
+        return self.generate_with_budget(system_prompt, user_prompt, self.timeout)
+
+    def generate_with_budget(self, system_prompt: str, user_prompt: str, seconds: float) -> str:
+        if seconds <= 0:
+            from src.agent.execution import RunLimitReached
+            raise RunLimitReached("No time remaining for generation")
+        from openai import APITimeoutError
+        from src.agent.execution import RunLimitReached
+        try:
+            response = self.client.with_options(timeout=min(seconds, self.timeout), max_retries=0).chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.0,
+                max_tokens=self.max_tokens,
+                seed=SEED
+            )
+        except (APITimeoutError, TimeoutError) as error:
+            raise RunLimitReached("LLM request timed out; no additional tools will run") from error
         return response.choices[0].message.content or ""
 
 
