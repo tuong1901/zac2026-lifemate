@@ -1144,6 +1144,7 @@ class ReActAgent:
                 allowed_tools,
                 exemplars,
                 history=history,
+                query_text=user_text,
             )
         tools_desc = self.catalog_filter.format_tools_for_prompt(prompt_tools)
 

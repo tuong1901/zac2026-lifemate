@@ -1,4 +1,8 @@
 import json
+import math
+import re
+import unicodedata
+from collections import Counter
 from typing import Dict, List, Any, Optional
 
 class CatalogFilter:
@@ -63,6 +67,7 @@ class CatalogFilter:
         allowed_tools: List[Dict[str, Any]],
         exemplars: List[Dict[str, Any]],
         history: Optional[List[Dict[str, Any]]] = None,
+        query_text: str = "",
         max_tools: int = 32,
     ) -> List[Dict[str, Any]]:
         """Build a compact prompt catalog without narrowing execution rights.
@@ -76,7 +81,10 @@ class CatalogFilter:
             return list(allowed_tools)
 
         seed_names = set()
+        exemplar_scores = []
         for exemplar in exemplars or []:
+            if isinstance(exemplar.get("bm25_score"), (int, float)):
+                exemplar_scores.append(float(exemplar["bm25_score"]))
             for call in exemplar.get("tool_calls", []) or []:
                 name = call.get("name", "") if isinstance(call, dict) else ""
                 if name:
@@ -90,9 +98,34 @@ class CatalogFilter:
             for call in turn.get("tool_calls", []) or []:
                 if isinstance(call, dict) and call.get("name"):
                     seed_names.add(call["name"])
+                    if call["name"] == "sys.ask_missing_info":
+                        target = (call.get("arguments") or {}).get("tool_name", "")
+                        if target:
+                            seed_names.add(target)
 
-        routed_apps = {name.split(".", 1)[0] for name in seed_names if "." in name}
-        if not routed_apps:
+        exemplar_apps = {name.split(".", 1)[0] for name in seed_names if "." in name}
+        lexical_apps = self._lexical_apps(query_text, allowed_tools)
+        routed_apps = exemplar_apps | lexical_apps
+
+        branch_count = len(re.findall(
+            r"\b(?:và|rồi|xong|sau đó|đồng thời|nếu|không thì|còn nếu)\b",
+            unicodedata.normalize("NFC", query_text.lower()),
+        ))
+        expected_apps = min(3, branch_count + 1)
+        weak_exemplar = not exemplar_scores or max(exemplar_scores) < 2.5
+        ambiguous_reference = bool(re.search(
+            r"\b(?:cái đó|việc đó|chuyến đó|đơn đó|lần trước|lúc nãy|hồi nãy|anh ấy|chị ấy)\b",
+            unicodedata.normalize("NFC", query_text.lower()),
+        ))
+
+        # Prefer recall when the router has weak evidence. A larger prompt is
+        # cheaper than making the correct tool impossible for the planner to see.
+        if (
+            not routed_apps
+            or (not lexical_apps and weak_exemplar)
+            or (branch_count and len(routed_apps - {"sys"}) < expected_apps)
+            or (ambiguous_reference and not history)
+        ):
             return list(allowed_tools)
 
         selected = [
@@ -121,3 +154,71 @@ class CatalogFilter:
         # Avoid a destructive hard cap: complete routed domains are safer than
         # silently hiding sibling operations from the planner.
         return sorted(selected, key=lambda tool: tool.get("name", ""))
+
+    def _lexical_apps(
+        self,
+        query_text: str,
+        allowed_tools: List[Dict[str, Any]],
+    ) -> set:
+        """Route domains from rare token overlap with catalog descriptions."""
+        query_tokens = self._routing_tokens(query_text)
+        if not query_tokens:
+            return set()
+
+        docs: Dict[str, set] = {}
+        apps_by_id = getattr(self, "apps_by_id", {})
+        for tool in allowed_tools:
+            name = str(tool.get("name", ""))
+            app_id = name.split(".", 1)[0]
+            if app_id == "sys":
+                continue
+            app = apps_by_id.get(app_id, {})
+            parts = [
+                name.replace("_", " ").replace(".", " "),
+                str(tool.get("description", "")),
+                str(app.get("name_vi", "")),
+                str(app.get("description", "")),
+            ]
+            properties = (tool.get("parameters") or {}).get("properties") or {}
+            for param_name, info in properties.items():
+                parts.append(param_name.replace("_", " "))
+                if isinstance(info, dict):
+                    parts.append(str(info.get("description", "")))
+                    parts.extend(str(value) for value in info.get("enum", []) or [])
+            docs.setdefault(app_id, set()).update(self._routing_tokens(" ".join(parts)))
+
+        doc_frequency = Counter(token for tokens in docs.values() for token in tokens)
+        app_count = max(len(docs), 1)
+        scores = {
+            app_id: sum(
+                math.log((app_count + 1) / (doc_frequency[token] + 1)) + 1.0
+                for token in query_tokens & tokens
+            )
+            for app_id, tokens in docs.items()
+        }
+        return {app_id for app_id, score in scores.items() if score >= 2.0}
+
+    @staticmethod
+    def _routing_tokens(text: str) -> set:
+        normalized = unicodedata.normalize("NFC", str(text).lower())
+        stopwords = {
+            "anh", "chị", "em", "tôi", "mình", "giúp", "cho", "với", "nhé", "nha",
+            "muốn", "cần", "được", "cái", "một", "những", "này", "đó", "thì", "lại",
+            "xem", "kiểm", "tra", "thông", "tin", "danh", "sách", "hiện", "tại",
+        }
+        tokens = {
+            token for token in re.findall(r"[^\W\d_]+", normalized, flags=re.UNICODE)
+            if len(token) >= 2 and token not in stopwords
+        }
+        # Small domain-neutral vocabulary bridges common spoken forms to schema
+        # terms. Keep this at the entity level (not whole workflows) so unseen
+        # combinations still route compositionally.
+        aliases = {
+            "đô": {"usd", "exchange", "rate", "currency"},
+            "đôla": {"usd", "exchange", "rate", "currency"},
+        }
+        return tokens | {
+            alias
+            for token in tokens
+            for alias in aliases.get(token, set())
+        }

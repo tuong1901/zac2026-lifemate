@@ -196,7 +196,7 @@ class AgentArchitectureTests(unittest.TestCase):
             {'name': f'unrelated_{index}.write', 'kind': 'write'}
             for index in range(35)
         )
-        exemplar = {'tool_calls': [
+        exemplar = {'bm25_score': 8.0, 'tool_calls': [
             {'name': 'calendar.update_event', 'arguments': {'event_id': 'evt'}}
         ]}
         catalog = CatalogFilter.__new__(CatalogFilter)
@@ -207,6 +207,71 @@ class AgentArchitectureTests(unittest.TestCase):
         self.assertIn('contacts.search', names)
         self.assertIn('sys.ask_missing_info', names)
         self.assertFalse(any(name.startswith('unrelated_') for name in names))
+
+    def test_prompt_catalog_unions_exemplar_and_lexical_apps(self):
+        allowed = [
+            {'name': 'sys.ask_missing_info', 'kind': 'write'},
+            {'name': 'weather.get_forecast', 'kind': 'read',
+             'description': 'Dự báo thời tiết và khả năng mưa'},
+            {'name': 'sms.send', 'kind': 'write',
+             'description': 'Gửi tin nhắn SMS'},
+            {'name': 'ride_hailing.book', 'kind': 'write',
+             'description': 'Đặt xe máy hoặc ô tô'},
+        ]
+        allowed.extend(
+            {'name': f'unrelated_{index}.write', 'kind': 'write',
+             'description': f'Tác vụ không liên quan {index}'}
+            for index in range(35)
+        )
+        exemplar = {'bm25_score': 7.0, 'tool_calls': [
+            {'name': 'weather.get_forecast', 'arguments': {}}
+        ]}
+        catalog = CatalogFilter.__new__(CatalogFilter)
+        selected = catalog.select_prompt_tools(
+            allowed,
+            [exemplar],
+            query_text='Nếu trời mưa thì nhắn SMS, không mưa thì đặt ô tô',
+        )
+        names = {tool['name'] for tool in selected}
+        self.assertIn('weather.get_forecast', names)
+        self.assertIn('sms.send', names)
+        self.assertIn('ride_hailing.book', names)
+        self.assertFalse(any(name.startswith('unrelated_') for name in names))
+
+    def test_prompt_catalog_falls_back_to_full_on_weak_evidence(self):
+        allowed = [{'name': 'sys.ask_missing_info', 'kind': 'write'}]
+        allowed.extend(
+            {'name': f'app_{index}.write', 'kind': 'write'}
+            for index in range(35)
+        )
+        exemplar = {'bm25_score': 0.5, 'tool_calls': [
+            {'name': 'app_1.write', 'arguments': {}}
+        ]}
+        catalog = CatalogFilter.__new__(CatalogFilter)
+        selected = catalog.select_prompt_tools(
+            allowed,
+            [exemplar],
+            query_text='Làm giống như lần trước',
+        )
+        self.assertEqual(selected, allowed)
+
+    def test_prompt_catalog_understands_spoken_currency_alias(self):
+        allowed = [
+            {'name': 'exchange_rate.get_rate', 'kind': 'read',
+             'description': 'Lấy tỷ giá chuyển đổi ngoại tệ',
+             'parameters': {'properties': {
+                 'from_currency': {'type': 'string', 'enum': ['USD', 'VND']},
+             }}},
+            {'name': 'ride_hailing.book', 'kind': 'write',
+             'description': 'Đặt xe'},
+        ]
+        catalog = CatalogFilter.__new__(CatalogFilter)
+        apps = catalog._lexical_apps(
+            'Đô bữa nay trên hai lăm ngàn thì đặt xe',
+            allowed,
+        )
+        self.assertIn('exchange_rate', apps)
+        self.assertIn('ride_hailing', apps)
 
     def test_write_before_read_keeps_user_order(self):
         write = {'name': 'notes.create', 'arguments': {'title': 'One'}}
