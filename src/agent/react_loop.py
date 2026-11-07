@@ -9,6 +9,7 @@ Tích hợp:
 
 import json
 import re
+import unicodedata
 from collections import Counter
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Tuple, Optional, Set
@@ -280,6 +281,17 @@ class ReActAgent:
                 if valid_ids and str(arguments[arg_name]) not in valid_ids:
                     return False
         return True
+
+    @staticmethod
+    def _request_has_write_intent(user_text: str) -> bool:
+        """Conservatively detect requests that still require a mutation."""
+        normalized = unicodedata.normalize("NFC", str(user_text).lower())
+        return bool(re.search(
+            r"\b(?:tạo|thêm|đặt|gửi|nhắn|gọi|chuyển|thanh toán|trả|hủy|huỷ|xóa|xoá|"
+            r"sửa|cập nhật|bật|tắt|khóa|khoá|mở|đăng ký|lưu|nhắc|đổi|mua|"
+            r"hoàn thành|đánh dấu|điều chỉnh|dời|giao|chạy|bắt đầu|dừng)\b",
+            normalized,
+        ) or re.search(r"\bghi\s+(?:lại|thêm|vào|nhật ký|nhận)\b", normalized))
 
     @staticmethod
     def _resolve_lock_id(
@@ -1188,6 +1200,25 @@ class ReActAgent:
                     )
                     if bill_payment_request else []
                 )
+                if pending_actions and self.resolve_lock_ids:
+                    pending_counts = Counter(action.get("name") for action in pending_actions)
+                    try:
+                        for action in pending_actions:
+                            action["arguments"] = dict(action.get("arguments") or {})
+                            self._resolve_grounded_arguments(
+                                action.get("name", ""),
+                                action["arguments"],
+                                history,
+                                step_history,
+                                user_text,
+                                same_tool_count=pending_counts[action.get("name")],
+                            )
+                    except ActionFeedback as error:
+                        print(
+                            "  [Plan Executor] Không thể ground suffix từ observation: "
+                            f"{error}"
+                        )
+                        pending_actions = []
                 if pending_actions and not self._plan_references_are_observed(
                     pending_actions,
                     allowed_tools,
@@ -1514,6 +1545,18 @@ class ReActAgent:
                 else:
                     print(f"    - Action: None [is_finished={is_finished}]")
                     if is_finished:
+                        break
+                    successful_read = any(
+                        step.get("tool_called") in env.read_tools
+                        and not step.get("error")
+                        and isinstance(step.get("raw_observation"), dict)
+                        for step in step_history
+                    )
+                    if successful_read and not self._request_has_write_intent(user_text):
+                        print(
+                            "    - Read-Only Completion: đã có observation thành công "
+                            "và yêu cầu không chứa ý định ghi; kết thúc thay vì lặp None."
+                        )
                         break
                     step_history.append({"step": step_idx + 1, "error": "No executable actions. Continue with an unresolved action or explicitly finish."})
                     continue

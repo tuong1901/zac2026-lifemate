@@ -164,6 +164,46 @@ class AgentArchitectureTests(unittest.TestCase):
         self.assertEqual(env.calls, [read, write])
         self.assertEqual(client.calls, 1)
 
+    def test_deferred_write_is_grounded_from_fresh_read(self):
+        class Tools(Catalog):
+            def get_allowed_tools(self, installed):
+                return [
+                    {'name': 'contacts.search', 'kind': 'read'},
+                    {'name': 'phone.call', 'kind': 'write', 'parameters': {
+                        'properties': {
+                            'contact_id': {'type': 'string', 'x-ref': 'contacts.contacts'},
+                        },
+                        'required': ['contact_id'],
+                    }},
+                ]
+
+        read = {'name': 'contacts.search', 'arguments': {'query': 'Minh'}}
+        write = {'name': 'phone.call', 'arguments': {'contact_id': 'contact_from_exemplar'}}
+        env = Env([{'contacts': [{'id': 'contact_real', 'name': 'Minh'}]}, {'ok': True}])
+        client = Client([plan([read, write], False)])
+        agent = ReActAgent(client, Tools())
+        item = {'id': 'synthetic', 'context': {
+            'installed_apps': {'contacts': {}, 'phone': {}},
+        }, 'history': []}
+        with patch('src.agent.react_loop.build_user_prompt', return_value='prompt'), \
+             contextlib.redirect_stdout(io.StringIO()):
+            agent.run(env, item, 'Gọi cho Minh')
+        self.assertEqual(env.calls, [
+            read,
+            {'name': 'phone.call', 'arguments': {'contact_id': 'contact_real'}},
+        ])
+        self.assertEqual(client.calls, 1)
+
+    def test_read_only_none_finishes_after_successful_observation(self):
+        read = {'name': 'notes.list', 'arguments': {}}
+        env, client = self.run_agent(
+            [plan([read], False), plan([], False), plan([action()])],
+            ['notes.list', 'demo.write'],
+            text='Cho tôi xem các ghi chú',
+        )
+        self.assertEqual(env.calls, [read])
+        self.assertEqual(client.calls, 2)
+
     def test_deferred_plan_rejects_unobserved_schema_reference(self):
         actions = [{'name': 'tasks.complete', 'arguments': {'task_id': 'invented'}}]
         tools = [{'name': 'tasks.complete', 'parameters': {'properties': {
