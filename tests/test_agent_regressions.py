@@ -111,6 +111,29 @@ class AgentTests(unittest.TestCase):
 
 
 class GuardrailTests(unittest.TestCase):
+    def test_missing_info_only_accepts_parameters_from_target_tool(self):
+        tools = [
+            {'name': 'sys.ask_missing_info'},
+            {'name': 'package_tracking.schedule_pickup', 'parameters': {
+                'type': 'object',
+                'properties': {'address': {'type': 'string'}, 'date': {'type': 'string'}},
+            }},
+        ]
+        guard = SafeSchemaGuardrail().bind(tools)
+        ok, clean, error = guard.guard_and_validate(Env(), 'sys.ask_missing_info', {
+            'tool_name': 'package_tracking.schedule_pickup', 'params': ['bưu điện']
+        })
+        self.assertFalse(ok)
+        self.assertEqual(clean['params'], [])
+        self.assertIn('No valid missing parameters', error)
+
+        ok, clean, error = guard.guard_and_validate(Env(), 'sys.ask_missing_info', {
+            'tool_name': 'package_tracking.schedule_pickup', 'params': ['date']
+        })
+        self.assertTrue(ok)
+        self.assertEqual(clean['params'], ['date'])
+        self.assertIsNone(error)
+
     def test_preserve_schema_declared_optional_user_intent(self):
         cases = [('smart_home.fan_set', 'speed', 'integer', 3),
                  ('smart_home.light_set', 'color', 'string', 'red'),

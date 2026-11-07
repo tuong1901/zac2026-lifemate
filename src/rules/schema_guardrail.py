@@ -48,6 +48,14 @@ class SafeSchemaGuardrail:
                     clean_args["params"] = [clean_args["params"]]
                 elif not isinstance(clean_args["params"], list):
                     clean_args["params"] = []
+                target = self._tool_specs.get(str(clean_args.get("tool_name", "")))
+                if target:
+                    properties = target.get("parameters", {}).get("properties", {})
+                    if properties:
+                        clean_args["params"] = [
+                            name for name in clean_args["params"]
+                            if isinstance(name, str) and name in properties
+                        ]
             return clean_args
 
         # Optional schema fields can encode explicit user intent (speed, repeat,
@@ -180,6 +188,16 @@ class SafeSchemaGuardrail:
         """
         if not isinstance(arguments, dict):
             return False, {}, "Arguments must be an object"
+        # ToolEnv accepts the generic shape of sys.ask_missing_info, but the
+        # requested parameter names must also exist on its target tool.
+        if tool_name == "sys.ask_missing_info":
+            clean_args = self.sanitize_arguments(tool_name, arguments)
+            if not clean_args.get("params"):
+                return False, clean_args, "No valid missing parameters for the target tool"
+            check_result = env.validate(tool_name, clean_args)
+            if check_result.get("ok", False):
+                return True, clean_args, None
+            return False, clean_args, check_result.get("error", "Lỗi schema không xác định")
         # A valid argument object must survive unchanged: even a harmless-looking
         # normalization can change an exact-match field or the final state hash.
         original = copy.deepcopy(arguments)

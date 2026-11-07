@@ -144,7 +144,7 @@ class OpenAICompatibleClient(BaseLLMClient):
         base_url: str = "http://localhost:8000/v1",
         api_key: str = "EMPTY",
         model: str = "Qwen/Qwen2.5-3B-Instruct",
-        max_tokens: int = 512,
+        max_tokens: int = 256,
         timeout: float = 25.0,
     ):
         try:
@@ -170,7 +170,7 @@ class OpenAICompatibleClient(BaseLLMClient):
         if seconds <= 0:
             from src.agent.execution import RunLimitReached
             raise RunLimitReached("No time remaining for generation")
-        from openai import APITimeoutError
+        from openai import APITimeoutError, APIStatusError
         from src.agent.execution import RunLimitReached
         try:
             response = self.client.with_options(timeout=min(seconds, self.timeout), max_retries=0).chat.completions.create(
@@ -183,7 +183,16 @@ class OpenAICompatibleClient(BaseLLMClient):
                 max_tokens=self.max_tokens,
                 seed=SEED
             )
+        except APIStatusError as error:
+            detail = str(error)
+            if len(detail) > 240:
+                detail = detail[:237] + "..."
+            raise RunLimitReached(
+                f"LLM endpoint returned HTTP {error.status_code}: {detail}; no additional tools will run"
+            ) from error
         except (APITimeoutError, TimeoutError) as error:
+            # Treat a remote timeout as a per-sample inference failure so a
+            # batch evaluation can record the sample and proceed.
             raise RunLimitReached("LLM request timed out; no additional tools will run") from error
         return response.choices[0].message.content or ""
 

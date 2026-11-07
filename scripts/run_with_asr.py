@@ -270,6 +270,12 @@ def main():
     parser.add_argument("--mode", choices=["hf", "server"], default="server")
     parser.add_argument("--base_url", type=str, default="http://localhost:8000/v1")
     parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-3B-Instruct")
+    parser.add_argument(
+        "--max_tokens",
+        type=int,
+        default=256,
+        help="Giới hạn token sinh ở mỗi lượt LLM (tối đa bằng MAX_NEW_TOKENS của server).",
+    )
     parser.add_argument("--asr_model", choices=["phowhisper_medium", "whisper_turbo", "phowhisper_small", "all"], default="phowhisper_medium")
     parser.add_argument("--no_exemplars", action="store_true", help="Thử agent không dùng ví dụ BM25 trong prompt")
     parser.add_argument("--structured-router", action="store_true", help="Thử domain classifier + workflow chunks trước BM25 exemplar")
@@ -304,9 +310,13 @@ def main():
     fuzzy_map = load_fuzzy_map(catalog_file)
 
     if args.mode == "hf":
-        llm_client = get_llm_client(client_type="hf", model_name_or_path=args.model)
+        llm_client = get_llm_client(
+            client_type="hf", model_name_or_path=args.model, max_new_tokens=args.max_tokens
+        )
     else:
-        llm_client = get_llm_client(client_type="openai", base_url=args.base_url, model=args.model)
+        llm_client = get_llm_client(
+            client_type="openai", base_url=args.base_url, model=args.model, max_tokens=args.max_tokens
+        )
 
     catalog_filter = CatalogFilter(str(catalog_file))
     eval_items = []

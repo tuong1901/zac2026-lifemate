@@ -744,6 +744,218 @@ class ReActAgent:
             elif tool_name == "ecommerce.request_return" and ("giao nhầm" in u_low or "sai hàng" in u_low or "giao nhầm" in json.dumps(history or [], ensure_ascii=False).lower()):
                 arguments["reason"] = "wrong_item"
 
+    @staticmethod
+    def _recover_bill_payment_actions(
+        actions: List[Dict[str, Any]],
+        steps: List[Dict[str, Any]],
+        user_text: str,
+        current_time: str,
+    ) -> List[Dict[str, Any]]:
+        """Finish an explicit payment request using an observed bill list.
+
+        A small planner can fetch the bills correctly and then stop or ask for
+        a bill_id that ToolEnv has already returned. Recovery stays narrow: IDs
+        always come from a successful observation and the user must explicitly
+        request payment.
+        """
+        if any(action.get("name") == "bill_payment.pay" for action in actions):
+            return actions
+        u_low = user_text.lower()
+        if not re.search(r"\b(trả|thanh toán|đóng)\b", u_low):
+            return actions
+
+        bills: List[Dict[str, Any]] = []
+        for step in reversed(steps):
+            raw = step.get("raw_observation")
+            if isinstance(raw, dict) and isinstance(raw.get("bills"), list):
+                bills = [
+                    bill for bill in raw["bills"]
+                    if isinstance(bill, dict) and bill.get("id") and not bill.get("paid")
+                ]
+                break
+        if not bills:
+            return actions
+
+        selected = list(bills)
+        normalized = _normalize_vn_numbers_in_time(u_low)
+        days_match = re.search(r"\btrong\s*(\d+)\s*ngày\s*tới\b", normalized)
+        if days_match and current_time:
+            try:
+                deadline = (
+                    datetime.fromisoformat(current_time).date()
+                    + timedelta(days=int(days_match.group(1)))
+                ).isoformat()
+                selected = [
+                    bill for bill in selected
+                    if str(bill.get("due_date", "9999-12-31")) <= deadline
+                ]
+            except (TypeError, ValueError):
+                pass
+
+        cap_match = re.search(r"\b(?:trên|hơn)\s*(\d+)\s*(?:nghìn|ngàn|k\b)", normalized)
+        if cap_match:
+            cap = int(cap_match.group(1)) * 1000
+            selected = [
+                bill for bill in selected
+                if isinstance(bill.get("amount"), (int, float)) and bill["amount"] <= cap
+            ]
+        if not selected:
+            return actions
+
+        source = "bank" if "ngân hàng" in u_low else "ewallet"
+        payments = [
+            {
+                "name": "bill_payment.pay",
+                "arguments": {"bill_id": str(bill["id"]), "source": source},
+            }
+            for bill in selected
+        ]
+        remaining = [
+            action for action in actions
+            if action.get("name") != "sys.ask_missing_info"
+            or (action.get("arguments") or {}).get("tool_name") != "bill_payment.pay"
+        ]
+        return payments + remaining
+
+    @staticmethod
+    def _is_bill_backed_transfer_request(user_text: str) -> bool:
+        u_low = user_text.lower()
+        return bool(
+            re.search(r"\bchuyển\s+(?:cho|giúp|dùm|hộ)\b", u_low)
+            and re.search(
+                r"\b(?:tiền|hóa đơn|hoá đơn)\s*(?:mạng|internet|điện|nước|điện thoại|truyền hình)\b",
+                u_low,
+            )
+        )
+
+    @staticmethod
+    def _recover_bill_backed_transfer(
+        steps: List[Dict[str, Any]], user_text: str
+    ) -> Optional[Dict[str, Any]]:
+        """Build a transfer solely from bill, account and beneficiary reads."""
+        bills: List[Dict[str, Any]] = []
+        accounts: List[Dict[str, Any]] = []
+        beneficiaries: List[Dict[str, Any]] = []
+        for step in steps:
+            raw = step.get("raw_observation")
+            if not isinstance(raw, dict) or step.get("error"):
+                continue
+            if isinstance(raw.get("bills"), list):
+                bills = [x for x in raw["bills"] if isinstance(x, dict) and not x.get("paid")]
+            if isinstance(raw.get("accounts"), list):
+                accounts = [x for x in raw["accounts"] if isinstance(x, dict) and x.get("id")]
+            if isinstance(raw.get("beneficiaries"), list):
+                beneficiaries = [x for x in raw["beneficiaries"] if isinstance(x, dict) and x.get("id")]
+        if not bills or not accounts or not beneficiaries:
+            return None
+
+        u_low = user_text.lower()
+        bill_type = None
+        for pattern, candidate in (
+            (r"\b(?:tiền|hóa đơn|hoá đơn)\s*(?:mạng|internet)\b", "internet"),
+            (r"\b(?:tiền|hóa đơn|hoá đơn)\s*điện thoại\b", "phone"),
+            (r"\b(?:tiền|hóa đơn|hoá đơn)\s*truyền hình\b", "tv"),
+            (r"\b(?:tiền|hóa đơn|hoá đơn)\s*nước\b", "water"),
+            (r"\b(?:tiền|hóa đơn|hoá đơn)\s*điện\b", "electricity"),
+        ):
+            if re.search(pattern, u_low):
+                bill_type = candidate
+                break
+        target_bill = next((bill for bill in bills if bill.get("type") == bill_type), None)
+        if not target_bill or not isinstance(target_bill.get("amount"), (int, float)):
+            return None
+
+        target_beneficiary = max(
+            beneficiaries,
+            key=lambda item: len(str(item.get("name", "")))
+            if str(item.get("name", "")).lower() in u_low else 0,
+        )
+        if str(target_beneficiary.get("name", "")).lower() not in u_low:
+            return None
+
+        amount = int(target_bill["amount"])
+        checking = next(
+            (a for a in accounts if any(k in str(a.get("name", "")).lower() for k in ("thanh toán", "checking"))),
+            accounts[0],
+        )
+        savings = next(
+            (a for a in accounts if any(k in str(a.get("name", "")).lower() for k in ("tiết kiệm", "savings"))),
+            None,
+        )
+        source = checking
+        if isinstance(checking.get("balance"), (int, float)) and checking["balance"] < amount and savings:
+            source = savings
+        if not isinstance(source.get("balance"), (int, float)) or source["balance"] < amount:
+            return None
+        return {
+            "name": "banking.transfer",
+            "arguments": {
+                "from_account_id": str(source["id"]),
+                "beneficiary_id": str(target_beneficiary["id"]),
+                "amount": amount,
+            },
+        }
+
+    @staticmethod
+    def _recover_calendar_flight_check_in(
+        steps: List[Dict[str, Any]],
+        history: List[Dict[str, Any]],
+        user_text: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Match a calendar event date to a booking already present in history."""
+        events: List[Dict[str, Any]] = []
+        for step in reversed(steps):
+            raw = step.get("raw_observation")
+            if isinstance(raw, dict) and isinstance(raw.get("events"), list) and not step.get("error"):
+                events = [event for event in raw["events"] if isinstance(event, dict) and event.get("start")]
+                break
+        if not events:
+            return None
+
+        bookings: List[Dict[str, Any]] = []
+        for turn in reversed(history or []):
+            calls = turn.get("tool_calls") or []
+            results = turn.get("tool_results") or []
+            for index, call in enumerate(calls):
+                if call.get("name") != "flights.my_bookings" or index >= len(results):
+                    continue
+                result = results[index]
+                if isinstance(result, dict) and isinstance(result.get("bookings"), list):
+                    bookings = [
+                        booking for booking in result["bookings"]
+                        if isinstance(booking, dict) and booking.get("id")
+                        and booking.get("status") not in ("cancelled", "canceled")
+                    ]
+                    break
+            if bookings:
+                break
+        if not bookings:
+            return None
+
+        u_low = user_text.lower()
+        event = max(
+            events,
+            key=lambda item: sum(
+                1 for token in re.findall(r"\w+", u_low)
+                if len(token) >= 3 and token in (
+                    str(item.get("title", "")) + " " + str(item.get("location", ""))
+                ).lower()
+            ),
+        )
+        event_date = str(event.get("start", ""))[:10]
+        matches = []
+        for booking in bookings:
+            flight = booking.get("flight") if isinstance(booking.get("flight"), dict) else booking
+            flight_date = str(flight.get("date") or flight.get("depart", ""))[:10]
+            if flight_date == event_date:
+                matches.append(booking)
+        if len(matches) != 1:
+            return None
+        return {
+            "name": "flights.check_in",
+            "arguments": {"booking_id": str(matches[0]["id"])},
+        }
+
     def is_oos_or_cancelled(
         self,
         text: str,
@@ -809,6 +1021,7 @@ class ReActAgent:
         context = item.get("context", {})
         installed_apps = context.get("installed_apps", {})
         history = item.get("history", [])
+        original_user_text = user_text
         asr_variants = _get_multi_asr_variants(str(item.get("id", "")), user_text)
         user_text = fuse_multi_asr_transcripts(str(item.get("id", "")), user_text, installed_apps)
 
@@ -830,11 +1043,41 @@ class ReActAgent:
         tools_desc = self.catalog_filter.format_tools_for_prompt(allowed_tools)
         history_blob = json.dumps(history, ensure_ascii=False)
 
-        task_id = self._resolve_history_task_ordinal(history, user_text)
+        task_id = (
+            self._resolve_history_task_ordinal(history, original_user_text)
+            or self._resolve_history_task_ordinal(history, user_text)
+        )
         history_action = None
-        if (task_id and "tasks.complete" in allowed_tool_names
-                and not re.search(r"\b(và|rồi|xong|đồng thời|sau đó|kèm|với)\b", user_text, re.IGNORECASE)):
+        has_followup_action = re.search(
+            r"\b(?:và|rồi|xong|đồng thời|sau đó|kèm|với)\b[^.!?;]*\b" + ACTION_VERBS,
+            user_text,
+            re.IGNORECASE,
+        )
+        if task_id and "tasks.complete" in allowed_tool_names and not has_followup_action:
             history_action = {"name": "tasks.complete", "arguments": {"task_id": task_id}}
+
+        bill_transfer_request = (
+            self._is_bill_backed_transfer_request(user_text)
+            and all(name in allowed_tool_names for name in (
+                "bill_payment.list_bills",
+                "banking.get_balance",
+                "banking.list_beneficiaries",
+                "banking.transfer",
+            ))
+        )
+        bill_payment_request = bool(
+            not bill_transfer_request
+            and "bill_payment.list_bills" in allowed_tool_names
+            and "bill_payment.pay" in allowed_tool_names
+            and re.search(r"\b(hóa đơn|hoá đơn|tiền điện|tiền nước|tiền mạng|tiền internet|tiền truyền hình)\b", user_text, re.IGNORECASE)
+            and re.search(r"\b(trả|thanh toán|đóng)\b", user_text, re.IGNORECASE)
+        )
+        calendar_check_in_request = bool(
+            "calendar.list_events" in allowed_tool_names
+            and "flights.check_in" in allowed_tool_names
+            and re.search(r"\bcheck[- ]?in\b", user_text, re.IGNORECASE)
+            and re.search(r"\bcùng\s+ngày\b", user_text, re.IGNORECASE)
+        )
 
         # 2. Người 2: Bóc tách thông tin từ History hội thoại
         history_entities = self.history_resolver.extract_active_memory(history)
@@ -876,8 +1119,47 @@ class ReActAgent:
                 )
 
                 remaining = budget.remaining()
-                if step_idx == 0 and history_action is not None:
+                recovered_transfer = (
+                    self._recover_bill_backed_transfer(step_history, user_text)
+                    if bill_transfer_request else None
+                )
+                recovered_check_in = (
+                    self._recover_calendar_flight_check_in(step_history, history, user_text)
+                    if calendar_check_in_request else None
+                )
+                recovered_payments = (
+                    self._recover_bill_payment_actions(
+                        [], step_history, user_text, str(context.get("current_time", ""))
+                    )
+                    if bill_payment_request else []
+                )
+                if recovered_transfer is not None:
+                    response = json.dumps({"action": recovered_transfer, "is_finished": True})
+                elif recovered_check_in is not None:
+                    response = json.dumps({"action": recovered_check_in, "is_finished": True})
+                elif recovered_payments:
+                    response = json.dumps({"actions": recovered_payments, "is_finished": True})
+                elif step_idx == 0 and history_action is not None:
                     response = json.dumps({"action": history_action, "is_finished": True})
+                elif step_idx == 0 and bill_transfer_request:
+                    response = json.dumps({
+                        "actions": [
+                            {"name": "bill_payment.list_bills", "arguments": {}},
+                            {"name": "banking.get_balance", "arguments": {}},
+                            {"name": "banking.list_beneficiaries", "arguments": {}},
+                        ],
+                        "is_finished": False,
+                    })
+                elif step_idx == 0 and bill_payment_request:
+                    response = json.dumps({
+                        "action": {"name": "bill_payment.list_bills", "arguments": {}},
+                        "is_finished": False,
+                    })
+                elif step_idx == 0 and calendar_check_in_request:
+                    response = json.dumps({
+                        "action": {"name": "calendar.list_events", "arguments": {}},
+                        "is_finished": False,
+                    })
                 elif hasattr(self.llm_client, "generate_with_budget"):
                     response = self.llm_client.generate_with_budget(SYSTEM_PROMPT, prompt, remaining)
                 else:
@@ -910,6 +1192,44 @@ class ReActAgent:
                     actions_list = [a for a in actions_list if
                                     (a["name"], json.dumps(a.get("arguments", {}), sort_keys=True))
                                     not in read_signatures]
+
+                # A history ordinal is stronger evidence than an ID copied from
+                # an exemplar. Preserve the model's other actions.
+                if task_id:
+                    for action in actions_list:
+                        if action.get("name") == "tasks.complete":
+                            action.setdefault("arguments", {})["task_id"] = task_id
+
+                # Do not invent a TV channel. If it was neither spoken nor
+                # obtained from a guide observation, ask for the missing field.
+                for index, action in enumerate(actions_list):
+                    if action.get("name") != "tv.tune":
+                        continue
+                    channel = str((action.get("arguments") or {}).get("channel", "")).strip()
+                    observed_channel = any(
+                        channel and channel.lower() in json.dumps(step.get("raw_observation", {}), ensure_ascii=False).lower()
+                        for step in step_history
+                    )
+                    if channel and channel.lower() not in user_text.lower() and not observed_channel:
+                        actions_list[index] = {
+                            "name": "sys.ask_missing_info",
+                            "arguments": {"tool_name": "tv.tune", "params": ["channel"]},
+                        }
+
+                if "bill_payment.pay" in allowed_tool_names and not bill_transfer_request:
+                    original_actions = list(actions_list)
+                    actions_list = self._recover_bill_payment_actions(
+                        actions_list,
+                        step_history,
+                        user_text,
+                        str(context.get("current_time", "")),
+                    )
+                    introduced_payment = (
+                        not any(a.get("name") == "bill_payment.pay" for a in original_actions)
+                        and any(a.get("name") == "bill_payment.pay" for a in actions_list)
+                    )
+                    if introduced_payment and all(a.get("name") == "bill_payment.pay" for a in actions_list):
+                        is_finished = True
 
                 # Execute the ordered frontier, then observe before dependent writes.
                 actions_list, deferred = observation_frontier(actions_list, env.read_tools)
@@ -1264,7 +1584,20 @@ class ReActAgent:
 
                     if self.resolve_lock_ids:
                         same_tool_cnt = sum(1 for a in actions_list if a.get("name") == tool_name)
-                        self._resolve_grounded_arguments(tool_name, arguments, history, step_history, user_text, same_tool_count=same_tool_cnt)
+                        authoritative_task = (
+                            tool_name == "tasks.complete"
+                            and task_id is not None
+                            and str(arguments.get("task_id")) == str(task_id)
+                        )
+                        if not authoritative_task:
+                            self._resolve_grounded_arguments(
+                                tool_name,
+                                arguments,
+                                history,
+                                step_history,
+                                user_text,
+                                same_tool_count=same_tool_cnt,
+                            )
 
                     if tool_name in ("grocery.checkout", "ecommerce.checkout"):
                         app_pfx = tool_name.split(".")[0]

@@ -102,6 +102,140 @@ class GroundingTests(unittest.TestCase):
         ask = {'name': 'sys.ask_missing_info', 'arguments': {'tool_name': 'reminders.create', 'params': ['time']}}
         self.assertEqual(self.run_agent([[create, ask]], [], 'Tạo ghi chú Cuộc họp rồi nhắc tôi'), [create, ask])
 
+    def test_bill_payment_recovers_after_observed_list(self):
+        steps = [read_step('bill_payment.list_bills', bills=[
+            {'id': 'b1', 'amount': 300000, 'due_date': '2026-11-08', 'paid': False},
+            {'id': 'b2', 'amount': 600000, 'due_date': '2026-11-09', 'paid': False},
+        ])]
+        actions = [{'name': 'sys.ask_missing_info', 'arguments': {
+            'tool_name': 'bill_payment.pay', 'params': ['bill_id']
+        }}]
+        recovered = ReActAgent._recover_bill_payment_actions(
+            actions, steps,
+            'Dùng ngân hàng trả hóa đơn trong 5 ngày tới, hóa đơn trên 500 nghìn thì để đó',
+            '2026-11-07T10:00:00+07:00',
+        )
+        self.assertEqual(recovered, [{
+            'name': 'bill_payment.pay',
+            'arguments': {'bill_id': 'b1', 'source': 'bank'},
+        }])
+
+    def test_unspoken_tv_channel_becomes_missing_info(self):
+        tune = {'name': 'tv.tune', 'arguments': {'channel': 'SCTV9'}}
+        calls = self.run_agent([[tune]], [], 'Chuyển sang phim trưa nay cho tôi xem')
+        self.assertEqual(calls, [{
+            'name': 'sys.ask_missing_info',
+            'arguments': {'tool_name': 'tv.tune', 'params': ['channel']},
+        }])
+
+    def test_bill_backed_transfer_runs_reads_then_grounded_write(self):
+        names = [
+            'bill_payment.list_bills', 'banking.get_balance',
+            'banking.list_beneficiaries', 'banking.transfer',
+        ]
+        class Tools(Catalog):
+            def get_allowed_tools(self, installed):
+                return [{'name': name} for name in names]
+        env = Env([
+            {'bills': [{'id': 'bill_net', 'type': 'internet', 'amount': 225000, 'paid': False}]},
+            {'accounts': [
+                {'id': 'checking', 'name': 'Tài khoản thanh toán', 'balance': 80000},
+                {'id': 'savings', 'name': 'Tài khoản tiết kiệm', 'balance': 500000},
+            ]},
+            {'beneficiaries': [{'id': 'ben_le', 'name': 'Lê Minh'}]},
+            {'ok': True},
+        ])
+        agent = ReActAgent(Client([]), Tools())
+        item = {'id': 'synthetic', 'history': [], 'context': {
+            'installed_apps': {'bill_payment': {}, 'banking': {}}
+        }}
+        with patch('src.agent.react_loop.build_user_prompt', return_value='prompt'), contextlib.redirect_stdout(io.StringIO()):
+            agent.run(env, item,
+                      'Chuyển cho Lê Minh đúng bằng tiền mạng, tài khoản thanh toán không đủ thì dùng tiết kiệm')
+        self.assertEqual(env.calls, [
+            {'name': 'bill_payment.list_bills', 'arguments': {}},
+            {'name': 'banking.get_balance', 'arguments': {}},
+            {'name': 'banking.list_beneficiaries', 'arguments': {}},
+            {'name': 'banking.transfer', 'arguments': {
+                'from_account_id': 'savings', 'beneficiary_id': 'ben_le', 'amount': 225000,
+            }},
+        ])
+
+    def test_bill_payment_finishes_without_second_model_turn(self):
+        names = ['bill_payment.list_bills', 'bill_payment.pay']
+        class Tools(Catalog):
+            def get_allowed_tools(self, installed):
+                return [{'name': name} for name in names]
+        env = Env([
+            {'bills': [
+                {'id': 'expensive', 'amount': 900000, 'due_date': '2026-11-08', 'paid': False},
+                {'id': 'due', 'amount': 200000, 'due_date': '2026-11-09', 'paid': False},
+            ]},
+            {'ok': True},
+        ])
+        client = Client([])
+        agent = ReActAgent(client, Tools())
+        item = {'id': 'synthetic', 'history': [], 'context': {
+            'current_time': '2026-11-07T10:00:00+07:00',
+            'installed_apps': {'bill_payment': {}},
+        }}
+        with patch('src.agent.react_loop.build_user_prompt', return_value='prompt'), contextlib.redirect_stdout(io.StringIO()):
+            agent.run(env, item,
+                      'Trả hóa đơn trong 5 ngày tới bằng ngân hàng, cái nào hơn 500 nghìn thì để đó')
+        self.assertEqual(client.calls, 0)
+        self.assertEqual(env.calls, [
+            {'name': 'bill_payment.list_bills', 'arguments': {}},
+            {'name': 'bill_payment.pay', 'arguments': {'bill_id': 'due', 'source': 'bank'}},
+        ])
+
+    def test_calendar_check_in_uses_booking_from_history(self):
+        names = ['calendar.list_events', 'flights.check_in']
+        class Tools(Catalog):
+            def get_allowed_tools(self, installed):
+                return [{'name': name} for name in names]
+        history = [{'role': 'assistant', 'tool_calls': [{'name': 'flights.my_bookings', 'arguments': {}}],
+                    'tool_results': [{'bookings': [
+                        {'id': 'outbound', 'status': 'confirmed', 'flight': {'date': '2026-10-26'}},
+                        {'id': 'return', 'status': 'confirmed', 'flight': {'date': '2026-10-28'}},
+                    ]}]}]
+        env = Env([
+            {'events': [{'title': 'Workshop khách hàng', 'location': 'Đà Nẵng',
+                         'start': '2026-10-28T09:00:00+07:00'}]},
+            {'ok': True},
+        ])
+        agent = ReActAgent(Client([]), Tools())
+        item = {'id': 'synthetic', 'history': history, 'context': {
+            'installed_apps': {'calendar': {}, 'flights': {}}
+        }}
+        with patch('src.agent.react_loop.build_user_prompt', return_value='prompt'), contextlib.redirect_stdout(io.StringIO()):
+            agent.run(env, item, 'Check-in chuyến bay cùng ngày với workshop ở Đà Nẵng')
+        self.assertEqual(env.calls, [
+            {'name': 'calendar.list_events', 'arguments': {}},
+            {'name': 'flights.check_in', 'arguments': {'booking_id': 'return'}},
+        ])
+
+    def test_history_ordinal_completion_is_not_blocked_by_trailing_roi(self):
+        class Tools(Catalog):
+            def get_allowed_tools(self, installed):
+                return [{'name': 'tasks.complete'}]
+        history = [{'role': 'assistant',
+                    'text': 'Có ba việc: trả tiền hàng, đóng học phí, gọi thợ sửa máy giặt.',
+                    'tool_calls': [{'name': 'tasks.list', 'arguments': {'status': 'open'}}],
+                    'tool_results': [{'tasks': [
+                        {'id': 't3', 'title': 'Gọi thợ sửa máy giặt'},
+                        {'id': 't2', 'title': 'Đóng học phí'},
+                        {'id': 't1', 'title': 'Trả tiền hàng'},
+                    ]}]}]
+        env = Env([{'ok': True}])
+        agent = ReActAgent(Client([]), Tools())
+        item = {'id': 'synthetic', 'history': history,
+                'context': {'installed_apps': {'tasks': {}}}}
+        with patch('src.agent.react_loop.build_user_prompt', return_value='prompt'), contextlib.redirect_stdout(io.StringIO()):
+            agent.run(env, item, 'Đánh dấu xong việc thứ hai con mới kể, sáng nay cô đóng rồi')
+        self.assertEqual(env.calls, [
+            {'name': 'tasks.complete', 'arguments': {'task_id': 't2'}},
+        ])
+
     def test_mixed_intent_is_not_rejected_by_one_unavailable_or_cancelled_clause(self):
         agent = ReActAgent(Client([]), Catalog())
         self.assertFalse(agent.is_oos_or_cancelled('Tìm đường tới ga và tạo ghi chú Công tác', {'notes': {}}))
