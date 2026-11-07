@@ -162,6 +162,8 @@ class OpenAICompatibleClient(BaseLLMClient):
         self.model = model
         self.max_tokens = max_tokens
         self.timeout = timeout
+        self.last_error = None
+        self.last_error_kind = None
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         return self.generate_with_budget(system_prompt, user_prompt, self.timeout)
@@ -170,8 +172,10 @@ class OpenAICompatibleClient(BaseLLMClient):
         if seconds <= 0:
             from src.agent.execution import RunLimitReached
             raise RunLimitReached("No time remaining for generation")
-        from openai import APITimeoutError, APIStatusError
+        from openai import APIConnectionError, APITimeoutError, APIStatusError
         from src.agent.execution import RunLimitReached
+        self.last_error = None
+        self.last_error_kind = None
         try:
             response = self.client.with_options(timeout=min(seconds, self.timeout), max_retries=0).chat.completions.create(
                 model=self.model,
@@ -187,13 +191,27 @@ class OpenAICompatibleClient(BaseLLMClient):
             detail = str(error)
             if len(detail) > 240:
                 detail = detail[:237] + "..."
+            self.last_error = detail
+            self.last_error_kind = (
+                "endpoint_unavailable"
+                if error.status_code in {404, 502, 503, 504}
+                else "http_error"
+            )
             raise RunLimitReached(
                 f"LLM endpoint returned HTTP {error.status_code}: {detail}; no additional tools will run"
             ) from error
         except (APITimeoutError, TimeoutError) as error:
             # Treat a remote timeout as a per-sample inference failure so a
             # batch evaluation can record the sample and proceed.
+            self.last_error = str(error)
+            self.last_error_kind = "timeout"
             raise RunLimitReached("LLM request timed out; no additional tools will run") from error
+        except APIConnectionError as error:
+            self.last_error = str(error)
+            self.last_error_kind = "endpoint_unavailable"
+            raise RunLimitReached(
+                "LLM endpoint connection failed; no additional tools will run"
+            ) from error
         return response.choices[0].message.content or ""
 
 
