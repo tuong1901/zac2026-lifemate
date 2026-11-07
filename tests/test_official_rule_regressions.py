@@ -254,7 +254,7 @@ class GroundingTests(unittest.TestCase):
         with patch('src.agent.react_loop.build_user_prompt', return_value='prompt'), contextlib.redirect_stdout(io.StringIO()):
             agent.run(env, {'id': 'synthetic', 'context': {'installed_apps': {'custom': {}}}}, 'Thực hiện yêu cầu')
         self.assertEqual(env.calls, [read, write])
-        self.assertEqual(client.calls, 2)
+        self.assertEqual(client.calls, 1)
 
 
 class SchemaBoundaryTests(unittest.TestCase):

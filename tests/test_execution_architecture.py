@@ -13,6 +13,7 @@ from src.agent.execution import (ActionFeedback, GuardedToolEnv, RunBudget,
 from src.agent.llm_client import drop_reference_examples, OpenAICompatibleClient
 from src.agent.prompt import build_user_prompt, get_history_satisfied_reads, format_tools_with_enums
 from src.agent.react_loop import ReActAgent
+from src.rules.catalog_filter import CatalogFilter
 from src.rules.schema_guardrail import SafeSchemaGuardrail
 from test_agent_regressions import Env, Client, Catalog, action, plan
 
@@ -156,12 +157,56 @@ class AgentArchitectureTests(unittest.TestCase):
             agent.run(env, item, text)
         return env, client
 
-    def test_read_then_write_requires_observation_turn(self):
+    def test_read_then_write_reuses_single_llm_plan(self):
         read = {'name': 'notes.list', 'arguments': {}}
         write = {'name': 'notes.create', 'arguments': {'title': 'One'}}
-        env, client = self.run_agent([plan([read, write]), plan([write])], ['notes.list', 'notes.create'])
+        env, client = self.run_agent([plan([read, write], False), plan([write])], ['notes.list', 'notes.create'])
         self.assertEqual(env.calls, [read, write])
-        self.assertEqual(client.calls, 2)
+        self.assertEqual(client.calls, 1)
+
+    def test_deferred_plan_rejects_unobserved_schema_reference(self):
+        actions = [{'name': 'tasks.complete', 'arguments': {'task_id': 'invented'}}]
+        tools = [{'name': 'tasks.complete', 'parameters': {'properties': {
+            'task_id': {'type': 'string', 'x-ref': 'tasks.tasks'}
+        }}}]
+        steps = [{'raw_observation': {'tasks': [{'id': 'task_real'}]}}]
+        self.assertFalse(ReActAgent._plan_references_are_observed(actions, tools, steps))
+        actions[0]['arguments']['task_id'] = 'task_real'
+        self.assertTrue(ReActAgent._plan_references_are_observed(actions, tools, steps))
+
+    def test_successful_multi_write_batch_stops_without_finish_flag(self):
+        first = {'name': 'notes.create', 'arguments': {'title': 'One'}}
+        second = {'name': 'tasks.add', 'arguments': {'title': 'Two'}}
+        env, client = self.run_agent(
+            [plan([first, second], False), plan([first, second])],
+            ['notes.create', 'tasks.add'],
+        )
+        self.assertEqual(env.calls, [first, second])
+        self.assertEqual(client.calls, 1)
+
+    def test_prompt_catalog_uses_routed_apps_and_reference_reads(self):
+        allowed = [
+            {'name': 'sys.ask_missing_info', 'kind': 'write'},
+            {'name': 'calendar.list_events', 'kind': 'read'},
+            {'name': 'calendar.update_event', 'kind': 'write', 'parameters': {
+                'properties': {'contact_id': {'x-ref': 'contacts.people'}}}},
+            {'name': 'contacts.search', 'kind': 'read'},
+        ]
+        allowed.extend(
+            {'name': f'unrelated_{index}.write', 'kind': 'write'}
+            for index in range(35)
+        )
+        exemplar = {'tool_calls': [
+            {'name': 'calendar.update_event', 'arguments': {'event_id': 'evt'}}
+        ]}
+        catalog = CatalogFilter.__new__(CatalogFilter)
+        selected = catalog.select_prompt_tools(allowed, [exemplar])
+        names = {tool['name'] for tool in selected}
+        self.assertIn('calendar.list_events', names)
+        self.assertIn('calendar.update_event', names)
+        self.assertIn('contacts.search', names)
+        self.assertIn('sys.ask_missing_info', names)
+        self.assertFalse(any(name.startswith('unrelated_') for name in names))
 
     def test_write_before_read_keeps_user_order(self):
         write = {'name': 'notes.create', 'arguments': {'title': 'One'}}

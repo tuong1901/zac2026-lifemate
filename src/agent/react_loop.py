@@ -239,6 +239,49 @@ class ReActAgent:
             return None
 
     @staticmethod
+    def _plan_references_are_observed(
+        actions: List[Dict[str, Any]],
+        allowed_tools: List[Dict[str, Any]],
+        steps: List[Dict[str, Any]],
+    ) -> bool:
+        """Reject deferred exemplar IDs that are absent from fresh reads.
+
+        This is intentionally schema-driven: any argument carrying ``x-ref``
+        must use an ID returned by the referenced collection when that
+        collection has been observed. Plans with invented IDs are sent back to
+        the planner instead of reaching ToolEnv.
+        """
+        schemas = {tool.get("name"): tool for tool in allowed_tools}
+        observed: Dict[str, set] = {}
+        for step in steps:
+            raw = step.get("raw_observation")
+            if not isinstance(raw, dict) or step.get("error"):
+                continue
+            for key, value in raw.items():
+                if isinstance(value, list):
+                    ids = {
+                        str(item["id"])
+                        for item in value
+                        if isinstance(item, dict) and item.get("id") is not None
+                    }
+                    if ids:
+                        observed.setdefault(key, set()).update(ids)
+
+        for action in actions:
+            schema = schemas.get(action.get("name"), {})
+            properties = (schema.get("parameters") or {}).get("properties") or {}
+            arguments = action.get("arguments") or {}
+            for arg_name, info in properties.items():
+                ref = info.get("x-ref", "") if isinstance(info, dict) else ""
+                if not ref or arg_name not in arguments:
+                    continue
+                collection = ref.rsplit(".", 1)[-1]
+                valid_ids = observed.get(collection)
+                if valid_ids and str(arguments[arg_name]) not in valid_ids:
+                    return False
+        return True
+
+    @staticmethod
     def _resolve_lock_id(
         history: List[Dict[str, Any]],
         steps: List[Dict[str, Any]],
@@ -1040,7 +1083,6 @@ class ReActAgent:
         # 1. Lọc danh sách công cụ được phép
         allowed_tools = self.catalog_filter.get_allowed_tools(installed_apps)
         allowed_tool_names = {t["name"] for t in allowed_tools}
-        tools_desc = self.catalog_filter.format_tools_for_prompt(allowed_tools)
         history_blob = json.dumps(history, ensure_ascii=False)
 
         task_id = (
@@ -1096,13 +1138,25 @@ class ReActAgent:
                 )
             few_shot_str = self.exemplar_retriever.format_exemplars_for_prompt(exemplars)
 
+        prompt_tools = allowed_tools
+        if hasattr(self.catalog_filter, "select_prompt_tools"):
+            prompt_tools = self.catalog_filter.select_prompt_tools(
+                allowed_tools,
+                exemplars,
+                history=history,
+            )
+        tools_desc = self.catalog_filter.format_tools_for_prompt(prompt_tools)
+
         step_history: List[Dict[str, Any]] = []
         executed_call_signatures = env.successful_signatures
         hist_sat = get_history_satisfied_reads(history, user_text)
+        pending_actions: List[Dict[str, Any]] = []
+        pending_thought = ""
 
         # Vòng lặp ReAct từng bước
         for step_idx in range(self.max_steps):
             budget.remaining()
+            executing_deferred_plan = False
             try:
                 prompt = build_user_prompt(
                     user_utterance=user_text,
@@ -1112,7 +1166,7 @@ class ReActAgent:
                     few_shot_examples=few_shot_str,
                     previous_steps=step_history,
                     history=history,
-                    allowed_tools=allowed_tools,
+                    allowed_tools=prompt_tools,
                     exemplars=exemplars,
                     retriever=self.exemplar_retriever,
                     asr_variants=asr_variants,
@@ -1133,7 +1187,30 @@ class ReActAgent:
                     )
                     if bill_payment_request else []
                 )
-                if recovered_transfer is not None:
+                if pending_actions and not self._plan_references_are_observed(
+                    pending_actions,
+                    allowed_tools,
+                    step_history,
+                ):
+                    print(
+                        "  [Plan Executor] Bỏ suffix có ID không thuộc observation; "
+                        "yêu cầu planner lập lại."
+                    )
+                    pending_actions = []
+                if pending_actions:
+                    queued = pending_actions
+                    pending_actions = []
+                    executing_deferred_plan = True
+                    response = json.dumps({
+                        "thought": pending_thought,
+                        "actions": queued,
+                        "is_finished": True,
+                    })
+                    print(
+                        f"  [Plan Executor] Tiếp tục {len(queued)} action đã lập kế hoạch; "
+                        "không gọi lại LLM."
+                    )
+                elif recovered_transfer is not None:
                     response = json.dumps({"action": recovered_transfer, "is_finished": True})
                 elif recovered_check_in is not None:
                     response = json.dumps({"action": recovered_check_in, "is_finished": True})
@@ -1231,9 +1308,14 @@ class ReActAgent:
                     if introduced_payment and all(a.get("name") == "bill_payment.pay" for a in actions_list):
                         is_finished = True
 
-                # Execute the ordered frontier, then observe before dependent writes.
-                actions_list, deferred = observation_frontier(actions_list, env.read_tools)
+                # Execute the ordered frontier, then continue the remaining plan
+                # locally. Grounding below can replace exemplar IDs with entities
+                # from the fresh observation, so a second LLM call is unnecessary.
+                planned_actions = actions_list
+                actions_list, deferred = observation_frontier(planned_actions, env.read_tools)
                 if deferred:
+                    pending_actions = planned_actions[len(actions_list):]
+                    pending_thought = thought
                     is_finished = False
 
                 # Mở rộng & đồng bộ thiết bị nhà thông minh đa điều kiện (Smart Home Multi-Device Conditional Expansion)
@@ -2402,11 +2484,22 @@ class ReActAgent:
                         break
 
                 if needs_replan:
+                    pending_actions = []
                     continue
+                completed_multi_write_plan = (
+                    len(actions_list) >= 2
+                    and all(action.get("name") not in env.read_tools for action in actions_list)
+                )
+                if executing_deferred_plan or completed_multi_write_plan:
+                    # A queued suffix or a complete multi-mutation batch
+                    # exhausts the plan even if a small model forgot
+                    # is_finished=true in its original response.
+                    is_finished = True
                 if is_finished:
                     break
 
             except ActionFeedback as error:
+                pending_actions = []
                 call_sig = f"{error.name}:{json.dumps(error.arguments, sort_keys=True)}"
                 executed_call_signatures.discard(call_sig)
                 step_history.append({"step": step_idx + 1, "tool_called": error.name,
