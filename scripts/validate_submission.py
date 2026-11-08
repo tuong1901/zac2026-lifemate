@@ -12,7 +12,7 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser(description="Validate submission file with zaic_tools")
     parser.add_argument("submission_file", type=str, default="submission.jsonl", nargs="?", help="Đường dẫn file submission.jsonl")
-    parser.add_argument("--data_root", type=str, default="D:/Download/train+public_test/train+public_test", help="Thư mục data gốc")
+    parser.add_argument("--data_root", type=str, default="D:/TOOL_TH/ZAC_2026/train+public_test/train+public_test", help="Thư mục data gốc")
     parser.add_argument("--split", type=str, default="public_test", help="Split cần validate (mặc định: public_test)")
     args = parser.parse_args()
 

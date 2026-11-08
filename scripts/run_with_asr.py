@@ -214,16 +214,22 @@ def resolve_asr_dir(preferred_path: str = None) -> Path:
     raise FileNotFoundError("Không tìm thấy thư mục MultiASR_Results! Hãy truyền --asr_dir hợp lệ hoặc cấu hình OUTPUT_DIR trong .env.")
 
 
-def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, limit: int = None, asr_model: str = "phowhisper_medium", concurrency: int = 1):
+def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, limit: int = None, asr_model: str = "phowhisper_medium", workers: int = 4):
     import zipfile
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from zaic_tools import ToolEnv
+    from src.agent.prompt import _get_multi_asr_variants, _get_atomic_retriever
 
     split_dir = root / "public_test"
     test_jsonl = split_dir / "public_test.jsonl"
     asr_jsonl = asr_dir / f"public_test_{asr_model}_for_agent.jsonl"
 
-    print(f"\n🚀 BẮT ĐẦU CHẠY INFERENCE VÀ XUẤT SUBMISSION TRÊN PUBLIC_TEST ({asr_model}) [Concurrency: {concurrency}]")
+    print(f"\n🚀 BẮT ĐẦU CHẠY INFERENCE VÀ XUẤT SUBMISSION TRÊN PUBLIC_TEST ({asr_model}, workers={workers})")
     asr_map = load_asr_map(asr_jsonl)
+    _get_multi_asr_variants("public_0001", "")
+    if getattr(agent, "exemplar_retriever", None):
+        _get_atomic_retriever(agent.exemplar_retriever)
 
     items = []
     with open(test_jsonl, "r", encoding="utf-8") as f:
@@ -236,7 +242,7 @@ def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, lim
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
     # Đọc các mẫu đã xử lý từ trước nếu có để hỗ trợ resume
-    processed_ids = set()
+    processed_map = {}
     if output_file.exists():
         with open(output_file, "r", encoding="utf-8") as f:
             for line in f:
@@ -244,48 +250,52 @@ def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, lim
                 if line:
                     try:
                         rec = json.loads(line)
-                        processed_ids.add(rec["id"])
+                        processed_map[rec["id"]] = rec
                     except Exception:
                         pass
-        if processed_ids:
-            print(f"ℹ️ Tìm thấy {len(processed_ids)} mẫu đã xử lý trước đó trong {output_file.name}. Tiếp tục chạy phần còn lại...")
+        if len(processed_map) >= len(items):
+            print(f"♻️ File {output_file.name} đã có đủ {len(processed_map)} mẫu từ lần chạy cũ -> Xoá để chạy mới hoàn toàn!")
+            processed_map.clear()
+            output_file.unlink(missing_ok=True)
+        elif processed_map:
+            print(f"ℹ️ Tìm thấy {len(processed_map)} mẫu đã xử lý trước đó trong {output_file.name}. Tiếp tục chạy phần còn lại...")
 
-    pending_items = [it for it in items if it["id"] not in processed_ids]
-    completed_count = len(processed_ids)
+    pending_items = [it for it in items if it["id"] not in processed_map]
     write_lock = threading.Lock()
 
-    def process_sub_item(item):
-        sample_id = item["id"]
-        if sample_id not in asr_map or not asr_map[sample_id].get("transcript"):
-            raise ValueError(f"Thiếu transcript ASR cho {sample_id}")
-        run_item, user_text = inject_asr_into_item(item, asr_map[sample_id])
+    if pending_items:
+        with open(output_file, "a", encoding="utf-8") as out_f:
+            def _process_one(item):
+                sample_id = item["id"]
+                if sample_id not in asr_map or not asr_map[sample_id].get("transcript"):
+                    raise ValueError(f"Thiếu transcript ASR cho {sample_id}")
+                run_item, user_text = inject_asr_into_item(item, asr_map[sample_id])
+                env = ToolEnv("public_test", sample_id, root=root)
+                pred_calls, hash_sys = agent.run(env, run_item, user_text)
+                rec = {
+                    "id": sample_id,
+                    "tool_calls": pred_calls,
+                    "state_hash": hash_sys,
+                }
+                with write_lock:
+                    out_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                    out_f.flush()
+                    processed_map[sample_id] = rec
+                return rec
 
-        env = ToolEnv("public_test", sample_id, root=root)
-        pred_calls, hash_sys = agent.run(env, run_item, user_text)
+            if workers <= 1:
+                for it in tqdm(pending_items, desc="Generating Submission"):
+                    _process_one(it)
+            else:
+                with ThreadPoolExecutor(max_workers=workers) as ex:
+                    futs = [ex.submit(_process_one, it) for it in pending_items]
+                    for fut in tqdm(as_completed(futs), total=len(futs), desc="Generating Submission"):
+                        fut.result()
 
-        return {
-            "id": sample_id,
-            "tool_calls": pred_calls,
-            "state_hash": hash_sys
-        }
-
-    with open(output_file, "a", encoding="utf-8") as out_f:
-        if concurrency > 1 and len(pending_items) > 1:
-            print(f"⚡ Đang chạy song song {len(pending_items)} mẫu với {concurrency} workers...", flush=True)
-            with ThreadPoolExecutor(max_workers=concurrency) as executor:
-                futures = [executor.submit(process_sub_item, item) for item in pending_items]
-                for fut in tqdm(as_completed(futures), total=len(futures), desc=f"Submission ({concurrency} workers)"):
-                    rec = fut.result()
-                    with write_lock:
-                        out_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-                        out_f.flush()
-                        completed_count += 1
-        else:
-            for item in tqdm(pending_items, desc="Generating Submission"):
-                rec = process_sub_item(item)
-                out_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-                out_f.flush()
-                completed_count += 1
+    ordered_recs = [processed_map[it["id"]] for it in items if it["id"] in processed_map]
+    with open(output_file, "w", encoding="utf-8") as out_f:
+        for rec in ordered_recs:
+            out_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
     # Đóng gói zip submission theo đúng chuẩn BTC
     zip_path = output_file.with_suffix(".zip")
@@ -293,7 +303,7 @@ def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, lim
         z.write(output_file, arcname=output_file.name)
 
     print(f"\n✅ ĐÃ XUẤT FILE SUBMISSION THÀNH CÔNG:")
-    print(f"   - File JSONL: {output_file} ({completed_count} mẫu)")
+    print(f"   - File JSONL: {output_file} ({len(ordered_recs)} mẫu)")
     print(f"   - File ZIP:   {zip_path}\n")
 
 
@@ -309,6 +319,12 @@ def main():
     parser.add_argument("--mode", choices=["hf", "server"], default=llm_cfg.mode)
     parser.add_argument("--base_url", type=str, default=llm_cfg.base_url)
     parser.add_argument("--model", type=str, default=llm_cfg.model)
+    parser.add_argument(
+        "--max_tokens",
+        type=int,
+        default=llm_cfg.max_tokens or 256,
+        help="Giới hạn token sinh ở mỗi lượt LLM (tối đa bằng MAX_NEW_TOKENS của server).",
+    )
     parser.add_argument("--asr_model", choices=["phowhisper_medium", "whisper_turbo", "phowhisper_small", "all"], default="phowhisper_medium")
     parser.add_argument("--concurrency", "--workers", dest="concurrency", type=int, default=llm_cfg.concurrency,
                         help=f"Số worker song song gọi LLM (Mặc định: {llm_cfg.concurrency})")
@@ -346,9 +362,13 @@ def main():
     fuzzy_map = load_fuzzy_map(catalog_file)
 
     if args.mode == "hf":
-        llm_client = get_llm_client(client_type="hf", model_name_or_path=args.model)
+        llm_client = get_llm_client(
+            client_type="hf", model_name_or_path=args.model, max_new_tokens=args.max_tokens
+        )
     else:
-        llm_client = get_llm_client(client_type="openai", base_url=args.base_url, model=args.model)
+        llm_client = get_llm_client(
+            client_type="openai", base_url=args.base_url, model=args.model, max_tokens=args.max_tokens
+        )
 
     catalog_filter = CatalogFilter(str(catalog_file))
     eval_items = []
@@ -369,11 +389,8 @@ def main():
 
     retriever = BM25ExemplarRetriever()
     if args.make_submission:
-        if cache_path.exists():
-            retriever.load_cache(str(cache_path))
-        else:
-            retriever.build_from_train_file(str(root / "train" / "train.jsonl"))
-            retriever.save_cache(str(cache_path))
+        retriever.build_from_train_file(str(root / "train" / "train.jsonl"))
+        retriever.save_cache(str(cache_path))
     else:
         retriever.build_from_train_file(str(root / "train" / "train.jsonl"), exclude_ids=excluded_ids)
         if any(rec["id"] in excluded_ids for rec in retriever.corpus):

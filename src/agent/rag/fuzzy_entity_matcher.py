@@ -17,7 +17,7 @@ def extract_candidate_entities(item: Dict[str, Any]) -> Set[str]:
     entities: Set[str] = set()
     context = item.get("context", {})
     user_prof = context.get("user_profile", {})
-    
+
     # 1. Hồ sơ người dùng
     for k, v in user_prof.items():
         if isinstance(v, str) and len(v.strip()) > 1:
@@ -44,23 +44,28 @@ def extract_candidate_entities(item: Dict[str, Any]) -> Set[str]:
                         if name_field in val and isinstance(val[name_field], str):
                             entities.add(val[name_field].strip())
 
-    # Lọc các chuỗi quá ngắn hoặc toàn số
+    # Lọc các chuỗi quá ngắn, toàn số, hoặc câu văn thông thường chỉ viết hoa chữ đầu câu (chỉ giữ Tên riêng thực sự)
     filtered = {
-        e for e in entities 
-        if len(e) >= 3 and not e.isdigit() and not e.startswith("evt_") and not e.startswith("alm_") and not e.startswith("not_")
+        e for e in entities
+        if len(e) >= 3 and not e.isdigit()
+        and (
+            (len(e.split()) == 1 and any(ch.isupper() for ch in e))
+            or any(w[0].isupper() for w in e.split()[1:] if w)
+        )
+        and not e.startswith(("evt_", "alm_", "not_", "lock_", "rule_", "sub_", "rem_", "task_", "chore_"))
     }
     return filtered
 
 
 def repair_utterance_with_context_entities(
-    text: str, 
-    candidate_entities: Set[str], 
+    text: str,
+    candidate_entities: Set[str],
     threshold: float = 0.78
 ) -> Tuple[str, List[Dict[str, Any]]]:
     """
     Tìm kiếm các cụm từ trong text có độ tương đồng cao với thực thể trong ngữ cảnh
     và tự động thay thế bằng tên thực thể chuẩn hóa.
-    
+
     Returns:
         (repaired_text, list_of_repairs)
     """
@@ -96,8 +101,6 @@ def repair_utterance_with_context_entities(
 
         best_ratio = 0.0
         best_ngram = ""
-        best_start = -1
-        best_len = 0
 
         # Thử các cửa sổ có độ dài k, k-1, k+1
         for w_len in (k, k - 1, k + 1):
@@ -110,17 +113,15 @@ def repair_utterance_with_context_entities(
 
                 if ngram_clean in exact_entity_texts:
                     continue
-                
-                # Bỏ qua nếu đã khớp chính xác
-                if ngram_clean == ent_clean:
+
+                # Bỏ qua nếu đã khớp chính xác hoặc toàn bộ từ trong cụm đều đã có sẵn trong thực thể
+                if ngram_clean == ent_clean or set(ngram_clean.split()).issubset(set(ent_clean.split())):
                     continue
-                
+
                 r = difflib.SequenceMatcher(None, ngram_clean, ent_clean).ratio()
                 if r > best_ratio:
                     best_ratio = r
                     best_ngram = ngram
-                    best_start = i
-                    best_len = w_len
 
         if best_ratio >= threshold:
             repairs.append({
