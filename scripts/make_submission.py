@@ -23,6 +23,11 @@ except ImportError:
     pass
 
 def main():
+    raise SystemExit(
+        "scripts/make_submission.py là skeleton cũ và không gọi agent/ASR. "
+        "Dùng scripts/run_with_asr.py --make_submission theo docs/TEAM_RUNBOOK.md."
+    )
+
     parser = argparse.ArgumentParser(description="Tạo file nộp bài submission.jsonl cho ZAC 2026 LifeMate")
     parser.add_argument("--data_root", type=str, default="D:/Download/train+public_test/train+public_test", help="Thư mục chứa train và public_test")
     parser.add_argument("--output", type=str, default="submission.jsonl", help="Tên file kết quả đầu ra")

@@ -27,6 +27,12 @@ from pathlib import Path
 from collections import Counter
 from tqdm import tqdm
 
+# Đảm bảo in tiếng Việt mượt mà trên Windows console
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 # Cố định random seed theo quy định Reproducibility của BTC
 SEED = 42
 random.seed(SEED)
@@ -42,6 +48,16 @@ try:
         torch.cuda.manual_seed_all(SEED)
 except ImportError:
     pass
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.rules.catalog_filter import CatalogFilter
+from src.rules.schema_guardrail import SafeSchemaGuardrail
+from src.agent.rag.exemplar_retriever import BM25ExemplarRetriever
+from src.agent.rag.history_resolver import HistoryResolver
+from src.agent.react_loop import ReActAgent
+from src.agent.llm_client import get_llm_client
 
 
 def compute_token_f1(s1, s2) -> float:
@@ -100,23 +116,24 @@ def match_single_call(pred_call: dict, gold_call: dict, fuzzy_params: set) -> bo
     if pred_call.get("name") != gold_call.get("name"):
         return False
 
-    pred_args = pred_call.get("arguments") or {}
-    gold_args = gold_call.get("arguments") or {}
+    args_pred = pred_call.get("arguments") or {}
+    args_gold = gold_call.get("arguments") or {}
 
-    # Tất cả các key trong gold bắt buộc phải có trong pred và ngược lại
-    all_keys = set(pred_args.keys()) | set(gold_args.keys())
+    keys_gold = set(args_gold.keys())
+    keys_pred = set(args_pred.keys())
 
-    for k in all_keys:
-        val_pred = pred_args.get(k)
-        val_gold = gold_args.get(k)
+    # Tất cả các keys trong gold phải có mặt trong pred
+    if not keys_gold.issubset(keys_pred):
+        return False
+
+    for k in keys_gold:
+        val_pred = args_pred.get(k)
+        val_gold = args_gold.get(k)
 
         if k in fuzzy_params:
-            # Tham số tự do: tính token-F1 > 0.6
-            f1 = compute_token_f1(val_pred, val_gold)
-            if f1 <= 0.6:
+            if compute_token_f1(val_pred, val_gold) <= 0.6:
                 return False
         else:
-            # Tham số strict: phải giống hệt
             if val_pred != val_gold:
                 return False
 
@@ -131,7 +148,7 @@ def evaluate_sample(pred_calls: list, gold_calls: list, hash_sys: str, hash_gold
     if len(gold_calls) == 0:
         return 1.0 if len(pred_calls) == 0 else 0.0
 
-    # 2. Điều kiện tiên quyết: State Hash Match
+    # 2. Điều kiện tiên quyết: State Hash Match (Cổng sinh tử)
     if hash_sys != hash_gold:
         return 0.0
 
@@ -166,17 +183,26 @@ def evaluate_sample(pred_calls: list, gold_calls: list, hash_sys: str, hash_gold
 def main():
     parser = argparse.ArgumentParser(description="ZAC 2026 LifeMate Official Scorer")
     parser.add_argument("--data_root", type=str, default="D:/Download/train+public_test/train+public_test", help="Thư mục data gốc")
-    parser.add_argument("--limit", type=int, default=100, help="Số lượng mẫu test offline (mặc định: 100 mẫu)")
+    parser.add_argument("--eval_file", type=str, default="data/val_benchmark_200.jsonl", help="File dữ liệu đánh giá")
+    parser.add_argument("--limit", type=int, default=20, help="Số lượng mẫu test offline (mặc định: 20 mẫu)")
+    parser.add_argument("--mode", choices=["hf", "server"], default="hf", help="Chế độ LLM: 'hf' hoặc 'server'")
+    parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="Tên model")
+    parser.add_argument("--base_url", type=str, default="http://localhost:8000/v1", help="Base URL nếu dùng server vLLM/Ollama")
+    parser.add_argument("--checkpoint_file", type=str, default=None,
+                        help="JSONL lưu kết quả từng mẫu để khôi phục khi endpoint ngắt")
+    parser.add_argument("--resume", action="store_true",
+                        help="Bỏ qua các sample đã có trong checkpoint")
     args = parser.parse_args()
 
     root = Path(args.data_root)
     split_dir = root / "train"
-    train_file = split_dir / "train.jsonl"
     catalog_file = split_dir / "train_tools_catalog.json"
 
-    if not train_file.exists():
-        print(f"Lỗi: Không tìm thấy file {train_file}")
-        return
+    eval_path = Path(args.eval_file)
+    if not eval_path.is_absolute():
+        eval_path = PROJECT_ROOT / eval_path
+    if not eval_path.exists():
+        eval_path = split_dir / "train.jsonl"
 
     sys.path.insert(0, str(split_dir))
     try:
@@ -186,62 +212,138 @@ def main():
         return
 
     fuzzy_map = load_fuzzy_map(catalog_file)
-    print(f"Đã nạp schema: có {len(fuzzy_map)} tools chứa tham số dạng fuzzy (x-match: fuzzy).")
-    print(f"--- Bắt đầu đánh giá trên {args.limit} mẫu train theo chuẩn BTC ---")
+    print("=" * 65)
+    print("       HỆ THỐNG ĐÁNH GIÁ CHUẨN THỂ LỆ ZALO AI CHALLENGE 2026")
+    print("=" * 65)
+    print(f"• Dataset đánh giá: {eval_path.name}")
+    print(f"• Số lượng mẫu:     {args.limit}")
+    print(f"• LLM Mode:         {args.mode} ({args.model})")
+    print(f"• Schema:           {len(fuzzy_map)} tools chứa tham số fuzzy (x-match: fuzzy)")
 
-    scores = []
-    state_matches = 0
-    empty_matches = 0
-    total = 0
+    # Khởi tạo Pipeline của nhóm
+    print("\n[+] Đang khởi tạo Agent Pipeline...")
+    if args.mode == "hf":
+        llm_client = get_llm_client(client_type="hf", model_name_or_path=args.model)
+    else:
+        llm_client = get_llm_client(client_type="openai", base_url=args.base_url, model=args.model)
 
-    with open(train_file, "r", encoding="utf-8") as f:
-        for idx, line in enumerate(tqdm(f, total=args.limit)):
-            if idx >= args.limit:
-                break
-            item = json.loads(line)
-            sample_id = item["id"]
-            gold_calls = item.get("label", {}).get("tool_calls", [])
+    catalog_filter = CatalogFilter(str(catalog_file))
+    retriever = BM25ExemplarRetriever()
+    with open(eval_path, "r", encoding="utf-8") as f:
+        excluded_ids = {json.loads(line)["id"] for line in f if line.strip()}
+    retriever.build_from_train_file(str(split_dir / "train.jsonl"), exclude_ids=excluded_ids)
+    if any(rec["id"] in excluded_ids for rec in retriever.corpus):
+        raise RuntimeError("Validation ID vẫn nằm trong chỉ mục BM25")
+    print(f"[Clean holdout] Loại {len(excluded_ids)} validation ID khỏi BM25; còn {len(retriever.corpus)} ví dụ train.")
 
-            # 1. Tính hash_gold chuẩn bằng cách chạy replay gold_calls trên 1 ToolEnv sạch
-            gold_env = ToolEnv("train", sample_id, root=root)
-            for c in gold_calls:
-                gold_env.call(c["name"], c.get("arguments") or {})
-            hash_gold = gold_env.get_state_hash()
+    history_resolver = HistoryResolver()
+    guardrail = SafeSchemaGuardrail()
 
-            # 2. Chạy môi trường Agent dự đoán (System Env)
-            sys_env = ToolEnv("train", sample_id, root=root)
+    agent = ReActAgent(
+        llm_client=llm_client,
+        catalog_filter=catalog_filter,
+        exemplar_retriever=retriever,
+        history_resolver=history_resolver,
+        guardrail=guardrail,
+        max_steps=7
+    )
 
-            # --- MÔ PHỎNG DỰ ĐOÁN CỦA PIPELINE NHÓM ---
-            # (Thay thế đoạn này bằng agent thực tế của nhóm: pred_calls, hash_sys = agent.run(...))
-            # Ở bản baseline test này, ta gọi đúng gold_calls để xác minh độ chuẩn của bộ Scorer:
-            for c in gold_calls:
-                sys_env.call(c["name"], c.get("arguments") or {})
+    print(f"\n--- Bắt đầu đánh giá trên {args.limit} mẫu theo chuẩn BTC ---")
 
-            pred_calls = sys_env.get_tool_calls()
-            hash_sys = sys_env.get_state_hash()
+    checkpoint_path = Path(args.checkpoint_file) if args.checkpoint_file else None
+    completed = {}
+    if checkpoint_path:
+        if not checkpoint_path.is_absolute():
+            checkpoint_path = PROJECT_ROOT / checkpoint_path
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        if args.resume and checkpoint_path.exists():
+            with open(checkpoint_path, "r", encoding="utf-8") as checkpoint_in:
+                for checkpoint_line in checkpoint_in:
+                    if checkpoint_line.strip():
+                        record = json.loads(checkpoint_line)
+                        completed[int(record["index"])] = record
+            print(f"[Resume] Đã khôi phục {len(completed)} sample từ {checkpoint_path}")
+        else:
+            checkpoint_path.write_text("", encoding="utf-8")
 
-            # 3. Tính điểm theo công thức chính thức
-            sample_score = evaluate_sample(pred_calls, gold_calls, hash_sys, hash_gold, fuzzy_map)
-            scores.append(sample_score)
+    checkpoint_out = (
+        open(checkpoint_path, "a", encoding="utf-8", buffering=1)
+        if checkpoint_path else None
+    )
+    stopped_for_endpoint = False
+    try:
+        with open(eval_path, "r", encoding="utf-8") as f:
+            for idx, line in enumerate(tqdm(f, total=args.limit)):
+                if idx >= args.limit:
+                    break
+                if idx in completed:
+                    continue
+                item = json.loads(line)
+                sample_id = item["id"]
+                user_text = item.get("audio_text", "")
+                gold_calls = item.get("label", {}).get("tool_calls", [])
 
-            if hash_sys == hash_gold:
-                state_matches += 1
-            if len(gold_calls) == 0 and len(pred_calls) == 0:
-                empty_matches += 1
+                # 1. Tính hash_gold chuẩn bằng cách chạy replay gold_calls trên 1 ToolEnv sạch
+                gold_env = ToolEnv("train", sample_id, root=root)
+                for c in gold_calls:
+                    gold_env.call(c["name"], c.get("arguments") or {})
+                hash_gold = gold_env.get_state_hash()
 
-            total += 1
+                # 2. Chạy Agent thật của nhóm trên môi trường ToolEnv sạch
+                sys_env = ToolEnv("train", sample_id, root=root)
+                pred_calls, hash_sys = agent.run(sys_env, item, user_text)
+                if getattr(llm_client, "last_error_kind", None) == "endpoint_unavailable":
+                    stopped_for_endpoint = True
+                    print(
+                        f"\n[Checkpoint] Endpoint ngắt tại mẫu {idx + 1} "
+                        f"({sample_id}); mẫu này chưa được ghi."
+                    )
+                    break
+
+                # 3. Tính điểm theo công thức chính thức
+                has_rejected = any("error" in c.get("result", {}) for c in sys_env.log)
+                sample_score = evaluate_sample(pred_calls, gold_calls, hash_sys, hash_gold, fuzzy_map)
+                record = {
+                    "index": idx,
+                    "sample_id": sample_id,
+                    "score": sample_score,
+                    "state_match": hash_sys == hash_gold,
+                    "schema_penalty": has_rejected,
+                    "pred_calls": pred_calls,
+                    "gold_calls": gold_calls,
+                    "hash_sys": hash_sys,
+                    "hash_gold": hash_gold,
+                }
+                completed[idx] = record
+                if checkpoint_out:
+                    checkpoint_out.write(json.dumps(record, ensure_ascii=False) + "\n")
+    finally:
+        if checkpoint_out:
+            checkpoint_out.close()
+
+    records = [completed[index] for index in sorted(completed) if index < args.limit]
+    scores = [record["score"] for record in records]
+    total = len(records)
+    state_matches = sum(bool(record["state_match"]) for record in records)
+    schema_penalties = sum(bool(record["schema_penalty"]) for record in records)
 
     final_score = (100.0 / total) * sum(scores) if total > 0 else 0.0
     state_match_rate = (state_matches / total) * 100 if total > 0 else 0.0
 
-    print("\n" + "=" * 60)
-    print("       KẾT QUẢ ĐÁNH GIÁ CHUẨN THỂ LỆ ZALO AI CHALLENGE 2026")
-    print("=" * 60)
+    print("\n" + "=" * 65)
+    print("                 KẾT QUẢ ĐÁNH GIÁ CHÍNH THỨC")
+    print("=" * 65)
     print(f"• Tổng số mẫu đánh giá (N):           {total}")
-    print(f"• Tỷ lệ khớp State Hash (hash_sys == hash_gold): {state_match_rate:.2f}%")
-    print(f"• ĐIỂM SỐ CHÍNH THỨC (FINAL SCORE / 100):  {final_score:.4f} / 100.0")
-    print("=" * 60)
-    print("Lưu ý: Mọi cải tiến của nhóm phải làm tăng chỉ số FINAL SCORE này trước khi submit!")
+    print(f"• Tỷ lệ khớp State Hash (Cổng sinh tử): {state_match_rate:.2f}% ({state_matches}/{total})")
+    schema_rate = (schema_penalties / total * 100) if total else 0.0
+    print(f"• Số mẫu bị phạt U (Lỗi schema):      {schema_penalties}/{total} ({schema_rate:.1f}%)")
+    print(f"• ĐIỂM SỐ CHÍNH THỨC (FINAL SCORE):   {final_score:.4f} / 100.0")
+    if stopped_for_endpoint:
+        print("• Trạng thái:                         DỪNG SỚM do endpoint offline")
+    if checkpoint_path:
+        print(f"• Checkpoint:                         {checkpoint_path}")
+    print("=" * 65)
+
 
 if __name__ == "__main__":
     main()
