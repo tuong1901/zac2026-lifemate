@@ -12,10 +12,15 @@ Tải file `scripts/colab_microbatch_server.py` lên Colab hoặc clone repo. Tr
 
 ```python
 import os
-os.environ["MODEL_ID"] = "Qwen/Qwen2.5-3B-Instruct"
-os.environ["BATCH_SIZE"] = "4"
-os.environ["BATCH_WAIT_MS"] = "15"
+os.environ["MODEL_ID"] = "Qwen/Qwen3-4B-Instruct-2507"
+os.environ["BATCH_SIZE"] = "1"
+os.environ["BATCH_WAIT_MS"] = "0"
 os.environ["MAX_NEW_TOKENS"] = "512"
+os.environ["MAX_INPUT_TOKENS"] = "4096"
+os.environ["MAX_INPUT_HEAD_TOKENS"] = "3072"
+# Ép checkpoint 4B tách layer thật sự giữa hai T4, đồng thời chừa bộ nhớ cho
+# attention activation và KV cache.
+os.environ["LOAD_IN_4BIT"] = "0"
 ```
 
 Mở tunnel và khởi động server. Token ngrok được lưu trong runtime; chỉ hỏi
