@@ -132,6 +132,7 @@ def main():
     parser.add_argument("--split", type=str, default="public_test", choices=["public_test", "train", "val"])
     parser.add_argument("--output", type=str, default=None, help="File kết quả submission_v2.jsonl")
     parser.add_argument("--limit", type=int, default=None, help="Số mẫu chạy thử nghiệm (None = toàn bộ)")
+    parser.add_argument("--asr_file", type=str, default=None, help="Đường dẫn file ASR transcript có sẵn (ví dụ: output/public_test_transcripts.jsonl)")
     parser.add_argument("--workers", type=int, default=2, help="Số luồng đồng thời (khuyến nghị 2-3 trên Colab T4)")
     parser.add_argument("--llm_endpoint", type=str, default=None, help="URL OpenAI API / vLLM / Colab ngrok")
     parser.add_argument("--llm_model", type=str, default=None, help="Tên model")
@@ -219,35 +220,65 @@ def main():
     if train_cat.exists() and train_cat != catalog_file:
         fuzzy_map.update(load_fuzzy_map(train_cat))
 
-    # Kiểm tra nhu cầu gỡ băng ASR tự động nếu thiếu audio_text
-    needs_asr = any("audio_text" not in s or not s.get("audio_text") for s in samples)
-    if needs_asr:
-        print("\n🎙️ [Tự động nhận diện Giọng nói] Một số mẫu chưa có trường 'audio_text'.")
+    # 2. Xử lý nạp ASR Transcripts
+    asr_map = {}
+    asr_candidates = [
+        args.asr_file,
+        Path("/kaggle/working/output") / f"{args.split}_transcripts.jsonl",
+        PROJECT_ROOT / "output" / f"{args.split}_transcripts.jsonl",
+        PROJECT_ROOT / "MultiASR_Results" / f"{args.split}_phowhisper_medium_for_agent.jsonl",
+        data_root / f"{args.split}_phowhisper_medium_for_agent.jsonl",
+        data_root / f"{args.split}_asr.jsonl",
+    ]
+    for c in asr_candidates:
+        if c and Path(c).exists():
+            print(f"🎤 Tự động tìm thấy file ASR transcript: {c}")
+            with open(c, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        rec = json.loads(line)
+                        txt = rec.get("transcript") or rec.get("audio_text") or rec.get("text", "")
+                        if rec.get("id") and txt:
+                            asr_map[rec["id"]] = txt
+            break
+
+    for s in samples:
+        sid = s.get("id")
+        if sid in asr_map:
+            s["audio_text"] = asr_map[sid]
+
+    # Kiểm tra nhu cầu gỡ băng ASR tự động nếu còn mẫu thiếu audio_text
+    missing_samples = [s for s in samples if not s.get("audio_text")]
+    if missing_samples:
+        print(f"\n🎙️ [Tự động nhận diện Giọng nói] Có {len(missing_samples)}/{len(samples)} mẫu chưa có trường 'audio_text'.")
         print("   Đang khởi động UnifiedASRTranscriber để gỡ băng trực tiếp...")
         try:
-            from src.asr.transcriber import UnifiedASRTranscriber
+            from src.asr.transcribe import UnifiedASRTranscriber
+            from src.asr.post_processor import LexiconPostProcessor
             asr_cfg = get_asr_config()
             transcriber = UnifiedASRTranscriber(asr_cfg)
+            post_proc = LexiconPostProcessor()
             audio_paths = []
-            for s in samples:
-                raw_audio = s.get("audio", "")
+            for s in missing_samples:
+                raw_audio = s.get("audio", f"audio/{s['id']}/{s['id']}.wav")
                 p = split_dir / raw_audio
                 if not p.exists():
                     p = data_root / raw_audio
                 audio_paths.append(str(p) if p.exists() else "")
 
-            valid_audios = [p for p in audio_paths if p]
+            valid_indices = [i for i, p in enumerate(audio_paths) if p]
+            valid_audios = [audio_paths[i] for i in valid_indices]
             if valid_audios:
-                print(f"   Đang xử lý {len(valid_audios)} file âm thanh bằng ASR...")
-                trans_map = transcriber.transcribe_batch(valid_audios)
-                for s, a_path in zip(samples, audio_paths):
-                    if a_path in trans_map:
-                        s["audio_text"] = trans_map[a_path]
+                print(f"   Đang xử lý {len(valid_audios)} file âm thanh bằng ASR GPU...")
+                trans_list = transcriber.transcribe_batch(valid_audios)
+                for idx, t_raw in zip(valid_indices, trans_list):
+                    clean_t = post_proc.process(t_raw)
+                    missing_samples[idx]["audio_text"] = clean_t
                 print("   ✅ Hoàn tất gỡ băng ASR tự động!")
         except Exception as asr_err:
             print(f"   ⚠️ Lỗi khởi động ASR ({asr_err}). Sẽ dùng fallback từ context.")
-            for s in samples:
-                if "audio_text" not in s or not s.get("audio_text"):
+            for s in missing_samples:
+                if not s.get("audio_text"):
                     s["audio_text"] = f"Lệnh điều khiển thiết bị {s.get('id', '')}"
 
     print(f"\n⚡ Bắt đầu chạy V2 Hai Giai Đoạn trên {len(samples)} mẫu với {args.workers} luồng song song...\n")
