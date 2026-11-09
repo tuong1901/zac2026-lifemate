@@ -41,6 +41,7 @@ from src.agent.rag.history_resolver import HistoryResolver
 from src.agent.react_loop import ReActAgent
 from src.agent.llm_client import get_llm_client
 from src.asr.config import get_llm_config, get_asr_config
+from local_eval import load_fuzzy_map, evaluate_sample
 
 
 def resolve_data_root(custom_path: Optional[str] = None) -> Path:
@@ -151,7 +152,8 @@ def main():
 
     parser = argparse.ArgumentParser(description="Chạy Pipeline và Đánh giá trên tập Public Test (LifeMate)")
     parser.add_argument("--data_root", type=str, default=None, help="Đường dẫn thư mục chứa public_test và train")
-    parser.add_argument("--limit", type=int, default=None, help="Số lượng mẫu chạy thử (mặc định: toàn bộ 634 mẫu)")
+    parser.add_argument("--eval_file", type=str, default=None, help="Đường dẫn file dữ liệu cần chạy (mặc định: public_test.jsonl hoặc val_benchmark_200.jsonl)")
+    parser.add_argument("--limit", type=int, default=None, help="Số lượng mẫu chạy thử (mặc định: toàn bộ)")
     parser.add_argument("--sample_ids", type=str, default=None, help="Chạy các ID cụ thể, phân cách bằng dấu phẩy (vd: public_0002,public_0003)")
     parser.add_argument("--output", type=str, default="submission.jsonl", help="Tên file kết quả đầu ra (mặc định: submission.jsonl)")
     parser.add_argument("--workers", "--concurrency", dest="concurrency", type=int, default=2, help="Số luồng chạy song song (khuyên dùng: 2 khi kết nối Colab T4 ngrok)")
@@ -166,15 +168,31 @@ def main():
 
     data_root = resolve_data_root(args.data_root)
     public_dir = data_root / "public_test"
-    test_jsonl = public_dir / "public_test.jsonl"
+    if args.eval_file:
+        test_jsonl = Path(args.eval_file)
+        if not test_jsonl.is_absolute():
+            test_jsonl = PROJECT_ROOT / test_jsonl
+        if not test_jsonl.exists():
+            test_jsonl = data_root / args.eval_file
+    else:
+        test_jsonl = public_dir / "public_test.jsonl"
+
     catalog_path = public_dir / "public_test_tools_catalog.json"
+    if not catalog_path.exists():
+        catalog_path = data_root / "train" / "train_tools_catalog.json"
+
+    fuzzy_map = load_fuzzy_map(catalog_path) if catalog_path.exists() else {}
+    train_cat = data_root / "train" / "train_tools_catalog.json"
+    if train_cat.exists() and train_cat != catalog_path:
+        fuzzy_map.update(load_fuzzy_map(train_cat))
+
     output_path = Path(args.output).resolve()
 
     print("=" * 75)
-    print("      ZAC 2026 — HỆ THỐNG SUY LUẬN & KIỂM ĐỊNH PUBLIC TEST")
+    print("      ZAC 2026 — HỆ THỐNG SUY LUẬN & CHẤM ĐIỂM TRỰC TIẾP")
     print("=" * 75)
     print(f" Thư mục Data Root: {data_root}")
-    print(f" File Public Test:   {test_jsonl}")
+    print(f" File Dữ liệu Test:  {test_jsonl}")
     print(f" File Output:        {output_path}")
 
     # Chế độ 1: Chỉ validate file đã có
@@ -292,51 +310,98 @@ def main():
     write_lock = threading.Lock()
     t_start = time.time()
 
+    completed_counter = [0]
+    gold_scores = []
+    state_matches = 0
+    trace_path = output_path.with_name(f"{output_path.stem}_trace.jsonl")
+
     def process_sample(item):
         sample_id = item["id"]
+        is_gold_eval = "label" in item
+        split = "train" if is_gold_eval else "public_test"
+
         # Khôi phục câu khẩu lệnh (từ ASR map hoặc item)
         user_text = asr_map.get(sample_id, item.get("audio_text", ""))
         if not user_text:
             print(f"⚠️ Cảnh báo: Mẫu {sample_id} không có transcript ASR! Vui lòng chạy ASR trước hoặc truyền --asr_file.")
             user_text = ""
 
-        env = ToolEnv("public_test", sample_id, root=data_root)
+        env = ToolEnv(split, sample_id, root=data_root)
         t0 = time.time()
         pred_calls, hash_sys = agent.run(env, item, user_text)
         dur = time.time() - t0
 
-        return {
+        res_record = {
             "id": sample_id,
+            "user_text": user_text,
             "tool_calls": pred_calls,
             "state_hash": hash_sys,
             "latency": dur
         }
 
+        # Nếu tập dữ liệu có nhãn Gold (như val_benchmark_200.jsonl) -> Chấm điểm trực tiếp theo chuẩn BTC
+        if is_gold_eval:
+            gold_calls = item.get("label", {}).get("tool_calls", [])
+            gold_env = ToolEnv(split, sample_id, root=data_root)
+            for c in gold_calls:
+                gold_env.call(c["name"], c.get("arguments") or {})
+            hash_gold = gold_env.get_state_hash()
+            score = evaluate_sample(pred_calls, gold_calls, hash_sys, hash_gold, fuzzy_map)
+            res_record["hash_gold"] = hash_gold
+            res_record["gold_calls"] = gold_calls
+            res_record["score"] = score
+            res_record["matched"] = (hash_sys == hash_gold)
+
+        return res_record
+
+    def log_and_save_result(res, out_f):
+        completed_counter[0] += 1
+        idx = completed_counter[0]
+        sample_id = res["id"]
+        dur = res["latency"]
+        calls = res["tool_calls"]
+        calls_str = ", ".join(f"{c['name']}({json.dumps(c.get('arguments', {}), ensure_ascii=False)})" for c in calls) if calls else "[] (Out-of-Scope)"
+
+        print(f"\n[{idx}/{len(items)}] ID: {sample_id} | Thời gian: {dur:.2f}s", flush=True)
+        print(f"   🎤 Lời thoại : \"{res['user_text']}\"", flush=True)
+        print(f"   ⚡ Lệnh gọi  : {calls_str}", flush=True)
+        print(f"   🔑 State Hash: {res['state_hash'][:24]}...", flush=True)
+
+        if "score" in res:
+            gold_scores.append(res["score"])
+            if res["matched"]:
+                nonlocal state_matches
+                state_matches += 1
+            status_icon = "🎯 MATCH (100% Khớp State)" if res["matched"] else "❌ MISMATCH (0 Điểm)"
+            print(f"   🏆 ĐIỂM SỐ BTC: {res['score']*100:.2f}/100 | Trạng thái: {status_icon}", flush=True)
+        print("-" * 75, flush=True)
+
+        # Ghi ngay vào file submission.jsonl
+        out_f.write(json.dumps({
+            "id": res["id"],
+            "tool_calls": res["tool_calls"],
+            "state_hash": res["state_hash"]
+        }, ensure_ascii=False) + "\n")
+        out_f.flush()
+
+        # Ghi vết chi tiết vào trace file
+        with open(trace_path, "a", encoding="utf-8") as tf:
+            tf.write(json.dumps(res, ensure_ascii=False) + "\n")
+
     with open(output_path, "w", encoding="utf-8") as out_f:
         if args.concurrency > 1 and len(items) > 1:
             with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
                 futures = {executor.submit(process_sample, it): it["id"] for it in items}
-                for fut in tqdm(as_completed(futures), total=len(items), desc="Inference Public Test"):
+                for fut in as_completed(futures):
                     res = fut.result()
                     results_map[res["id"]] = res
-                    # Ghi ngay để bảo toàn dữ liệu
                     with write_lock:
-                        out_f.write(json.dumps({
-                            "id": res["id"],
-                            "tool_calls": res["tool_calls"],
-                            "state_hash": res["state_hash"]
-                        }, ensure_ascii=False) + "\n")
-                        out_f.flush()
+                        log_and_save_result(res, out_f)
         else:
-            for it in tqdm(items, desc="Inference Public Test"):
+            for it in items:
                 res = process_sample(it)
                 results_map[res["id"]] = res
-                out_f.write(json.dumps({
-                    "id": res["id"],
-                    "tool_calls": res["tool_calls"],
-                    "state_hash": res["state_hash"]
-                }, ensure_ascii=False) + "\n")
-                out_f.flush()
+                log_and_save_result(res, out_f)
 
     total_time = time.time() - t_start
     avg_latency = total_time / len(items) if items else 0.0
@@ -353,6 +418,8 @@ def main():
     print(f"\n🔍 Đang chạy kiểm định Schema theo chuẩn BTC cho file: {output_path.name}...")
     report = validate_submission_file(output_path, public_dir, catalog_path)
     report["avg_latency"] = avg_latency
+    report["gold_scores"] = gold_scores
+    report["state_matches"] = state_matches
     print_report(report, output_path)
 
 
@@ -389,6 +456,15 @@ def print_report(stats: Dict[str, Any], file_path: Path):
     print(f"    - Ngoài phạm vi / Hủy ([]):   {oos_calls:3d} mẫu ({(oos_calls/total*100) if total else 0:.1f}%)")
     print(f"    - Số loại công cụ được dùng:  {unique_tools} tools")
     print("-" * 75)
+
+    if "gold_scores" in stats and stats["gold_scores"]:
+        scores = stats["gold_scores"]
+        final_sc = sum(scores) / len(scores) * 100.0
+        st_rate = stats.get("state_matches", 0) / len(scores) * 100.0
+        print("-" * 75)
+        print(f" 🏆 TỔNG ĐIỂM CHUẨN BTC (OFFICIAL SCORE): {final_sc:.2f} / 100")
+        print(f" 🎯 TỶ LỆ KHỚP STATE (GATEKEEPER):       {st_rate:.2f}% ({stats.get('state_matches', 0)}/{len(scores)})")
+        print("-" * 75)
 
     if schema_errs == 0 and total > 0:
         print(" 🎉 KẾT LUẬN: ĐẠT CHUẨN 100% — HOÀN TOÀN SẴN SÀNG ĐỂ NỘP LÊN BTC!")
