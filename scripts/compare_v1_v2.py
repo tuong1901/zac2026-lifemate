@@ -93,7 +93,7 @@ def main():
 
     catalog_filter = CatalogFilter(str(cat_path))
     guardrail = SafeSchemaGuardrail(str(cat_path))
-    fuzzy_map = load_fuzzy_map()
+    fuzzy_map = load_fuzzy_map(cat_path) if cat_path.exists() else {}
 
     # Nạp Retriever cho V1
     print("📚 Đang nạp BM25 Exemplar Retriever cho V1...")

@@ -214,7 +214,10 @@ def main():
 
     catalog_filter = CatalogFilter(str(catalog_file))
     guardrail = SafeSchemaGuardrail(str(catalog_file))
-    fuzzy_map = load_fuzzy_map()
+    fuzzy_map = load_fuzzy_map(catalog_file) if catalog_file.exists() else {}
+    train_cat = data_root / "train" / "train_tools_catalog.json"
+    if train_cat.exists() and train_cat != catalog_file:
+        fuzzy_map.update(load_fuzzy_map(train_cat))
 
     # Kiểm tra nhu cầu gỡ băng ASR tự động nếu thiếu audio_text
     needs_asr = any("audio_text" not in s or not s.get("audio_text") for s in samples)

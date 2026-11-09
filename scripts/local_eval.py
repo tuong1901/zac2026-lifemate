@@ -85,12 +85,21 @@ def compute_token_f1(s1, s2) -> float:
     return (2 * p * r) / (p + r)
 
 
-def load_fuzzy_map(catalog_path: Path) -> dict:
+def load_fuzzy_map(catalog_path: Optional[Any] = None) -> dict:
     """
     Trích xuất danh sách các tham số fuzzy (x-match: fuzzy) từ catalog
     """
     fuzzy_map = {}
-    if not catalog_path.exists():
+    if not catalog_path:
+        for cand in [
+            Path("data/train/train_tools_catalog.json"),
+            Path("data/public_test/public_test_tools_catalog.json"),
+            Path("/kaggle/input/datasets/n107hoangtuong/zalo-competion/train+public_test/train/train_tools_catalog.json"),
+        ]:
+            if cand.exists():
+                catalog_path = cand
+                break
+    if not catalog_path or not Path(catalog_path).exists():
         return fuzzy_map
 
     with open(catalog_path, "r", encoding="utf-8") as f:
