@@ -274,6 +274,17 @@ def main():
                         clean_t = post_proc.process(raw_t)
                         asr_map[it["id"]] = clean_t
                     print(f"✅ Gỡ băng thành công toàn bộ {len(asr_map)} mẫu!")
+
+                    # Lưu ngay bản gỡ băng xuống đĩa để tái sử dụng vĩnh viễn cho mọi lần chạy sau
+                    save_cache = Path("/kaggle/working/output") / "public_test_transcripts.jsonl"
+                    if not Path("/kaggle/working").exists():
+                        save_cache = PROJECT_ROOT / "output" / "public_test_transcripts.jsonl"
+                    save_cache.parent.mkdir(parents=True, exist_ok=True)
+                    with open(save_cache, "w", encoding="utf-8") as sc_f:
+                        for it in items:
+                            if it["id"] in asr_map:
+                                sc_f.write(json.dumps({"id": it["id"], "transcript": asr_map[it["id"]]}, ensure_ascii=False) + "\n")
+                    print(f"💾 [Cache ASR] Đã lưu vĩnh viễn {len(asr_map)} bản gỡ băng vào đĩa: {save_cache}")
                 except Exception as e:
                     print(f"⚠️ Không thể chạy ASR tự động: {e}. Vui lòng cung cấp --asr_file.")
 

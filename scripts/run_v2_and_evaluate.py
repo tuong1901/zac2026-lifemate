@@ -276,6 +276,20 @@ def main():
                     clean_t = post_proc.process(t_raw)
                     missing_samples[idx]["audio_text"] = clean_t
                 print("   ✅ Hoàn tất gỡ băng ASR tự động!")
+                for s in missing_samples:
+                    if s.get("audio_text"):
+                        asr_map[s["id"]] = s["audio_text"]
+
+                # Lưu ngay bản gỡ băng xuống đĩa để tái sử dụng vĩnh viễn cho mọi lần chạy sau
+                save_cache = Path("/kaggle/working/output") / f"{args.split}_transcripts.jsonl"
+                if not Path("/kaggle/working").exists():
+                    save_cache = PROJECT_ROOT / "output" / f"{args.split}_transcripts.jsonl"
+                save_cache.parent.mkdir(parents=True, exist_ok=True)
+                with open(save_cache, "w", encoding="utf-8") as sc_f:
+                    for s in samples:
+                        if s.get("audio_text"):
+                            sc_f.write(json.dumps({"id": s["id"], "transcript": s["audio_text"]}, ensure_ascii=False) + "\n")
+                print(f"💾 [Cache ASR] Đã lưu vĩnh viễn {len(asr_map)} bản gỡ băng vào đĩa: {save_cache}")
         except Exception as asr_err:
             print(f"   ⚠️ Lỗi khởi động ASR ({asr_err}). Sẽ dùng fallback từ context.")
             for s in missing_samples:
