@@ -142,6 +142,7 @@ class OpenAICompatibleClient(BaseLLMClient):
     def __init__(
         self,
         base_url: Optional[str] = None,
+        endpoint: Optional[str] = None,
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         max_tokens: Optional[int] = None,
@@ -152,7 +153,7 @@ class OpenAICompatibleClient(BaseLLMClient):
         except ImportError:
             raise ImportError("Vui lòng cài đặt thư viện openai: pip install openai")
 
-        resolved_base_url = (base_url or os.getenv("LLM_BASE_URL", "http://localhost:8000/v1")).strip()
+        resolved_base_url = (base_url or endpoint or os.getenv("LLM_BASE_URL", "http://localhost:8000/v1")).strip()
         if "<" in resolved_base_url or ">" in resolved_base_url or "ngrok_của_bạn" in resolved_base_url.lower():
             raise ValueError(
                 f"\n❌ [LỖI CẤU HÌNH BASE_URL]: URL endpoint hiện tại là '{resolved_base_url}'\n"
@@ -179,11 +180,14 @@ class OpenAICompatibleClient(BaseLLMClient):
         self.last_error = None
         self.last_error_kind = None
 
-    def generate(self, system_prompt: str, user_prompt: str) -> str:
-        return self.generate_with_budget(system_prompt, user_prompt, self.timeout)
+    def generate(self, system_prompt: str = "", user_prompt: str = "", prompt: Optional[str] = None, **kwargs) -> str:
+        actual_user = prompt if prompt is not None else user_prompt
+        return self.generate_with_budget(system_prompt=system_prompt, user_prompt=actual_user, seconds=self.timeout)
 
-    def generate_with_budget(self, system_prompt: str, user_prompt: str, seconds: float) -> str:
-        if seconds <= 0:
+    def generate_with_budget(self, system_prompt: str = "", user_prompt: str = "", seconds: Optional[float] = None, prompt: Optional[str] = None, **kwargs) -> str:
+        actual_user = prompt if prompt is not None else user_prompt
+        actual_seconds = seconds if seconds is not None else self.timeout
+        if actual_seconds <= 0:
             from src.agent.execution import RunLimitReached
             raise RunLimitReached("No time remaining for generation")
         from openai import APIConnectionError, APITimeoutError, APIStatusError
@@ -191,11 +195,11 @@ class OpenAICompatibleClient(BaseLLMClient):
         self.last_error = None
         self.last_error_kind = None
         try:
-            response = self.client.with_options(timeout=min(seconds, self.timeout), max_retries=0).chat.completions.create(
+            response = self.client.with_options(timeout=min(actual_seconds, self.timeout), max_retries=0).chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "user", "content": actual_user}
                 ],
                 temperature=0.0,
                 max_tokens=self.max_tokens,
@@ -205,7 +209,7 @@ class OpenAICompatibleClient(BaseLLMClient):
             # Tự động khắc phục khi server microbatch Colab giới hạn max_tokens <= 256
             if error.status_code == 422 and "max_tokens" in str(error) and self.max_tokens > 256:
                 self.max_tokens = 256
-                return self.generate_with_budget(system_prompt, user_prompt, seconds)
+                return self.generate_with_budget(system_prompt, actual_user, actual_seconds)
             detail = str(error)
             if len(detail) > 240:
                 detail = detail[:237] + "..."
@@ -244,6 +248,9 @@ def get_llm_client(client_type: Optional[str] = None, **kwargs) -> BaseLLMClient
         client_type = os.getenv("LLM_MODE", "server").lower()
     else:
         client_type = client_type.lower()
+
+    if "endpoint" in kwargs and "base_url" not in kwargs:
+        kwargs["base_url"] = kwargs.pop("endpoint")
 
     if client_type == "hf":
         return LocalHuggingFaceClient(**kwargs)

@@ -83,7 +83,13 @@ def main():
     model_name = args.llm_model or llm_cfg.model
     api_key = args.llm_api_key or llm_cfg.api_key
     print(f"🤖 LLM Server:   {endpoint} [{model_name}]")
-    client = get_llm_client(endpoint=endpoint, model=model_name, api_key=api_key, max_tokens=args.max_tokens)
+    client = get_llm_client(
+        base_url=endpoint,
+        model=model_name,
+        api_key=api_key,
+        max_tokens=args.max_tokens,
+        timeout=args.time_budget or 60.0,
+    )
 
     catalog_filter = CatalogFilter(str(cat_path))
     guardrail = SafeSchemaGuardrail(str(cat_path))
@@ -247,3 +253,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

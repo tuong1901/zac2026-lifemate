@@ -186,7 +186,13 @@ def main():
     model_name = args.llm_model or llm_cfg.model
     api_key = args.llm_api_key or llm_cfg.api_key
     print(f"🤖 Kết nối LLM tại: {endpoint} [Mô hình: {model_name}]")
-    client = get_llm_client(endpoint=endpoint, model=model_name, api_key=api_key, max_tokens=args.max_tokens)
+    client = get_llm_client(
+        base_url=endpoint,
+        model=model_name,
+        api_key=api_key,
+        max_tokens=args.max_tokens,
+        timeout=args.time_budget or 60.0,
+    )
 
     # Nạp ToolEnv và Schema Guardrail
     sys.path.insert(0, str(split_dir))
@@ -378,3 +384,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

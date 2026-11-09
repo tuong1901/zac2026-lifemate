@@ -229,12 +229,18 @@ class TwoStageReActAgent:
 
         try:
             budget.before_call()
-            stage1_response = self.llm_client.generate(
-                prompt=stage1_prompt,
-                system_prompt=STAGE1_SYSTEM_PROMPT,
-                max_tokens=256,
-                temperature=0.0,
-            )
+            rem = budget.remaining()
+            if hasattr(self.llm_client, "generate_with_budget"):
+                stage1_response = self.llm_client.generate_with_budget(
+                    system_prompt=STAGE1_SYSTEM_PROMPT,
+                    user_prompt=stage1_prompt,
+                    seconds=rem,
+                )
+            else:
+                stage1_response = self.llm_client.generate(
+                    system_prompt=STAGE1_SYSTEM_PROMPT,
+                    user_prompt=stage1_prompt,
+                )
             stage1_json = self._extract_json_from_llm(stage1_response)
 
             if isinstance(stage1_json, dict):
@@ -329,12 +335,18 @@ class TwoStageReActAgent:
                 )
 
                 budget.before_call()
-                stage2_response = self.llm_client.generate(
-                    prompt=stage2_prompt,
-                    system_prompt=STAGE2_SYSTEM_PROMPT,
-                    max_tokens=256,
-                    temperature=0.0,
-                )
+                rem = budget.remaining()
+                if hasattr(self.llm_client, "generate_with_budget"):
+                    stage2_response = self.llm_client.generate_with_budget(
+                        system_prompt=STAGE2_SYSTEM_PROMPT,
+                        user_prompt=stage2_prompt,
+                        seconds=rem,
+                    )
+                else:
+                    stage2_response = self.llm_client.generate(
+                        system_prompt=STAGE2_SYSTEM_PROMPT,
+                        user_prompt=stage2_prompt,
+                    )
 
                 step_data = self._extract_json_from_llm(stage2_response)
                 if not step_data or not isinstance(step_data, dict):
@@ -400,3 +412,4 @@ class TwoStageReActAgent:
         }
 
         return guarded.get_tool_calls(), guarded.get_state_hash()
+
