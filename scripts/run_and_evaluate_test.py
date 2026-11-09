@@ -154,7 +154,8 @@ def main():
     parser.add_argument("--limit", type=int, default=None, help="Số lượng mẫu chạy thử (mặc định: toàn bộ 634 mẫu)")
     parser.add_argument("--sample_ids", type=str, default=None, help="Chạy các ID cụ thể, phân cách bằng dấu phẩy (vd: public_0002,public_0003)")
     parser.add_argument("--output", type=str, default="submission.jsonl", help="Tên file kết quả đầu ra (mặc định: submission.jsonl)")
-    parser.add_argument("--workers", "--concurrency", dest="concurrency", type=int, default=llm_cfg.concurrency or 4, help="Số luồng chạy song song")
+    parser.add_argument("--workers", "--concurrency", dest="concurrency", type=int, default=2, help="Số luồng chạy song song (khuyên dùng: 2 khi kết nối Colab T4 ngrok)")
+    parser.add_argument("--time_budget", type=float, default=60.0, help="Ngân sách thời gian tối đa cho mỗi mẫu (giây, mặc định: 60.0s khi qua mạng)")
     parser.add_argument("--asr_file", type=str, default=None, help="Đường dẫn file ASR transcript có sẵn (nếu có)")
     parser.add_argument("--mode", choices=["server", "hf"], default=llm_cfg.mode, help="Chế độ LLM: server hoặc hf")
     parser.add_argument("--base_url", type=str, default=llm_cfg.base_url, help="URL API server LLM")
@@ -232,6 +233,31 @@ def main():
                             asr_map[rec["id"]] = rec.get("transcript", "")
                 break
 
+        if not asr_map:
+            audio_dir = public_dir / "audio"
+            if audio_dir.exists():
+                print(f"🎤 Chưa có file transcript ASR, tự động gỡ băng {len(items)} file audio bằng ASR GPU...")
+                try:
+                    from src.asr.transcribe import UnifiedASRTranscriber
+                    from src.asr.post_processor import LexiconPostProcessor
+                    transcriber = UnifiedASRTranscriber(asr_cfg)
+                    post_proc = LexiconPostProcessor()
+                    audio_paths = []
+                    for it in items:
+                        rel_audio = it.get("audio", f"audio/{it['id']}/{it['id']}.wav")
+                        full_path = public_dir / rel_audio
+                        if not full_path.exists():
+                            full_path = data_root / rel_audio
+                        audio_paths.append(full_path)
+
+                    raw_texts = transcriber.transcribe_batch(audio_paths, batch_size=asr_cfg.batch_size or 8)
+                    for it, raw_t in zip(items, raw_texts):
+                        clean_t = post_proc.process(raw_t)
+                        asr_map[it["id"]] = clean_t
+                    print(f"✅ Gỡ băng thành công toàn bộ {len(asr_map)} mẫu!")
+                except Exception as e:
+                    print(f"⚠️ Không thể chạy ASR tự động: {e}. Vui lòng cung cấp --asr_file.")
+
     # 3. Khởi tạo LLM Client và Agent
     print(f"\n🤖 Đang kết nối LLM ({args.mode}) tại {args.base_url} [Mô hình: {args.model}]...")
     llm_client = get_llm_client(
@@ -239,7 +265,7 @@ def main():
         base_url=args.base_url,
         model=args.model,
         max_tokens=args.max_tokens,
-        timeout=llm_cfg.timeout or 60.0
+        timeout=args.time_budget or 60.0
     )
 
     catalog_filter = CatalogFilter(str(catalog_path))
@@ -256,7 +282,8 @@ def main():
         history_resolver=HistoryResolver(),
         guardrail=SafeSchemaGuardrail(),
         max_steps=7,
-        resolve_lock_ids=True
+        resolve_lock_ids=True,
+        time_budget=args.time_budget
     )
 
     # 4. Chạy suy luận (Hỗ trợ đa luồng Concurrency)
@@ -270,8 +297,8 @@ def main():
         # Khôi phục câu khẩu lệnh (từ ASR map hoặc item)
         user_text = asr_map.get(sample_id, item.get("audio_text", ""))
         if not user_text:
-            # Nếu chưa có text và chưa có ASR, tạm thời thông báo
-            user_text = f"Lệnh điều khiển {sample_id}"
+            print(f"⚠️ Cảnh báo: Mẫu {sample_id} không có transcript ASR! Vui lòng chạy ASR trước hoặc truyền --asr_file.")
+            user_text = ""
 
         env = ToolEnv("public_test", sample_id, root=data_root)
         t0 = time.time()
