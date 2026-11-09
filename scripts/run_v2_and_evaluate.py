@@ -140,6 +140,7 @@ def main():
     parser.add_argument("--max_tokens", type=int, default=256, help="Giới hạn max_tokens (mặc định 256)")
     parser.add_argument("--time_budget", type=float, default=45.0, help="Thời gian tối đa cho 1 mẫu (giây)")
     parser.add_argument("--max_steps", type=int, default=4, help="Số bước ReAct tối đa ở Stage 2")
+    parser.add_argument("--resume", action="store_true", default=False, help="Chạy tiếp từ file kết quả đã có, bỏ qua các mẫu đã hoàn thành")
     parser.add_argument("--zip_output", type=str, default="submission_v2.zip", help="File zip nộp bài BTC")
     parser.add_argument("--quiet", action="store_true", help="Giảm log chi tiết từng bước")
     args = parser.parse_args()
@@ -281,9 +282,27 @@ def main():
                 if not s.get("audio_text"):
                     s["audio_text"] = f"Lệnh điều khiển thiết bị {s.get('id', '')}"
 
-    print(f"\n⚡ Bắt đầu chạy V2 Hai Giai Đoạn trên {len(samples)} mẫu với {args.workers} luồng song song...\n")
+    completed_map = {}
+    if args.resume and out_file.exists():
+        with open(out_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    try:
+                        row = json.loads(line)
+                        rid = row.get("id")
+                        if rid:
+                            completed_map[rid] = row
+                    except Exception:
+                        pass
+        print(f"♻️ [Resume Checkpoint] Đã phát hiện và nạp {len(completed_map)} mẫu đã hoàn thành trước đó.")
 
-    results = []
+    samples_to_run = [s for s in samples if s.get("id") not in completed_map]
+    print(f"\n⚡ Bắt đầu chạy V2 Hai Giai Đoạn trên {len(samples_to_run)}/{len(samples)} mẫu với {args.workers} luồng song song...\n")
+
+    results = [
+        {"id": r["id"], "tool_calls": r.get("tool_calls", []), "state_hash": r.get("state_hash", "0" * 32), "user_text": "", "stats": {}, "eval": None}
+        for r in completed_map.values()
+    ]
     gold_scores = []
     stage1_times = []
     stage2_times = []
@@ -323,8 +342,8 @@ def main():
         }
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = {executor.submit(process_sample, s): s.get("id") for s in samples}
-        for future in tqdm(as_completed(futures), total=len(samples), desc="V2 Two-Stage Inference"):
+        futures = {executor.submit(process_sample, s): s.get("id") for s in samples_to_run}
+        for future in tqdm(as_completed(futures), total=len(samples_to_run), desc="V2 Two-Stage Inference"):
             sid = futures[future]
             try:
                 res = future.result()

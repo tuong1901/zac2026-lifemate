@@ -163,6 +163,7 @@ def main():
     parser.add_argument("--base_url", type=str, default=llm_cfg.base_url, help="URL API server LLM")
     parser.add_argument("--model", type=str, default=llm_cfg.model, help="Tên mô hình LLM")
     parser.add_argument("--max_tokens", type=int, default=256, help="Số token tối đa sinh ra (mặc định: 256 để khớp giới hạn server)")
+    parser.add_argument("--resume", action="store_true", default=False, help="Chạy tiếp từ file kết quả đã có, bỏ qua các mẫu đã hoàn thành trước đó")
     parser.add_argument("--validate_only", action="store_true", help="Chỉ kiểm tra và chấm điểm file submission hiện có mà không chạy lại agent")
     args = parser.parse_args()
 
@@ -304,16 +305,48 @@ def main():
         time_budget=args.time_budget
     )
 
-    # 4. Chạy suy luận (Hỗ trợ đa luồng Concurrency)
-    print(f"\n⚡ Bắt đầu chạy suy luận trên {len(items)} mẫu với {args.concurrency} luồng...")
-    results_map = {}
+    # 4. Chạy suy luận (Hỗ trợ đa luồng Concurrency & Resume)
+    completed_map = {}
+    trace_path = output_path.with_name(f"{output_path.stem}_trace.jsonl")
+
+    if args.resume and output_path.exists():
+        # Kiểm tra vết lỗi trong trace_path nếu có để tránh resume lại các mẫu lỗi do rớt mạng
+        failed_ids = set()
+        if trace_path.exists():
+            with open(trace_path, "r", encoding="utf-8") as tf:
+                for line in tf:
+                    if line.strip():
+                        try:
+                            trec = json.loads(line)
+                            tid = trec.get("id")
+                            # Nếu mẫu bị rớt mạng hoặc timeout thì cần chạy lại
+                            err_msg = str(trec.get("error", ""))
+                            if "timed out" in err_msg or "offline" in err_msg or "HTTP 503" in err_msg or "HTTP 404" in err_msg:
+                                failed_ids.add(tid)
+                        except Exception:
+                            pass
+
+        with open(output_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    try:
+                        row = json.loads(line)
+                        rid = row.get("id")
+                        if rid and rid not in failed_ids:
+                            completed_map[rid] = row
+                    except Exception:
+                        pass
+        print(f"♻️ [Resume Checkpoint] Đã phát hiện và nạp {len(completed_map)} mẫu đã hoàn thành trước đó.")
+
+    items_to_run = [it for it in items if it["id"] not in completed_map]
+    print(f"\n⚡ Bắt đầu chạy suy luận trên {len(items_to_run)}/{len(items)} mẫu với {args.concurrency} luồng...")
+    results_map = dict(completed_map)
     write_lock = threading.Lock()
     t_start = time.time()
 
-    completed_counter = [0]
+    completed_counter = [len(completed_map)]
     gold_scores = []
     state_matches = 0
-    trace_path = output_path.with_name(f"{output_path.stem}_trace.jsonl")
 
     def process_sample(item):
         sample_id = item["id"]
@@ -388,20 +421,34 @@ def main():
         with open(trace_path, "a", encoding="utf-8") as tf:
             tf.write(json.dumps(res, ensure_ascii=False) + "\n")
 
-    with open(output_path, "w", encoding="utf-8") as out_f:
-        if args.concurrency > 1 and len(items) > 1:
+    file_mode = "a" if (args.resume and output_path.exists()) else "w"
+    with open(output_path, file_mode, encoding="utf-8") as out_f:
+        if args.concurrency > 1 and len(items_to_run) > 1:
             with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
-                futures = {executor.submit(process_sample, it): it["id"] for it in items}
+                futures = {executor.submit(process_sample, it): it["id"] for it in items_to_run}
                 for fut in as_completed(futures):
                     res = fut.result()
                     results_map[res["id"]] = res
                     with write_lock:
                         log_and_save_result(res, out_f)
         else:
-            for it in items:
+            for it in items_to_run:
                 res = process_sample(it)
                 results_map[res["id"]] = res
                 log_and_save_result(res, out_f)
+
+    # Đảm bảo file submission có đầy đủ và đúng thứ tự ban đầu của items
+    final_ordered = [
+        results_map.get(it["id"], {"id": it["id"], "tool_calls": [], "state_hash": "0" * 32})
+        for it in items
+    ]
+    with open(output_path, "w", encoding="utf-8") as out_f:
+        for r in final_ordered:
+            out_f.write(json.dumps({
+                "id": r["id"],
+                "tool_calls": r.get("tool_calls", []),
+                "state_hash": r.get("state_hash", "0" * 32)
+            }, ensure_ascii=False) + "\n")
 
     total_time = time.time() - t_start
     avg_latency = total_time / len(items) if items else 0.0
