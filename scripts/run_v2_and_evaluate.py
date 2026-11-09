@@ -133,6 +133,7 @@ def main():
     parser.add_argument("--output", type=str, default=None, help="File kết quả submission_v2.jsonl")
     parser.add_argument("--limit", type=int, default=None, help="Số mẫu chạy thử nghiệm (None = toàn bộ)")
     parser.add_argument("--asr_file", type=str, default=None, help="Đường dẫn file ASR transcript có sẵn (ví dụ: output/public_test_transcripts.jsonl)")
+    parser.add_argument("--asr_model", type=str, default=None, help="Đường dẫn thư mục hoặc tên model ASR (vd: /kaggle/working/models/phowhisper-medium-finetuned)")
     parser.add_argument("--workers", type=int, default=2, help="Số luồng đồng thời (khuyến nghị 2-3 trên Colab T4)")
     parser.add_argument("--llm_endpoint", type=str, default=None, help="URL OpenAI API / vLLM / Colab ngrok")
     parser.add_argument("--llm_model", type=str, default=None, help="Tên model")
@@ -257,6 +258,10 @@ def main():
             from src.asr.transcribe import UnifiedASRTranscriber
             from src.asr.post_processor import LexiconPostProcessor
             asr_cfg = get_asr_config()
+            if args.asr_model:
+                asr_cfg.model_name_or_path = args.asr_model
+                if Path(args.asr_model).exists():
+                    print(f"🎯 Sử dụng mô hình ASR Fine-tuned từ: {args.asr_model}")
             transcriber = UnifiedASRTranscriber(asr_cfg)
             post_proc = LexiconPostProcessor()
             audio_paths = []
