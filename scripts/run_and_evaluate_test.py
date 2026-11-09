@@ -159,6 +159,7 @@ def main():
     parser.add_argument("--mode", choices=["server", "hf"], default=llm_cfg.mode, help="Chế độ LLM: server hoặc hf")
     parser.add_argument("--base_url", type=str, default=llm_cfg.base_url, help="URL API server LLM")
     parser.add_argument("--model", type=str, default=llm_cfg.model, help="Tên mô hình LLM")
+    parser.add_argument("--max_tokens", type=int, default=256, help="Số token tối đa sinh ra (mặc định: 256 để khớp giới hạn server)")
     parser.add_argument("--validate_only", action="store_true", help="Chỉ kiểm tra và chấm điểm file submission hiện có mà không chạy lại agent")
     args = parser.parse_args()
 
@@ -237,7 +238,7 @@ def main():
         client_type=args.mode,
         base_url=args.base_url,
         model=args.model,
-        max_tokens=llm_cfg.max_tokens or 256,
+        max_tokens=args.max_tokens,
         timeout=llm_cfg.timeout or 60.0
     )
 
@@ -376,3 +377,4 @@ def print_report(stats: Dict[str, Any], file_path: Path):
 
 if __name__ == "__main__":
     main()
+

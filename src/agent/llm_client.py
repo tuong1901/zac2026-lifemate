@@ -202,6 +202,10 @@ class OpenAICompatibleClient(BaseLLMClient):
                 seed=SEED
             )
         except APIStatusError as error:
+            # Tự động khắc phục khi server microbatch Colab giới hạn max_tokens <= 256
+            if error.status_code == 422 and "max_tokens" in str(error) and self.max_tokens > 256:
+                self.max_tokens = 256
+                return self.generate_with_budget(system_prompt, user_prompt, seconds)
             detail = str(error)
             if len(detail) > 240:
                 detail = detail[:237] + "..."
