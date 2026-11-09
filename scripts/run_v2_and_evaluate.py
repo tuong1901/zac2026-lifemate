@@ -94,7 +94,7 @@ def validate_submission_file(sub_path: Path, split_dir: Path, catalog_path: Path
             calls = row.get("tool_calls", [])
             shash = row.get("state_hash", "")
 
-            if isinstance(shash, str) and len(shash) == 32:
+            if isinstance(shash, str) and len(shash) in (32, 64):
                 stats["valid_hash_count"] += 1
 
             if not calls:

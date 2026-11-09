@@ -133,28 +133,34 @@ class TwoStageReActAgent:
         )
 
         keyword_rules = [
-            ("alarm", ["báo thức", "đặt báo", "hẹn giờ"]),
-            ("weather", ["thời tiết", "mưa", "nắng", "nhiệt độ", "dự báo"]),
-            ("gold_price", ["giá vàng", "vàng sjc", "vàng nhẫn"]),
-            ("fuel_price", ["giá xăng", "giá dầu", "xăng dầu", "ron 95", "ron95"]),
-            ("lottery", ["xổ số", "vé số", "dò vé", "kết quả"]),
-            ("smart_home", ["đèn", "quạt", "điều hòa", "máy lạnh", "rèm", "ổ cắm", "phòng khách", "phòng ngủ", "tầng"]),
-            ("door_lock", ["khoá cửa", "mở cửa", "mã khách", "chốt cửa"]),
+            ("alarm", ["báo thức", "đặt báo", "hẹn giờ", "chuông", "kêu", "dậy"]),
+            ("weather", ["thời tiết", "mưa", "nắng", "nhiệt độ", "dự báo", "triều cường", "nước ngập", "bão"]),
+            ("gold_price", ["giá vàng", "vàng sjc", "vàng nhẫn", "vàng"]),
+            ("fuel_price", ["giá xăng", "giá dầu", "xăng dầu", "ron 95", "ron95", "xăng"]),
+            ("lottery", ["xổ số", "vé số", "dò vé", "kết quả", "kiến thiết"]),
+            ("smart_home", ["đèn", "quạt", "điều hòa", "máy lạnh", "rèm", "ổ cắm", "phòng khách", "phòng ngủ", "tầng", "bật", "tắt"]),
+            ("door_lock", ["khoá cửa", "khóa cửa", "mở cửa", "mã khách", "chốt cửa", "mật khẩu cửa"]),
             ("robot_vacuum", ["robot", "hút bụi", "lau nhà"]),
-            ("appliances", ["máy giặt", "nồi cơm", "lò vi sóng", "lọc khí"]),
+            ("appliances", ["máy giặt", "nồi cơm", "lò vi sóng", "lọc khí", "tủ lạnh"]),
             ("bill_payment", ["tiền điện", "tiền nước", "tiền mạng", "internet", "truyền hình", "hóa đơn", "autopay"]),
-            ("banking", ["ngân hàng", "tài khoản", "số dư", "sao kê", "chuyển khoản", "tiết kiệm"]),
-            ("ewallet", ["ví", "nạp ví", "chuyển ví", "nạp điện thoại", "zalopay", "momo"]),
-            ("food_delivery", ["đặt món", "quán ăn", "giao về", "suất", "bún bò", "cơm", "pizza"]),
-            ("ride_hailing", ["đặt xe", "chở tới", "xe 4 chỗ", "xe máy", "ô tô"]),
+            ("banking", ["ngân hàng", "tài khoản", "số dư", "sao kê", "chuyển khoản", "tiết kiệm", "tiền"]),
+            ("ewallet", ["ví", "nạp ví", "chuyển ví", "nạp điện thoại", "zalopay", "momo", "viettel money"]),
+            ("food_delivery", ["đặt món", "quán ăn", "giao về", "suất", "bún bò", "cơm", "pizza", "trà sữa", "đồ ăn"]),
+            ("ride_hailing", ["đặt xe", "chở tới", "xe 4 chỗ", "xe máy", "ô tô", "grab", "be"]),
+            ("train_bus_tickets", ["vé xe", "xe khách", "vé tàu", "chuyến xe", "bến xe", "huỷ vé"]),
+            ("parking", ["bãi xe", "đỗ xe", "gửi xe", "bãi đỗ", "chỗ đậu", "hồ tùng mậu"]),
+            ("ev_charging", ["sạc xe", "trạm sạc", "pin xe", "trụ sạc"]),
+            ("music", ["nhạc", "bài hát", "ca sĩ", "phát nhạc", "mở bài", "bật bài"]),
+            ("radio", ["radio", "kênh radio", "vov", "đài phát thanh"]),
+            ("maps", ["đường", "chỉ đường", "bản đồ", "đi tới", "quận", "gần đây", "vị trí", "tìm"]),
             ("flights", ["vé máy bay", "chuyến bay", "check-in", "checkin", "hàng không"]),
-            ("calendar", ["lịch", "sự kiện", "cuộc hẹn", "họp"]),
-            ("reminders", ["nhắc", "nhắc nhở", "hẹn nhắc"]),
+            ("calendar", ["lịch", "sự kiện", "cuộc hẹn", "họp", "chạy bộ", "chạy", "dời", "hoãn", "lùi"]),
+            ("reminders", ["nhắc", "nhắc nhở", "hẹn nhắc", "nhắn nhắt"]),
             ("tasks", ["việc cần làm", "công việc", "to-do", "hạn chót"]),
             ("contacts", ["danh bạ", "số điện thoại", "liên hệ"]),
-            ("phone", ["gọi điện", "gọi cho", "gọi"]),
-            ("sms", ["nhắn tin", "sms", "tin nhắn"]),
-            ("chat_ott", ["zalo", "nhắn zalo", "nhóm chat"]),
+            ("phone", ["gọi điện", "gọi cho", "gọi", "cuộc gọi"]),
+            ("sms", ["nhắn tin", "sms", "tin nhắn", "nhắn cho", "gửi tin"]),
+            ("chat_ott", ["zalo", "nhắn zalo", "nhóm chat", "nhắn tin"]),
             ("notes", ["ghi chú", "lưu vào ghi chú", "note"]),
         ]
 
@@ -163,8 +169,7 @@ class TwoStageReActAgent:
                 matched.add(app_name)
 
         if not matched:
-            # Nếu không tìm thấy từ khóa đặc trưng, an toàn nhất là lấy toàn bộ installed_apps
-            return list(installed_set)
+            return []
         return list(matched)
 
     def run(
@@ -259,7 +264,36 @@ class TwoStageReActAgent:
         t_s1_end = time.perf_counter()
         t_stage1 = t_s1_end - t_s1_start
 
-        # Fast Exit Rule 2: Stage 1 kết luận không cần gọi app nào (và không có từ khóa hành động)
+        # Fallback an toàn nếu Stage 1 trả về rỗng (tránh Fast-Exit nhầm khi ASR lệch từ hoặc LLM phân vân)
+        if not selected_apps:
+            keyword_apps = self._fallback_keyword_apps(user_text, installed_apps)
+            if keyword_apps:
+                if self.verbose:
+                    print(
+                        f"  [Stage 1 Fallback] Khôi phục từ khóa: {keyword_apps} (Stage 1 trước đó trả về rỗng)"
+                    )
+                selected_apps = keyword_apps
+            else:
+                installed_set = (
+                    set(installed_apps.keys())
+                    if isinstance(installed_apps, dict)
+                    else set(installed_apps)
+                )
+                has_action_intent = bool(
+                    re.search(
+                        r"(đặt|hủy|huỷ|dời|hoãn|lùi|gửi|nhắn|gọi|bật|tắt|kiểm tra|xem|tra cứu|báo|mua|chuyển|nạp|thanh toán|mở|đóng|sạc|chạy|sao kê|số dư|lịch|nhắc|vé|bãi|đỗ|xe|nhạc|nghe|dò|khách|tiền)",
+                        user_text,
+                        re.IGNORECASE,
+                    )
+                )
+                if has_action_intent and installed_set:
+                    if self.verbose:
+                        print(
+                            f"  [Stage 1 Fallback] Phát hiện động từ hành động -> Nạp toàn bộ {len(installed_set)} apps vào Stage 2 để không bỏ sót."
+                        )
+                    selected_apps = list(installed_set)
+
+        # Fast Exit Rule 2: Thực sự là câu không có tác vụ nào cần xử lý
         if not selected_apps:
             if self.verbose:
                 print(
