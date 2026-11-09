@@ -137,6 +137,8 @@ STAGE1_SYSTEM_PROMPT = """Bạn là Bộ Định Tuyến Ý Định & Rút Gọn
 Nhiệm vụ của bạn là đọc toàn bộ lịch sử trò chuyện cùng câu nói hiện tại của người dùng, kết hợp với danh sách ứng dụng đang cài đặt (installed_apps), sau đó:
 1. Phân loại xem yêu cầu cần gọi tới những ứng dụng nào (selected_apps).
    - NGUYÊN TẮC AN TOÀN: Có thể lấy thừa nhưng tuyệt đối KHÔNG ĐƯỢC THIẾU ứng dụng cần thiết để xử lý trọn vẹn yêu cầu.
+   - CÂU LỆNH CÓ ĐIỀU KIỆN (ví dụ: 'nếu mai mưa thì dời chạy bộ và nhắn tin, không mưa thì thôi'): BẮT BUỘC chọn TẤT CẢ các app liên quan: `weather` (kiểm tra thời tiết), `calendar` (lịch trình), `sms` hoặc `chat_ott` (nhắn tin/liên lạc).
+   - Nếu câu nói chứa 'gọi điện', 'nhắn tin', 'chuyển tiền cho [Tên người]': luôn chọn thêm `contacts`.
    - Nếu người dùng chỉ chào hỏi, cảm ơn, khen ngợi, hoặc nói huỷ lệnh ("thôi không cần nữa", "huỷ đi"), trả về danh sách rỗng: "selected_apps": [].
 2. Trích xuất bản tóm tắt lịch sử cô đọng (condensed_history):
    - Ghi lại các mã định danh (ID thiết bị, ID hoá đơn, ID vé, số tiền, tên người, trạng thái, thời gian) đã xuất hiện ở các lượt trước mà lượt hiện tại cần dùng tới.
@@ -220,7 +222,10 @@ NGUYÊN TẮC THỰC THI:
 1. Đọc kỹ "Tóm tắt ngữ cảnh & lịch sử" và câu nói của người dùng để nắm rõ mục tiêu.
 2. Tra cứu trước khi hành động: Nếu cần ID, số dư, danh bạ, trạng thái mà chưa biết rõ, hãy gọi công cụ đọc (read) trước.
 3. Không bịa đặt tham số (No Hallucination): Chỉ dùng các ID, giá trị thực tế lấy từ dữ liệu hệ thống hoặc lịch sử. Nếu người dùng không cung cấp đủ thông tin cốt lõi bắt buộc, hãy gọi `sys.ask_missing_info`.
-4. Nếu yêu cầu đã hoàn thành trọn vẹn hoặc không cần gọi thêm công cụ nào, hãy trả về `action: null` hoặc không gọi thêm.
+4. KHI ĐÃ HOÀN THÀNH HÀNH ĐỘNG CHÍNH (ví dụ: đã đặt xe thành công, đã tạo/sửa báo thức thành công, đã gửi tin nhắn thành công, đã chuyển tiền xong): BẠN ĐÃ ĐẠT ĐƯỢC MỤC TIÊU! Trả về `\"action\": null` để kết thúc ngay. TUYỆT ĐỐI KHÔNG GỌI `sys.ask_missing_info` hay gọi lại công cụ sau khi hành động đã thành công.
+5. KHÔNG LẶP LẠI CÔNG CỤ ĐỌC: Nếu bạn đã gọi công cụ tra cứu (`get_balance`, `search`, `list`) ở bước trước và đã có kết quả trong lịch sử, hãy dùng kết quả đó để hành động, TUYỆT ĐỐI KHÔNG gọi lại chính công cụ đó lần thứ 2.
+6. THAM SỐ CHUẨN XÁC: Tên tham số trong `arguments` chỉ là tên thuần túy (ví dụ: `\"tool_name\": \"alarm.create\", \"params\": [\"label\"]`), KHÔNG ĐƯỢC chứa dấu sao `*` hay kiểu dữ liệu như `: string`.
+7. Nếu yêu cầu đã hoàn thành trọn vẹn hoặc không cần gọi thêm công cụ nào, hãy trả về `action: null` hoặc không gọi thêm.
 
 Định dạng phản hồi BẮT BUỘC là JSON duy nhất:
 ```json
@@ -270,3 +275,4 @@ YÊU CẦU HIỆN TẠI CỦA NGƯỜI DÙNG:
 "{user_text}"
 {obs_ctx}{dir_ctx}
 Hãy đưa ra suy luận và hành động tiếp theo bằng định dạng JSON:"""
+

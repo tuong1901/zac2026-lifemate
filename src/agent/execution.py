@@ -31,6 +31,7 @@ def affected_domains(name, arguments):
 class ActionFeedback(RuntimeError):
     def __init__(self, name, arguments, message, result=None, executed=False):
         super().__init__(message)
+        self.message = str(message)
         self.name = name
         self.arguments = copy.deepcopy(arguments)
         self.result = copy.deepcopy(result)

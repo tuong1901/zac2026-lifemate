@@ -319,6 +319,8 @@ class TwoStageReActAgent:
 
         observations_history = []
         steps_count = 0
+        seen_read_signatures: Set[str] = set()
+        executed_mutations_count = 0
 
         try:
             for step in range(1, self.max_steps + 1):
@@ -367,26 +369,61 @@ class TwoStageReActAgent:
                     break
 
                 tool_name = action.get("name")
-                tool_args = action.get("arguments", {})
+                raw_args = action.get("arguments", {})
 
                 if not tool_name:
                     break
 
+                # 1. Làm sạch tham số (Sanitize arguments): Loại bỏ các ký tự copy thừa như '*', ':', kiểu dữ liệu
+                clean_args: Dict[str, Any] = {}
+                if isinstance(raw_args, dict):
+                    for k, v in raw_args.items():
+                        clean_k = re.sub(r'[\*:\s]', '', str(k))
+                        if tool_name == "sys.ask_missing_info" and clean_k == "params" and isinstance(v, list):
+                            clean_params = []
+                            for p_elem in v:
+                                p_clean = re.sub(r'[\*:\s]', '', str(p_elem).split(":")[0].split()[0])
+                                if p_clean:
+                                    clean_params.append(p_clean)
+                            clean_args[clean_k] = clean_params
+                        elif isinstance(v, str) and (clean_k == "tool_name" or clean_k == "action"):
+                            clean_args[clean_k] = re.sub(r'[\*:\s]', '', v)
+                        else:
+                            clean_args[clean_k] = v
+
+                # 2. Ngăn chặn lặp lại công cụ đọc (Loop Detector): Nếu đã đọc chính xác với args này thì không gọi lại
+                if tool_name in read_tools:
+                    sig = f"{tool_name}:{json.dumps(clean_args, sort_keys=True, ensure_ascii=False)}"
+                    if sig in seen_read_signatures:
+                        if self.verbose:
+                            print(f"    => [Loop Guard] Đã tra cứu {tool_name} trước đó; dừng gọi lặp để tránh timeout.")
+                        break
+                    seen_read_signatures.add(sig)
+
+                # 3. Ngăn chặn hỏi thừa: Nếu đã thực thi thành công hành động chính (vd: đặt xe, chuyển tiền, đặt báo thức), KHÔNG gọi sys.ask_missing_info nữa
+                if tool_name == "sys.ask_missing_info" and executed_mutations_count > 0:
+                    if self.verbose:
+                        print("    => [Stop Guard] Hành động chính đã thực thi thành công; bỏ qua hỏi thừa.")
+                    break
+
                 # Thực thi hành động an toàn qua GuardedToolEnv
                 try:
-                    res = guarded.call(tool_name, tool_args)
+                    res = guarded.call(tool_name, clean_args)
+                    if tool_name not in read_tools:
+                        executed_mutations_count += 1
                     res_compact = compact_observation(res, max_length=1200)
                     observations_history.append(
-                        f"Bước {step}: Gọi `{tool_name}` với tham số {json.dumps(tool_args, ensure_ascii=False)} => Kết quả: {res_compact}"
+                        f"Bước {step}: Gọi `{tool_name}` với tham số {json.dumps(clean_args, ensure_ascii=False)} => Kết quả: {res_compact}"
                     )
                     if self.verbose:
                         print(f"    => Kết quả env: {res_compact[:180]}...")
                 except ActionFeedback as fb:
+                    fb_msg = getattr(fb, "message", None) or str(fb)
                     observations_history.append(
-                        f"Bước {step}: Gọi `{tool_name}` bị từ chối => Phản hồi: {fb.message}"
+                        f"Bước {step}: Gọi `{tool_name}` bị từ chối => Phản hồi: {fb_msg}"
                     )
                     if self.verbose:
-                        print(f"    => Bị guardrail chặn: {fb.message}")
+                        print(f"    => Bị guardrail chặn: {fb_msg}")
 
                 # Nếu là sys.ask_missing_info thì chờ người dùng -> Kết thúc lượt
                 if tool_name == "sys.ask_missing_info":
