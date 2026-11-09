@@ -25,6 +25,7 @@ import unicodedata
 import argparse
 from pathlib import Path
 from collections import Counter
+from typing import Optional, Any, Dict, List, Set, Union, Tuple
 from tqdm import tqdm
 
 # Đảm bảo in tiếng Việt mượt mà trên Windows console
