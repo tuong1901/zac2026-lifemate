@@ -130,7 +130,9 @@ def main():
     parser = argparse.ArgumentParser(description="ZAC 2026 — V2 Two-Stage Inference & Evaluation Pipeline")
     parser.add_argument("--data_root", type=str, default=None, help="Đường dẫn đến thư mục chứa train và public_test")
     parser.add_argument("--split", type=str, default="public_test", choices=["public_test", "train", "val"])
+    parser.add_argument("--input_file", type=str, default=None, help="Đường dẫn file jsonl cụ thể (vd: data/val_benchmark_200.jsonl)")
     parser.add_argument("--output", type=str, default=None, help="File kết quả submission_v2.jsonl")
+    parser.add_argument("--diagnostic_output", type=str, default=None, help="File xuất báo cáo chẩn đoán chi tiết (diagnostic_report.jsonl)")
     parser.add_argument("--limit", type=int, default=None, help="Số mẫu chạy thử nghiệm (None = toàn bộ)")
     parser.add_argument("--asr_file", type=str, default=None, help="Đường dẫn file ASR transcript có sẵn (ví dụ: output/public_test_transcripts.jsonl)")
     parser.add_argument("--asr_model", type=str, default=None, help="Đường dẫn thư mục hoặc tên model ASR (vd: /kaggle/working/models/phowhisper-medium-finetuned)")
@@ -147,10 +149,17 @@ def main():
     args = parser.parse_args()
 
     data_root = resolve_data_root(args.data_root)
-    split_dir = data_root / args.split
-    input_file = split_dir / f"{args.split}.jsonl"
-    catalog_file = split_dir / f"{args.split}_tools_catalog.json"
+    env_split = "train" if args.split == "val" else args.split
+    split_dir = data_root / env_split
+    
+    if args.input_file:
+        input_file = Path(args.input_file)
+        if not input_file.exists():
+            input_file = PROJECT_ROOT / args.input_file
+    else:
+        input_file = split_dir / f"{args.split}.jsonl"
 
+    catalog_file = split_dir / f"{env_split}_tools_catalog.json"
     if not catalog_file.exists():
         fallback_cat = data_root / "train" / "train_tools_catalog.json"
         if fallback_cat.exists():
@@ -332,7 +341,7 @@ def main():
     def process_sample(item):
         sid = item.get("id")
         user_text = item.get("audio_text", "")
-        env = ToolEnv(args.split, sid)
+        env = ToolEnv(env_split, sid)
 
         agent = TwoStageReActAgent(
             llm_client=client,
@@ -349,7 +358,22 @@ def main():
         # Đánh giá điểm nếu mẫu có nhãn chuẩn (Gold Label)
         eval_res = None
         if "label" in item:
-            eval_res = evaluate_sample(item, tool_calls, state_hash, fuzzy_map)
+            try:
+                gold_calls = item.get("label", {}).get("tool_calls", [])
+                gold_env = ToolEnv(env_split, sid)
+                for gc in gold_calls:
+                    gold_env.call(gc.get("name", ""), gc.get("arguments") or {})
+                hash_gold = gold_env.get_state_hash()
+                sample_score = evaluate_sample(tool_calls, gold_calls, state_hash, hash_gold, fuzzy_map)
+                eval_res = {
+                    "final_score": sample_score,
+                    "state_match": (state_hash == hash_gold),
+                    "tool_match": (1.0 if sample_score > 0 else 0.0),
+                    "gold_calls": gold_calls,
+                    "hash_gold": hash_gold,
+                }
+            except Exception as ev_err:
+                eval_res = None
 
         return {
             "id": sid,
@@ -429,7 +453,7 @@ def main():
         print(f"  Số lệnh hỏi lại (Ask Info):{val_report['ask_missing_calls']}")
         print(f"  Số lệnh bỏ qua (No-Op):    {val_report['out_of_scope_calls']}")
         print(f"  Số tools độc lập đã dùng:  {len(val_report['unique_tools_used'])}")
-        print(f"  Mã băm hợp lệ (32 ký tự):  {val_report['valid_hash_count']}/{val_report['total_lines']}")
+        print(f"  Mã băm hợp lệ (chuẩn SHA-256): {val_report['valid_hash_count']}/{val_report['total_lines']}")
     
     # Thống kê hiệu năng thời gian V2
     if total_times:
@@ -444,7 +468,32 @@ def main():
         print(f"  - Số công cụ TB nạp vào Stage 2:     {avg_tools:.1f} tools (So với gốc: 140 tools)")
 
     if gold_scores:
-        print(f"\n  🎯 ĐIỂM TRUNG BÌNH GOLD LABEL: {sum(gold_scores) / len(gold_scores):.4f}")
+        avg_gold = sum(gold_scores) / len(gold_scores)
+        state_matches = sum(1 for r in results if r.get("eval", {}) and r["eval"].get("state_match"))
+        print(f"\n  🎯 KẾT QUẢ ĐÁNH GIÁ TRÊN GOLD LABEL:")
+        print(f"  - Điểm F1 trung bình (Score):        {avg_gold:.4f} ({avg_gold * 100:.2f}/100)")
+        print(f"  - Tỷ lệ khớp State Hash 100%:        {state_matches}/{len(gold_scores)} ({state_matches / max(1, len(gold_scores)) * 100:.1f}%)")
+
+    # Xuất file báo cáo chẩn đoán chi tiết (Diagnostic Report)
+    diag_file = Path(args.diagnostic_output) if args.diagnostic_output else PROJECT_ROOT / "output" / f"{args.split}_diagnostic.jsonl"
+    if "KAGGLE_WORKING_DIR" in os.environ or Path("/kaggle/working").exists():
+        diag_file = Path("/kaggle/working/output") / f"{args.split}_diagnostic.jsonl"
+    diag_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(diag_file, "w", encoding="utf-8") as df:
+        for r in ordered_results:
+            diag_entry = {
+                "id": r["id"],
+                "user_text": r.get("user_text", ""),
+                "selected_apps": r.get("stats", {}).get("selected_apps", []),
+                "expanded_apps": r.get("stats", {}).get("expanded_apps", []),
+                "tool_calls": r.get("tool_calls", []),
+                "state_hash": r.get("state_hash", ""),
+                "total_time": r.get("stats", {}).get("total_time", 0.0),
+            }
+            if r.get("eval"):
+                diag_entry["eval"] = r["eval"]
+            df.write(json.dumps(diag_entry, ensure_ascii=False) + "\n")
+    print(f"\n📊 [Báo cáo Chẩn đoán] Đã lưu file chẩn đoán chi tiết từng mẫu tại: {diag_file}")
 
     # Đóng gói zip nộp bài
     zip_path = Path(args.zip_output)
