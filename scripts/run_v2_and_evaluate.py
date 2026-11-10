@@ -144,6 +144,7 @@ def main():
     parser.add_argument("--time_budget", type=float, default=45.0, help="Thời gian tối đa cho 1 mẫu (giây)")
     parser.add_argument("--max_steps", type=int, default=4, help="Số bước ReAct tối đa ở Stage 2")
     parser.add_argument("--resume", action="store_true", default=False, help="Chạy tiếp từ file kết quả đã có, bỏ qua các mẫu đã hoàn thành")
+    parser.add_argument("--force_asr", action="store_true", default=False, help="Bắt buộc gỡ băng ASR từ âm thanh .wav và ghi đè text gốc (dùng để test tác động ASR trên train)")
     parser.add_argument("--zip_output", type=str, default="submission_v2.zip", help="File zip nộp bài BTC")
     parser.add_argument("--quiet", action="store_true", help="Giảm log chi tiết từng bước")
     args = parser.parse_args()
@@ -232,6 +233,14 @@ def main():
         fuzzy_map.update(load_fuzzy_map(train_cat))
 
     # 2. Xử lý nạp ASR Transcripts
+    # Nếu bật --force_asr: sao lưu text chuẩn BTC và buộc gỡ băng lại từ file audio .wav
+    if args.force_asr:
+        print("\n🎙️ [Chế độ Thử nghiệm ASR Thực tế]: Bật --force_asr!")
+        print("   Đang sao lưu trường 'audio_text' chuẩn của BTC thành 'gold_audio_text', sau đó xóa 'audio_text' để bắt buộc ASR phiên âm lại từ âm thanh...")
+        for s in samples:
+            s["gold_audio_text"] = s.get("audio_text", "")
+            s["audio_text"] = ""
+
     asr_map = {}
     asr_candidates = [
         args.asr_file,
@@ -380,6 +389,7 @@ def main():
             "tool_calls": tool_calls,
             "state_hash": state_hash,
             "user_text": user_text,
+            "gold_audio_text": item.get("gold_audio_text", ""),
             "stats": stats,
             "eval": eval_res,
         }
@@ -484,6 +494,7 @@ def main():
             diag_entry = {
                 "id": r["id"],
                 "user_text": r.get("user_text", ""),
+                "gold_audio_text": r.get("gold_audio_text", ""),
                 "selected_apps": r.get("stats", {}).get("selected_apps", []),
                 "expanded_apps": r.get("stats", {}).get("expanded_apps", []),
                 "tool_calls": r.get("tool_calls", []),

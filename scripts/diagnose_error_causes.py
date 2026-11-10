@@ -44,6 +44,7 @@ def main():
             rec = json.loads(line)
             sid = rec.get("id")
             user_text = rec.get("user_text", "")
+            gold_text = rec.get("gold_audio_text", "")
             sel_apps = set(rec.get("selected_apps", []))
             exp_apps = set(rec.get("expanded_apps", []))
             pred_calls = rec.get("tool_calls", [])
@@ -56,6 +57,7 @@ def main():
                     categories["NO_TOOL_CALLED"].append({
                         "id": sid,
                         "user_text": user_text,
+                        "gold_audio_text": gold_text,
                         "selected_apps": list(sel_apps),
                         "reason": "Agent không gọi tool nào (No-Op)"
                     })
@@ -63,6 +65,7 @@ def main():
                     categories["PERFECT_SUCCESS"].append({
                         "id": sid,
                         "user_text": user_text,
+                        "gold_audio_text": gold_text,
                         "tool_calls": pred_calls,
                     })
                 continue
@@ -77,20 +80,24 @@ def main():
                     categories["OUT_OF_SCOPE_SUCCESS"].append(sid)
                 else:
                     categories["LLM_WRONG_TOOL_OR_ARGS"].append({
-                        "id": sid, "user_text": user_text, "reason": "Câu out-of-scope nhưng LLM lại gọi tool"
+                        "id": sid,
+                        "user_text": user_text,
+                        "gold_audio_text": gold_text,
+                        "reason": "Câu out-of-scope nhưng LLM lại gọi tool"
                     })
                 continue
 
             if score == 1.0:
                 categories["PERFECT_SUCCESS"].append(sid)
             elif score > 0.0:
-                categories["PARTIAL_SUCCESS"].append({"id": sid, "score": score})
+                categories["PARTIAL_SUCCESS"].append({"id": sid, "score": score, "user_text": user_text, "gold_audio_text": gold_text})
             else:
                 # Score == 0.0: Tìm nguyên nhân cốt lõi
                 if not pred_calls:
                     categories["NO_TOOL_CALLED"].append({
                         "id": sid,
                         "user_text": user_text,
+                        "gold_audio_text": gold_text,
                         "gold_apps": list(gold_apps),
                         "selected_apps": list(sel_apps),
                     })
@@ -99,6 +106,7 @@ def main():
                     categories["ROUTER_MISSED_APP"].append({
                         "id": sid,
                         "user_text": user_text,
+                        "gold_audio_text": gold_text,
                         "missing_apps": list(missing_apps),
                         "selected_apps": list(sel_apps),
                     })
@@ -106,6 +114,7 @@ def main():
                     categories["STATE_MISMATCH_ONLY"].append({
                         "id": sid,
                         "user_text": user_text,
+                        "gold_audio_text": gold_text,
                         "pred_calls": pred_calls,
                         "gold_calls": gold_calls,
                     })
@@ -113,6 +122,7 @@ def main():
                     categories["LLM_WRONG_TOOL_OR_ARGS"].append({
                         "id": sid,
                         "user_text": user_text,
+                        "gold_audio_text": gold_text,
                         "pred_calls": pred_calls,
                         "gold_calls": gold_calls,
                     })
@@ -132,15 +142,32 @@ def main():
     if categories["ROUTER_MISSED_APP"]:
         print("\n🔍 VÍ DỤ 3 MẪU LỖI DO ROUTER CHỌN THIẾU APP:")
         for ex in categories["ROUTER_MISSED_APP"][:3]:
-            print(f"  - [{ex['id']}] Text: \"{ex['user_text']}\"")
+            print(f"  - [{ex['id']}]")
+            if ex.get("gold_audio_text"):
+                print(f"    Text BTC (Gold): \"{ex['gold_audio_text']}\"")
+            print(f"    Text ASR (Pred): \"{ex['user_text']}\"")
             print(f"    Thiếu app: {ex['missing_apps']} | Router chọn: {ex['selected_apps']}")
 
     if categories["NO_TOOL_CALLED"]:
         print("\n🔍 VÍ DỤ 3 MẪU BỊ TRẢ VỀ RỖNG (NO-OP):")
         for ex in categories["NO_TOOL_CALLED"][:3]:
-            print(f"  - [{ex['id']}] Text: \"{ex['user_text']}\"")
+            print(f"  - [{ex['id']}]")
+            if ex.get("gold_audio_text"):
+                print(f"    Text BTC (Gold): \"{ex['gold_audio_text']}\"")
+            print(f"    Text ASR (Pred): \"{ex['user_text']}\"")
             if "gold_apps" in ex:
                 print(f"    Lẽ ra cần app: {ex['gold_apps']} | Router chọn: {ex['selected_apps']}")
 
+    if categories["STATE_MISMATCH_ONLY"]:
+        print("\n🔍 VÍ DỤ 3 MẪU LỖI DO SAI TRẠNG THÁI (STATE HASH MISMATCH):")
+        for ex in categories["STATE_MISMATCH_ONLY"][:3]:
+            print(f"  - [{ex['id']}]")
+            if ex.get("gold_audio_text"):
+                print(f"    Text BTC (Gold): \"{ex['gold_audio_text']}\"")
+            print(f"    Text ASR (Pred): \"{ex['user_text']}\"")
+            print(f"    Pred Tools: {[c.get('name') for c in ex.get('pred_calls', [])]}")
+            print(f"    Gold Tools: {[c.get('name') for c in ex.get('gold_calls', [])]}")
+
 if __name__ == "__main__":
     main()
+
