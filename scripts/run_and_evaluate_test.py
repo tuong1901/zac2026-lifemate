@@ -309,8 +309,6 @@ def main():
                         if not full_path.exists():
                             full_path = data_root / rel_audio
                         audio_paths.append(full_path)
-                            full_path = data_root / rel_audio
-                        audio_paths.append(full_path)
 
                     raw_texts = transcriber.transcribe_batch(audio_paths, batch_size=asr_cfg.batch_size or 8)
                     for it, raw_t in zip(items, raw_texts):
