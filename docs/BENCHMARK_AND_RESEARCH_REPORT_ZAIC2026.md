@@ -184,3 +184,4 @@ Dựa trên kinh nghiệm của họ, chúng ta sẽ áp dụng các trụ cột
 3. **Bước 3: Chuẩn bị Dữ liệu SFT cho Qwen-4B**
    * Tạo script sinh ChatML có gộp bước (`group_steps`) và tăng cường (`rename`, `distract`).
    * Huấn luyện LoRA trên GPU để nâng cao năng lực tuân thủ schema và chính sách BTC.
+
