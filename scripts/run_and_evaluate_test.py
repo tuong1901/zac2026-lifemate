@@ -168,17 +168,36 @@ def main():
     args = parser.parse_args()
 
     data_root = resolve_data_root(args.data_root)
-    public_dir = data_root / "public_test"
-    if args.eval_file:
-        test_jsonl = Path(args.eval_file)
-        if not test_jsonl.is_absolute():
-            test_jsonl = PROJECT_ROOT / test_jsonl
-        if not test_jsonl.exists():
-            test_jsonl = data_root / args.eval_file
-    else:
-        test_jsonl = public_dir / "public_test.jsonl"
 
-    catalog_path = public_dir / "public_test_tools_catalog.json"
+    # Tự động phân giải đường dẫn eval_file thông minh (tránh lỗi lặp 'data/data/' trên Kaggle)
+    test_jsonl = None
+    if args.eval_file:
+        raw_eval = args.eval_file.replace("data/", "").replace("data\\", "").strip()
+        candidates = [
+            Path(args.eval_file),
+            PROJECT_ROOT / args.eval_file,
+            data_root / args.eval_file,
+            data_root / raw_eval,
+            data_root / "train" / "train.jsonl" if "train" in args.eval_file.lower() else None,
+            data_root / "public_test" / "public_test.jsonl" if "public" in args.eval_file.lower() else None,
+            PROJECT_ROOT / "data" / raw_eval,
+        ]
+        for cand in candidates:
+            if cand and Path(cand).exists():
+                test_jsonl = Path(cand).resolve()
+                break
+        if not test_jsonl:
+            test_jsonl = (data_root / raw_eval).resolve()
+    else:
+        test_jsonl = (data_root / "public_test" / "public_test.jsonl").resolve()
+
+    # Nhận diện phân vùng tương ứng (train hay public_test)
+    is_train = "train" in str(test_jsonl).lower()
+    split_name = "train" if is_train else "public_test"
+    split_dir = data_root / split_name
+    public_dir = split_dir
+
+    catalog_path = split_dir / f"{split_name}_tools_catalog.json"
     if not catalog_path.exists():
         catalog_path = data_root / "train" / "train_tools_catalog.json"
 
@@ -188,6 +207,9 @@ def main():
         fuzzy_map.update(load_fuzzy_map(train_cat))
 
     output_path = Path(args.output).resolve()
+    if "KAGGLE_WORKING_DIR" in os.environ or Path("/kaggle/working").exists():
+        if not output_path.is_absolute() or str(output_path).startswith(str(PROJECT_ROOT)):
+            output_path = (Path("/kaggle/working") / Path(args.output).name).resolve()
 
     print("=" * 75)
     print("      ZAC 2026 — HỆ THỐNG SUY LUẬN & CHẤM ĐIỂM TRỰC TIẾP")
@@ -228,32 +250,51 @@ def main():
 
     # 2. Xử lý ASR Transcript
     asr_map = {}
-    if args.asr_file and Path(args.asr_file).exists():
-        print(f"🎤 Đang nạp transcript ASR từ: {args.asr_file}")
-        with open(args.asr_file, "r", encoding="utf-8") as f:
+    asr_path = None
+    if args.asr_file:
+        for cand in [
+            Path(args.asr_file),
+            PROJECT_ROOT / args.asr_file,
+            Path("/kaggle/working") / args.asr_file,
+            Path("/kaggle/working/output") / Path(args.asr_file).name,
+            PROJECT_ROOT / "output" / Path(args.asr_file).name,
+        ]:
+            if cand and Path(cand).exists():
+                asr_path = Path(cand)
+                break
+
+    if asr_path and asr_path.exists():
+        print(f"🎤 Đang nạp transcript ASR từ: {asr_path}")
+        with open(asr_path, "r", encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     rec = json.loads(line)
-                    asr_map[rec["id"]] = rec.get("transcript", "")
+                    txt = rec.get("transcript") or rec.get("audio_text") or rec.get("text", "")
+                    if rec.get("id") and txt:
+                        asr_map[rec["id"]] = txt
     else:
         # Tự động tìm transcript có sẵn trong thư mục hoặc fallback sang audio_text nếu có
         asr_candidates = [
-            PROJECT_ROOT / "MultiASR_Results" / "public_test_phowhisper_medium_for_agent.jsonl",
-            data_root / "public_test_phowhisper_medium_for_agent.jsonl",
-            data_root / "public_test_asr.jsonl",
+            Path("/kaggle/working/output") / f"{split_name}_transcripts.jsonl",
+            PROJECT_ROOT / "output" / f"{split_name}_transcripts.jsonl",
+            PROJECT_ROOT / "MultiASR_Results" / f"{split_name}_phowhisper_medium_for_agent.jsonl",
+            data_root / f"{split_name}_phowhisper_medium_for_agent.jsonl",
+            data_root / f"{split_name}_asr.jsonl",
         ]
         for c in asr_candidates:
-            if c.exists():
+            if c and c.exists():
                 print(f"🎤 Tự động tìm thấy file ASR có sẵn: {c.name}")
                 with open(c, "r", encoding="utf-8") as f:
                     for line in f:
                         if line.strip():
                             rec = json.loads(line)
-                            asr_map[rec["id"]] = rec.get("transcript", "")
+                            txt = rec.get("transcript") or rec.get("audio_text") or rec.get("text", "")
+                            if rec.get("id") and txt:
+                                asr_map[rec["id"]] = txt
                 break
 
         if not asr_map:
-            audio_dir = public_dir / "audio"
+            audio_dir = split_dir / "audio"
             if audio_dir.exists():
                 print(f"🎤 Chưa có file transcript ASR, tự động gỡ băng {len(items)} file audio bằng ASR GPU...")
                 try:
@@ -264,8 +305,10 @@ def main():
                     audio_paths = []
                     for it in items:
                         rel_audio = it.get("audio", f"audio/{it['id']}/{it['id']}.wav")
-                        full_path = public_dir / rel_audio
+                        full_path = split_dir / rel_audio
                         if not full_path.exists():
+                            full_path = data_root / rel_audio
+                        audio_paths.append(full_path)
                             full_path = data_root / rel_audio
                         audio_paths.append(full_path)
 
