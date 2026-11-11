@@ -8,6 +8,11 @@ import json
 import os
 from pathlib import Path
 
+# This entry point uses PyTorch only. Set these before PEFT/Transformers imports.
+os.environ["USE_TF"] = "0"
+os.environ["USE_TORCH"] = "1"
+os.environ["USE_FLAX"] = "0"
+
 from src.asr.training_data import collect_clips, split_clips
 
 
@@ -21,6 +26,14 @@ def train(args):
     import numpy as np
     import soundfile as sf
     import torch
+    if not torch.cuda.is_available():
+        raise RuntimeError(f"PyTorch cannot access CUDA: torch={torch.__version__}, "
+                           f"built_cuda={torch.version.cuda}, visible={os.environ.get('CUDA_VISIBLE_DEVICES')}")
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    torch.cuda.set_device(local_rank)
+    print(f"[ASR startup] rank={os.environ.get('RANK', '0')} local_rank={local_rank} "
+          f"GPU={torch.cuda.get_device_name(local_rank)} torch={torch.__version__} "
+          f"CUDA={torch.version.cuda}", flush=True)
     from scipy.signal import resample_poly
     from math import gcd
     from peft import LoraConfig, get_peft_model
@@ -28,10 +41,6 @@ def train(args):
                               Seq2SeqTrainer, Seq2SeqTrainingArguments, set_seed)
     from src.asr.evaluate import compute_levenshtein_distance, normalize_text_for_eval
 
-    if not torch.cuda.is_available():
-        raise RuntimeError("Enable a Kaggle GPU before training")
-    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-    torch.cuda.set_device(local_rank)
     set_seed(args.seed)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
