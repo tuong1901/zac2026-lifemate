@@ -111,3 +111,14 @@ Chỉ chạy train nếu decoding chưa đủ tốt và còn thời gian GPU. So
 ### Kết quả decoding do người dùng chạy trên 511 clip
 
 Cùng manifest: beam1/ngram3 WER=13,8398% (1011 lỗi/7305 từ), beam1/ngram0=12,3477% (902 lỗi), beam5/ngram0=11,8138% (863 lỗi). Cải thiện 2,026 điểm phần trăm giữa hai đầu của phép so cùng lượt; không có cập nhật weights. Không dùng đây làm kết quả test độc lập. Pipeline PhoWhisper nay mặc định ngram=0, beam=5; có thể đặt ASR_NO_REPEAT_NGRAM_SIZE để thử lại. Merge mới lưu beam5/ngram0 vào generation_config. Notebook WER warm-start đánh giá trực tiếp bằng --eval-beams 5 --eval-ngram 0 để so với mốc 11,81%. Đánh giá beam5 có thể chậm hơn greedy, chưa đo thời gian lượt train mới.
+## Runtime đã mất nhưng còn model trên Drive
+
+Dùng notebooks/kaggle_phowhisper_restore_drive.ipynb trong session mới, Dataset train cũ, Internet và T4x2. Notebook hỏi URL Drive khi chạy; không lưu URL cụ thể trong repo. Hỗ trợ folder chứa full model, ZIP model hoặc adapter. Kiểm tra metadata và đầy đủ các shard weights trước khi nạp; không nhận model chỉ có config nhưng thiếu weights.
+
+Nếu full model đã fine-tune: dùng đúng weights tải về làm base cho LoRA mới, optimizer mới, học thêm 1 epoch (LR2e-5, speed10%, beam5/ngram0). Không phải train lại từ Hugging Face base, cũng không thể resume optimizer cũ chỉ bằng full model. Nếu adapter: cần đúng base gốc; base là model custom thì không được thay bằng base Hugging Face chỉ vì cùng kiến trúc.
+
+Nếu Drive có split_manifest.json, dùng lại sau khi kiểm tra đường dẫn. Nếu chỉ có weights, tái tạo split từ cùng train, thuật toán và seed42; chưa thể xác nhận tuyệt đối là split cũ hoặc so trực tiếp với 11,81%. Luôn đo baseline của model Drive trước khi học, và so baseline/after trên split hiện dùng.
+
+--save-steps 50 đánh giá/lưu checkpoint mỗi 50 updates, đồng thời bắt buộc đánh giá/lưu ở update cuối. Điều này tăng thời gian validation. Đây CHỈ là lưu local trong /kaggle/working, KHÔNG bảo vệ khỏi mất cả runtime. Kết thúc notebook phải tải phowhisper-selected-model.zip và phowhisper-training-records.zip ra máy/Drive hoặc lưu Kaggle version với outputs. Notebook không tự upload lên Drive, không có quyền OAuth/token để làm việc đó.
+
+Giữ model Drive gốc, baseline metrics, split_manifest.json, run_config.json và checkpoint. Chỉ chọn model mới nếu WER thấp hơn; nếu không giữ weights đã tải. Chưa có WER mới hoặc lượt restore GPU được chạy bởi agent ở môi trường phát triển.
