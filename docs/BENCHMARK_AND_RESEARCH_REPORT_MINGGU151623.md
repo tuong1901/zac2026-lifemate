@@ -123,3 +123,4 @@ Repository `minggu151623` cung cấp cho chúng ta **công thức hoàn chỉnh,
    - Chặn bẫy lặp Read (`done_calls`)
    - Bảng ngày `date_table`
 3. **Chạy huấn luyện trên Kaggle theo chuỗi `sftc` (Epoch 1 $\to$ 3):** Sử dụng đúng script `train_sft.py` trên 2×T4 với LoRA r=32/64.
+

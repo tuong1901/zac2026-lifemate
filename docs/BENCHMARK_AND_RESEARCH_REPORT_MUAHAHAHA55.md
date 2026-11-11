@@ -127,3 +127,4 @@ Mô hình LLM thường hiểu đúng hành động nhưng tính sai số học 
 | **Quy trình suy luận** | Single-step ReAct + Search Guard | Single-step ReAct + Rules fix | Multi-step agent nhưng bị bẫy Read-only & trùng lặp Write |
 | **Xử lý Thời gian** | Bảng tra cứu `date_table` 21 ngày | Luật `rules.py` can thiệp tham số | Chưa có chuẩn hóa giờ tất định |
 | **Điểm Leaderboard** | 52.68 | 48.56 | ~5.00 (Do thiếu SFT và lỗi trùng lặp Write) |
+
