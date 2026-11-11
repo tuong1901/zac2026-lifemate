@@ -1,0 +1,76 @@
+"""Audio/text manifests and leakage-safe splitting; no runtime or GPU imports."""
+import json
+import random
+from pathlib import Path
+
+
+def collect_clips(train_json, audio_root=None):
+    path = Path(train_json).resolve()
+    root = Path(audio_root).resolve() if audio_root else path.parent
+    clips = []
+    with path.open(encoding="utf-8") as stream:
+        for line in stream:
+            if not line.strip():
+                continue
+            item = json.loads(line)
+            turns = [item] + [turn for turn in item.get("history", []) if turn.get("role") == "user"]
+            for turn in turns:
+                audio, text = turn.get("audio"), turn.get("audio_text")
+                if not audio or not isinstance(text, str) or not text.strip():
+                    continue
+                audio_path = (root / audio).resolve()
+                if not audio_path.is_relative_to(root):
+                    raise ValueError(f"Audio path escapes audio root: {audio}")
+                if not audio_path.is_file():
+                    raise FileNotFoundError(audio_path)
+                clips.append({"sample_id": str(item["id"]), "audio": str(audio_path), "text": text})
+    if not clips:
+        raise ValueError("No audio/audio_text pairs found")
+    return clips
+
+
+def split_clips(clips, val_ratio=0.1, seed=42):
+    """Keep connected conversations together when they share an audio path."""
+    if not 0 < val_ratio < 1:
+        raise ValueError("val_ratio must be strictly between 0 and 1")
+    parent = {clip["sample_id"]: clip["sample_id"] for clip in clips}
+
+    def find(value):
+        while parent[value] != value:
+            parent[value] = parent[parent[value]]
+            value = parent[value]
+        return value
+
+    owners = {}
+    for clip in clips:
+        owner = owners.setdefault(clip["audio"], clip["sample_id"])
+        parent[find(clip["sample_id"])] = find(owner)
+    groups = {}
+    for clip in clips:
+        groups.setdefault(find(clip["sample_id"]), []).append(clip)
+    keys = sorted(groups)
+    if len(keys) < 2:
+        raise ValueError("Need at least two independent conversation groups for validation")
+    random.Random(seed).shuffle(keys)
+    target, held, count = max(1, round(len(clips) * val_ratio)), set(), 0
+    for key in keys[:-1]:
+        held.add(key)
+        count += len(groups[key])
+        if count >= target:
+            break
+    train, val = [], []
+    for key, group in groups.items():
+        (val if key in held else train).extend(group)
+
+    def dedup(rows):
+        seen, out = {}, []
+        for row in rows:
+            if row["audio"] in seen:
+                if seen[row["audio"]] != row["text"]:
+                    raise ValueError(f"Conflicting transcripts for {row['audio']}")
+                continue
+            seen[row["audio"]] = row["text"]
+            out.append(row)
+        return out
+
+    return dedup(train), dedup(val)
