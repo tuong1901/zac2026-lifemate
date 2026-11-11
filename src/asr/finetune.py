@@ -37,7 +37,7 @@ def train(args):
           f"CUDA={torch.version.cuda}", flush=True)
     from scipy.signal import resample_poly
     from math import gcd
-    from peft import LoraConfig, get_peft_model
+    from peft import LoraConfig, get_peft_model, PeftConfig, PeftModel
     from transformers import (WhisperForConditionalGeneration, WhisperProcessor,
                               Seq2SeqTrainer, Seq2SeqTrainingArguments, set_seed)
     from src.asr.evaluate import compute_levenshtein_distance, normalize_text_for_eval
@@ -131,9 +131,15 @@ def train(args):
     model.generation_config.condition_on_prev_tokens = False
     model.generation_config.no_repeat_ngram_size = 3
     # Generic PeftModel preserves Whisper's input_features interface (not text input_ids).
-    model = get_peft_model(model, LoraConfig(
-        r=args.rank, lora_alpha=args.rank * 2, lora_dropout=0.05,
-        target_modules=["q_proj", "k_proj", "v_proj", "out_proj", "fc1", "fc2"], bias="none"))
+    if args.init_adapter:
+        adapter_config = PeftConfig.from_pretrained(args.init_adapter)
+        if adapter_config.base_model_name_or_path.rstrip('/') != args.model.rstrip('/'):
+            raise ValueError("Initial adapter base differs from --model; use its original base")
+        model = PeftModel.from_pretrained(model, args.init_adapter, is_trainable=True)
+    else:
+        model = get_peft_model(model, LoraConfig(
+            r=args.rank, lora_alpha=args.rank * 2, lora_dropout=0.05,
+            target_modules=["q_proj", "k_proj", "v_proj", "out_proj", "fc1", "fc2"], bias="none"))
     # Generic PEFT exposes **kwargs, but Whisper does not accept Trainer's
     # num_items_in_batch loss argument.
     model.accepts_loss_kwargs = False
@@ -189,7 +195,7 @@ def train(args):
         model=model, args=options, train_dataset=AudioDataset(train_rows, augment=True),
         eval_dataset=AudioDataset(val_rows), data_collator=collate,
         processing_class=processor, compute_metrics=metrics)
-    # Fresh zero-initialized LoRA is the base model; compare on the same holdout.
+    # Baseline is the original base, or the initial adapter when warm-starting.
     if not args.resume and not args.skip_baseline:
         write_json(out / "baseline_metrics.json", trainer.evaluate(metric_key_prefix="baseline"))
     trainer.train(resume_from_checkpoint=args.resume)
@@ -218,6 +224,7 @@ def train(args):
     write_json(out / "validation_metrics.json", trainer.evaluate())
     write_json(out / "training_summary.json", {
         "base_model": args.model, "best_checkpoint": trainer.state.best_model_checkpoint,
+        "initial_adapter": args.init_adapter, "optimizer_restarted": bool(args.init_adapter and not args.resume),
         "best_wer": trainer.state.best_metric, "train_clips": len(train_rows),
         "validation_clips": len(val_rows), "skipped": len(skipped),
         "selection": "minimum normalized validation WER among trained checkpoints",
@@ -273,6 +280,7 @@ def main():
     fit.add_argument("--val-ratio", type=float, default=0.1)
     fit.add_argument("--seed", type=int, default=42)
     fit.add_argument("--resume", help="Path to checkpoint-N including optimizer/RNG state")
+    fit.add_argument("--init-adapter", help="Warm-start LoRA weights with a new optimizer/schedule; original base required")
     fit.set_defaults(handler=train)
     export = sub.add_parser("merge")
     export.add_argument("--adapter", required=True)

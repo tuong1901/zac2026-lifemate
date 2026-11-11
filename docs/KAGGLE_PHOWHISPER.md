@@ -103,3 +103,8 @@ Mở `notebooks/kaggle_phowhisper_wer_experiments.ipynb`, dùng cùng phiên Kag
 6. Sau train, notebook merge sang thư mục riêng và benchmark lại cùng ba cấu hình. Chỉ báo cải thiện khi so cùng manifest và decoding. Dữ liệu synthetic tool-call và nhãn do hai ASR đoán không được thêm vào audio_text chuẩn.
 
 Code mới gồm khôi phục checkpoint/DDP cuối run đang chuẩn bị từ đợt sửa trước. Đã kiểm tra cú pháp và 11 unit test CPU/stdlib; chưa chạy benchmark/augmentation/huấn luyện trên CUDA tại máy phát triển, chưa có WER mới. T4 x2 không bảo đảm utilization 100%; DDP không cộng VRAM thành một GPU lớn. Nếu WER kém hơn, giữ model cũ. Không tự động thay cấu hình pipeline inference theo config thắng cuộc; cần áp dụng đúng beam/ngram đã đo khi dùng model sau này.
+### Tận dụng runtime/model cũ
+
+Không restart session và không xóa Output cũ. Có thể đánh giá decoding ngay trên model đã merge mà không train. Notebook thí nghiệm nay mặc định profile warm_start khi người dùng bật RUN_TRAIN=True: chọn adapter cũ có WER thấp nhất còn lưu, tải đúng base + adapter với is_trainable=True, khởi tạo optimizer/schedule mới và học thêm 1 epoch, LR=2e-5, speed +/-10%. Không dùng --resume với cấu hình LR mới để giả tiếp tục cùng lịch học. --init-adapter kiểm tra base khớp; kiến trúc adapter được giữ nguyên theo checkpoint.
+
+Chỉ chạy train nếu decoding chưa đủ tốt và còn thời gian GPU. So WER trước/sau trên cùng split và decoding. Nếu warm-start tệ hơn, dùng lại model 13,91%. Nó không chắc đạt 8%. Các profile speed_only/reference_like vẫn có sẵn để thử từ base; không chạy tất cả một lượt. Đường dẫn run mới asr_wer_experiments/warm_start, không ghi đè asr_training. Cần giữ cả checkpoint adapter (để warm-start) và full model đã merge (để inference).
