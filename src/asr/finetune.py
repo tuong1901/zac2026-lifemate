@@ -5,12 +5,15 @@ python -m src.asr.finetune merge --adapter /path/out/best_adapter --out /path/mo
 """
 import argparse
 import json
+import os
 from pathlib import Path
 
 from src.asr.training_data import collect_clips, split_clips
 
 
 def write_json(path, value):
+    if int(os.environ.get("RANK", "0")) != 0:
+        return
     Path(path).write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -27,6 +30,8 @@ def train(args):
 
     if not torch.cuda.is_available():
         raise RuntimeError("Enable a Kaggle GPU before training")
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    torch.cuda.set_device(local_rank)
     set_seed(args.seed)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -137,6 +142,7 @@ def train(args):
         load_best_model_at_end=True, metric_for_best_model="wer", greater_is_better=False,
         predict_with_generate=True, generation_max_length=448, generation_num_beams=1,
         remove_unused_columns=False, label_names=["labels"], report_to=[],
+        ddp_find_unused_parameters=False,
         seed=args.seed, data_seed=args.seed, logging_steps=10,
         dataloader_num_workers=0, eval_accumulation_steps=1)
     trainer = Seq2SeqTrainer(
@@ -148,7 +154,8 @@ def train(args):
         write_json(out / "baseline_metrics.json", trainer.evaluate(metric_key_prefix="baseline"))
     trainer.train(resume_from_checkpoint=args.resume)
     trainer.save_model(str(out / "best_adapter"))
-    processor.save_pretrained(out / "best_adapter")
+    if trainer.is_world_process_zero():
+        processor.save_pretrained(out / "best_adapter")
     write_json(out / "validation_metrics.json", trainer.evaluate())
     write_json(out / "training_summary.json", {
         "base_model": args.model, "best_checkpoint": trainer.state.best_model_checkpoint,
