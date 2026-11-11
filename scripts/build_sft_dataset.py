@@ -1,180 +1,124 @@
-"""
-scripts/build_sft_dataset.py — Bộ xây dựng dữ liệu SFT chuyên nghiệp:
-1. Dữ liệu gốc (Gold train samples).
-2. Khai thác lịch sử (History Mining): Biến các lượt hỏi đáp trong history thành sample độc lập (+2,000 samples).
-3. Học từ chối (OOS by App Stripping): Xóa app khỏi context để dạy model không bịa tool (+300 samples).
-4. Tích hợp dữ liệu tổng hợp (Synthetic Unseen Apps).
+"""Build causal ReAct JSON training examples using the inference prompt contract.
 
-Cách dùng:
-    python scripts/build_sft_dataset.py --train data/train/train.jsonl --out data/sft_train.jsonl
+Includes history mining, app stripping and simulator-verified synthetic scenarios.
+Never opens split environments. Tool results must already be present in labels.
 """
-
-import os
-import sys
+import argparse
+import copy
 import json
 import random
-import argparse
+import sys
 from pathlib import Path
-from typing import List, Dict, Any, Set
 
-SEED = 42
-random.seed(SEED)
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from src.agent.prompt import SYSTEM_PROMPT, build_user_prompt
+from src.rules.catalog_filter import CatalogFilter
 
-def get_installed_apps(item: Dict[str, Any]) -> Set[str]:
+
+def get_installed_apps(item):
+    return set(item.get("context", {}).get("installed_apps", {}))
+
+
+def get_gold_apps(calls):
+    names = [(c.get("arguments", {}).get("tool_name", "") if c.get("name") == "sys.ask_missing_info"
+              else c.get("name", "")) for c in calls]
+    return {name.split(".")[0] for name in names if "." in name} - {"sys"}
+
+
+def build_rows(item, catalog):
+    """One supervised decision per observed result; no future result/ID leakage."""
     context = item.get("context", {})
     installed = context.get("installed_apps", {})
-    if isinstance(installed, dict):
-        return set(installed.keys())
-    elif isinstance(installed, list):
-        return set(installed)
-    return set()
+    if isinstance(installed, list):
+        installed = {app: {} for app in installed}
+    allowed = catalog.get_allowed_tools(installed)
+    allowed_names = {tool["name"] for tool in allowed}
+    calls = item.get("label", {}).get("tool_calls", [])
+    results = item.get("label", {}).get("tool_results", [])
+    if any(call["name"] not in allowed_names for call in calls):
+        raise ValueError(f"{item['id']}: gold call not in installed catalog")
+    if len(results) != len(calls):
+        raise ValueError(f"{item['id']}: missing aligned tool results; cannot teach causal execution")
+    rows, steps = [], []
+    for index in range(len(calls) + 1):
+        prompt = build_user_prompt(
+            item.get("audio_text", ""), context, "", "", "", steps,
+            history=item.get("history", []), allowed_tools=allowed, exemplars=[])
+        actions = [calls[index]] if index < len(calls) else []
+        finished = not actions or actions[0]["name"] == "sys.ask_missing_info"
+        target = {"thought": "", "actions": actions, "is_finished": finished}
+        rows.append({"id": f"{item['id']}#step{index}", "source_id": item["id"].split("#")[0],
+                     "messages": [{"role": "system", "content": SYSTEM_PROMPT},
+                                  {"role": "user", "content": prompt},
+                                  {"role": "assistant", "content": json.dumps(target, ensure_ascii=False)}]})
+        if finished:
+            break
+        result = results[index]
+        steps.append({"step": index + 1, "tool_called": calls[index]["name"],
+                      "arguments": calls[index].get("arguments", {}),
+                      "observation": json.dumps(result, ensure_ascii=False), "raw_observation": result})
+    return rows
 
-def get_gold_apps(tool_calls: List[Dict[str, Any]]) -> Set[str]:
-    apps = set()
-    for tc in tool_calls:
-        name = tc.get("name", "")
-        if name == "sys.ask_missing_info":
-            args = tc.get("arguments", {})
-            tname = args.get("tool_name", "")
-            if "." in tname:
-                apps.add(tname.split(".")[0])
-        elif "." in name:
-            apps.add(name.split(".")[0])
-    return apps - {"sys"}
 
-def build_chat_messages(system_prompt: str, history: List[Dict[str, Any]], user_text: str, tool_calls: List[Dict[str, Any]], tool_results: List[Any]) -> List[Dict[str, Any]]:
-    messages = [{"role": "system", "content": system_prompt}]
-    
-    # Lịch sử hội thoại
-    for h in history:
-        role = h.get("role", "user")
-        content = h.get("content") or h.get("audio_text", "")
-        if role == "user":
-            messages.append({"role": "user", "content": content})
-        elif role == "assistant":
-            h_calls = h.get("tool_calls", [])
-            messages.append({"role": "assistant", "content": content, "tool_calls": h_calls})
-        elif role == "tool":
-            messages.append({"role": "tool", "content": str(content)})
+def read_jsonl(path):
+    with Path(path).open(encoding="utf-8") as stream:
+        return [json.loads(line) for line in stream if line.strip()]
 
-    # Lượt user hiện tại
-    messages.append({"role": "user", "content": user_text})
-
-    # Lượt assistant gọi tool
-    if tool_calls:
-        formatted_calls = []
-        for tc in tool_calls:
-            formatted_calls.append({
-                "type": "function",
-                "function": {
-                    "name": tc["name"],
-                    "arguments": json.dumps(tc.get("arguments", {}), ensure_ascii=False) if isinstance(tc.get("arguments"), dict) else str(tc.get("arguments", "{}"))
-                }
-            })
-        messages.append({"role": "assistant", "content": "", "tool_calls": formatted_calls})
-        
-        # Kết quả tool
-        for res in tool_results:
-            res_str = json.dumps(res, ensure_ascii=False) if isinstance(res, (dict, list)) else str(res)
-            messages.append({"role": "tool", "content": res_str[:2000]})
-            
-        messages.append({"role": "assistant", "content": "Dạ, em đã thực hiện xong yêu cầu của anh/chị rồi ạ."})
-    else:
-        # Không có tool nào cần gọi
-        messages.append({"role": "assistant", "content": "Dạ, yêu cầu này em chưa hỗ trợ được trên các ứng dụng hiện tại ạ."})
-
-    return messages
 
 def main():
-    parser = argparse.ArgumentParser(description="Tạo file dataset SFT chất lượng cao")
-    parser.add_argument("--train", type=str, required=True, help="Đường dẫn train.jsonl")
-    parser.add_argument("--catalog", type=str, default="data/train/train_tools_catalog.json", help="Catalog tool")
-    parser.add_argument("--out", type=str, required=True, help="Đường dẫn file sft_train.jsonl xuất ra")
-    parser.add_argument("--synth", type=str, default=None, help="File synthetic jsonl (nếu có)")
-    args = parser.parse_args()
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--train", required=True)
+    ap.add_argument("--catalog", default="data/train/train_tools_catalog.json")
+    ap.add_argument("--synth-catalog", default="data/public_test/public_test_tools_catalog.json")
+    ap.add_argument("--synth")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--seed", type=int, default=42)
+    args = ap.parse_args()
+    catalog = CatalogFilter(args.catalog)
+    if args.synth:
+        public_catalog = CatalogFilter(args.synth_catalog)
+        for name, app in public_catalog.apps_by_id.items():
+            catalog.apps_by_id.setdefault(name, app)
+    rows = []
+    counts = {"original": 0, "history_mined": 0, "oos_stripped": 0, "synth": 0}
 
-    train_path = Path(args.train)
-    if not train_path.exists():
-        print(f"❌ Không tìm thấy: {train_path}")
-        return
+    def add(item, kind):
+        rows.extend(build_rows(item, catalog))
+        counts[kind] += 1
 
-    items = [json.loads(line) for line in open(train_path, encoding="utf-8") if line.strip()]
-    print(f"[*] Tổng số mẫu gốc trong train.jsonl: {len(items)}")
-
-    system_prompt = (
-        "Bạn là LifeMate, trợ lý ảo thông minh tiếng Việt. "
-        "Nhiệm vụ của bạn là lắng nghe yêu cầu của người dùng, suy luận và gọi các công cụ (tools) phù hợp. "
-        "Chỉ gọi các công cụ thuộc những ứng dụng đã được cài đặt (installed_apps). "
-        "Nếu người dùng đổi ý hoặc yêu cầu không thuộc phạm vi ứng dụng nào, hãy trả lời lịch sự và không gọi công cụ."
-    )
-
-    sft_rows = []
-    stats = {"original": 0, "history_mined": 0, "oos_stripped": 0, "synth": 0}
-
-    # 1. Thêm các mẫu gốc
-    for it in items:
-        uid = it["id"]
-        history = it.get("history", [])
-        user_text = it.get("audio_text", "")
-        calls = it.get("label", {}).get("tool_calls", [])
-        results = it.get("label", {}).get("tool_results", [])
-
-        msgs = build_chat_messages(system_prompt, history, user_text, calls, results)
-        sft_rows.append({"id": uid, "messages": msgs})
-        stats["original"] += 1
-
-        # 2. History Mining: Tách các lượt trước trong history thành sample riêng
+    for item in read_jsonl(args.train):
+        add(item, "original")
+        history = item.get("history", [])
         for k in range(len(history) - 1):
-            if history[k].get("role") == "user" and history[k + 1].get("role") == "assistant":
-                prev_user = history[k].get("audio_text") or history[k].get("content", "")
-                prev_calls = history[k + 1].get("tool_calls", [])
-                prev_results = history[k + 1].get("tool_results", [])
-                earlier_history = history[:k]
+            user, assistant = history[k:k + 2]
+            text = user.get("audio_text") or user.get("content") or user.get("text")
+            if user.get("role") == "user" and assistant.get("role") == "assistant" and text and assistant.get("tool_calls"):
+                mined = copy.deepcopy(item)
+                mined.update(id=f"{item['id']}#h{k}", audio_text=text, history=history[:k],
+                             label={"tool_calls": assistant["tool_calls"],
+                                    "tool_results": assistant.get("tool_results", [])})
+                add(mined, "history_mined")
+        calls = item.get("label", {}).get("tool_calls", [])
+        used = get_gold_apps(calls)
+        if used and not history:
+            stripped = copy.deepcopy(item)
+            installed = stripped["context"].get("installed_apps", {})
+            stripped["context"]["installed_apps"] = ({app: spec for app, spec in installed.items() if app not in used}
+                                                     if isinstance(installed, dict) else [app for app in installed if app not in used])
+            stripped.update(id=f"{item['id']}#oos", label={"tool_calls": [], "tool_results": []})
+            add(stripped, "oos_stripped")
+    if args.synth:
+        for item in read_jsonl(args.synth):
+            add(item, "synth")
+    random.Random(args.seed).shuffle(rows)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", encoding="utf-8") as stream:
+        for row in rows:
+            stream.write(json.dumps(row, ensure_ascii=False) + "\n")
+    print(json.dumps({"source_samples": counts, "decision_samples": len(rows), "out": str(out)}, ensure_ascii=False))
 
-                if prev_user and prev_calls:
-                    h_msgs = build_chat_messages(system_prompt, earlier_history, prev_user, prev_calls, prev_results)
-                    sft_rows.append({"id": f"{uid}#h{k}", "messages": h_msgs})
-                    stats["history_mined"] += 1
-
-        # 3. OOS App Stripping: Xóa app để ép model học từ chối
-        if calls and not history:
-            used_apps = get_gold_apps(calls)
-            if used_apps:
-                # Tạo sample mới với câu yêu cầu đó nhưng context KHÔNG có app cần dùng
-                oos_msgs = build_chat_messages(system_prompt, [], user_text, [], [])
-                sft_rows.append({"id": f"{uid}#oos", "messages": oos_msgs})
-                stats["oos_stripped"] += 1
-
-    # 4. Tích hợp Synth Data (nếu có)
-    if args.synth and Path(args.synth).exists():
-        synth_items = [json.loads(line) for line in open(args.synth, encoding="utf-8") if line.strip()]
-        for s_it in synth_items:
-            s_uid = s_it.get("id", f"synth_{stats['synth']}")
-            s_hist = s_it.get("history", [])
-            s_text = s_it.get("audio_text", "")
-            s_calls = s_it.get("label", {}).get("tool_calls", [])
-            s_res = s_it.get("label", {}).get("tool_results", [])
-            s_msgs = build_chat_messages(system_prompt, s_hist, s_text, s_calls, s_res)
-            sft_rows.append({"id": s_uid, "messages": s_msgs})
-            stats["synth"] += 1
-
-    # Trộn ngẫu nhiên
-    random.shuffle(sft_rows)
-
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        for r in sft_rows:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
-
-    print("=" * 50)
-    print(f"[✓] Đã tạo thành công file SFT Dataset: {out_path}")
-    print(f"    - Mẫu gốc: {stats['original']}")
-    print(f"    - Mẫu trích xuất lịch sử (History Mined): {stats['history_mined']}")
-    print(f"    - Mẫu từ chối (OOS Stripped): {stats['oos_stripped']}")
-    print(f"    - Mẫu synthetic: {stats['synth']}")
-    print(f"    => TỔNG CỘNG: {len(sft_rows)} mẫu huấn luyện SFT!")
-    print("=" * 50)
 
 if __name__ == "__main__":
     main()

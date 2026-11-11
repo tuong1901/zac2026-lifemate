@@ -72,6 +72,53 @@ class GuardedToolEnv:
         self.read_tools = frozenset(read_tools)
         self.mutated_domains = set()
         self.successful_signatures = set()
+        self._specs = {tool['name']: tool for tool in allowed_tools}
+        self._observed_refs = {}
+        self._guard_reads = set()
+
+    def observe(self, name, result):
+        """Remember IDs from successful, named tool results, never hidden state."""
+        if not isinstance(result, dict) or result_failed(result):
+            return
+        app = name.split('.')[0]
+        for collection, values in result.items():
+            if isinstance(values, list):
+                ids = {str(value['id']) for value in values
+                       if isinstance(value, dict) and value.get('id') is not None}
+                self._observed_refs.setdefault(f'{app}.{collection}', set()).update(ids)
+
+    def seed_history(self, history):
+        for turn in history or []:
+            calls, results = turn.get('tool_calls') or [], turn.get('tool_results') or []
+            for call, result in zip(calls, results):
+                if isinstance(call, dict):
+                    self.observe(call.get('name', ''), result)
+
+    def _check_references(self, name, arguments):
+        spec = self._specs[name]
+        if name in self.read_tools or spec.get('kind') == 'meta':
+            return
+        for key, prop in spec.get('parameters', {}).get('properties', {}).items():
+            ref = prop.get('x-ref')
+            if not ref or key not in arguments or str(arguments[key]) in self._observed_refs.get(ref, set()):
+                continue
+            app, collection = ref.split('.', 1)
+            readers = [tool for tool in self._specs.values()
+                       if tool['name'] in self.read_tools and tool['name'].split('.')[0] == app
+                       and collection in str(tool.get('returns', ''))
+                       and not tool.get('parameters', {}).get('required')]
+            readers.sort(key=lambda tool: tool['name'])
+            reader = next((tool for tool in readers if tool['name'] not in self._guard_reads), None)
+            if reader:
+                self._guard_reads.add(reader['name'])
+                result = self.call(reader['name'], {})
+                raise ActionFeedback(name, arguments,
+                    f'WRITE deferred: observe {reader["name"]} result and choose the requested {key}; '
+                    f'do not reuse an unobserved ID. Result: {json.dumps(result, ensure_ascii=False)}',
+                    result=result)
+            raise ActionFeedback(name, arguments,
+                f'Unobserved {key} for {ref}; call a suitable READ with user-grounded filters '
+                'or ask for clarification before writing')
 
     def validate(self, name, arguments):
         return self._env.validate(name, arguments)
@@ -95,6 +142,7 @@ class GuardedToolEnv:
         valid, clean, error = self.guardrail.guard_and_validate(self._env, name, arguments)
         if not valid:
             raise ActionFeedback(name, clean, str(error))
+        self._check_references(name, clean)
         self.budget.before_call()
         self.budget.calls += 1
         if name not in self.read_tools:
@@ -109,6 +157,7 @@ class GuardedToolEnv:
         if result_failed(result):
             raise ActionFeedback(name, clean, str(result.get('error') or 'Tool execution failed'),
                                  result=result, executed=True)
+        self.observe(name, result)
         return result
 
 

@@ -884,19 +884,9 @@ def _collapse_spoken_digits(match: re.Match) -> str:
 
 @functools.lru_cache(maxsize=8192)
 def clean_asr_transcript(text: str) -> str:
-    """Khôi phục các cụm từ bị biến âm vị do ASR tiếng Việt và đồng nhất dấu thanh."""
-    if not text:
-        return ""
-    cleaned = text
-    for comp_re, new_s in _VN_TONE_NORM_RES:
-        cleaned = comp_re.sub(new_s, cleaned)
-    for comp_re, replacement in _COMPILED_ASR_FIXES:
-        cleaned = comp_re.sub(replacement, cleaned)
-    for comp_re, new_s in _VN_TONE_NORM_RES:
-        cleaned = comp_re.sub(new_s, cleaned)
-    cleaned = _SPOKEN_DIGIT_RUN_RE.sub(_collapse_spoken_digits, cleaned)
-    return cleaned
-
+    """Use the same conservative normalization at ASR and prompt boundaries."""
+    from src.asr.post_processor import LexiconPostProcessor
+    return LexiconPostProcessor().process(text)
 
 def fuse_multi_asr_transcripts(sample_id: str, user_text: str, installed_apps: Any = None) -> str:
     """
@@ -957,6 +947,25 @@ def fuse_multi_asr_transcripts(sample_id: str, user_text: str, installed_apps: A
 # 2. BỘ TÍNH LỊCH & THỜI GIAN TỔNG QUÁT (CALENDAR & TIME HELPER)
 # ==============================================================================
 WEEKDAY_VN = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
+
+
+def build_date_table(current_time_iso: str) -> str:
+    """Resolve relative days in the sample's timezone; weeks start on Monday."""
+    try:
+        now = datetime.fromisoformat(current_time_iso.replace("Z", "+00:00"))
+    except (ValueError, TypeError, AttributeError):
+        return ""
+    today = now.date()
+    monday = today - timedelta(days=today.weekday())
+    lines = ["[DATE TABLE]", f"Bây giờ: {now.isoformat()}"]
+    for offset, label in ((-1, "Hôm qua"), (0, "Hôm nay"), (1, "Ngày mai"),
+                          (2, "Ngày kia"), (3, "3 ngày nữa")):
+        lines.append(f"{label}: {(today + timedelta(days=offset)).isoformat()}")
+    for week, label in ((0, "tuần này"), (1, "tuần sau")):
+        for day in range(7):
+            lines.append(f"{WEEKDAY_VN[day]} {label}: "
+                         f"{(monday + timedelta(days=week * 7 + day)).isoformat()}")
+    return "\n".join(lines)
 
 
 def build_calendar_helper(current_time_str: str) -> str:
@@ -4920,7 +4929,7 @@ def build_user_prompt(
     cleaned_utterance = clean_asr_transcript(user_utterance)
     current_time = context.get("current_time", "N/A")
     user_profile = context.get("user_profile", {})
-    cal_helper = build_calendar_helper(current_time)
+    cal_helper = "\n".join(filter(None, (build_date_table(current_time), build_calendar_helper(current_time))))
 
     enriched_memory = clean_asr_transcript(history_entities) if history_entities else "Không có lịch sử hội thoại trước đó."
     enriched_tools = tools_description

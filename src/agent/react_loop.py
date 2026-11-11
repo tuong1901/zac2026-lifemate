@@ -1063,6 +1063,7 @@ class ReActAgent:
         read_tools = {tool['name'] for tool in allowed if tool.get('kind') == 'read'
                       or (not tool.get('kind') and tool['name'] in READ_TOOLS)}
         guarded = GuardedToolEnv(env, allowed, self.guardrail, budget, read_tools)
+        guarded.seed_history(item.get('history', []))
         try:
             return self._run(guarded, item, user_text, budget)
         except RunLimitReached as error:

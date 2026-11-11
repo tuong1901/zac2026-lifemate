@@ -18,54 +18,10 @@ from typing import List, Dict, Any, Optional, Tuple
 
 # Từ điển ánh xạ các lỗi nhận diện phiên âm ASR phổ biến trong ngữ cảnh LifeMate
 DOMAIN_PHONETIC_REPLACEMENTS = [
-    # Tiếng Anh mượn / App names
-    (r"\b(za lo|dza lo|ra lo|sa lo)\b", "Zalo"),
-    (r"\b(za lo pay|dza lo pay|ra lo pay|zalo pey)\b", "ZaloPay"),
-    (r"\b(mo mo|mo-mo|mô mô)\b", "MoMo"),
-    (r"\b(ây xi|ai xi|e xi|a xê)\b", "AC"),
-    (r"\b(bút|búc|bốc|búp)\s+(vé|xe|phòng)\b", r"book \2"),
-    (r"\b(check in|chếch in)\b", "check-in"),
-    (r"\b(cô lin|côn lin|gọi cào|gọi côn)\b", "gọi call"),
-
-    # Tên riêng xuất hiện nhiều trong benchmark và train
-    (r"\b(kê vin|ke vin|ke-vin)\s+(oát|oắt|oách|oan-sơ|quách)\b", "Kevin Walsh"),
-    (r"\b(kê vin|ke vin|ke-vin)\s+(oen|oen-sơ|quéo)\b", "Kevin Welsh"),
-    (r"\b(bác ba|bác 3)\b", "Bác Ba"),
-    (r"\b(bác bằng|bác bang)\b", "Bác Bằng"),
-    (r"\b(sếp dũng|sếp dung)\b", "Sếp Dũng"),
-    (r"\b(em linh|bé linh)\b", "Em Linh"),
-    (r"\b(anh nam)\b", "Anh Nam"),
-
-    # Kênh truyền hình & Phim ảnh
-    (r"\b(vê tê vê|v t v)\s*1\b", "VTV1"),
-    (r"\b(vê tê vê|v t v)\s*3\b", "VTV3"),
-    (r"\b(vê tê vê|v t v)\s*6\b", "VTV6"),
-    (r"\b(hát tê vê|h t v)\s*7\b", "HTV7"),
-    (r"\b(ét xê tê vê|s c t v)\s*9\b", "SCTV9"),
-    (r"\b(ét cộng|s cộng|s\+)\s*(s pót|s pốt|sport)\b", "S+ Sport"),
-    (r"\bthông ngày nắng về\b", "Thương ngày nắng về"),
-    (r"\bhạ cánh nơi an\b", "Hạ cánh nơi anh"),
-    (r"\bv[- ]?lích|v[- ]?líc|vê lích\b", "V-League"),
-    (r"\bthể công sao ten\b", "Thể Công SaoTel"),
-
-    # Thiết bị thông minh & Nhà thông minh (Smart Home)
-    (r"\bbình nóng lạnh\b", "bình nóng lạnh"),
-    (r"\bmáy lọc không khí\b", "máy lọc không khí"),
-    (r"\brèm cửa\b", "rèm cửa"),
-    (r"\bkhóa thông minh\b", "khóa thông minh"),
-
-    # Tài chính & Ngân hàng (E-Wallet)
-    (r"\b(số tài khoản|sô tai khoan)\b", "số tài khoản"),
-    (r"\b(ét tê ca|s t k)\b", "STK"),
-    (r"\bquét mã quy rờ|quét mã cưu rờ|mã ku rờ\b", "quét mã QR"),
-    (r"\bnạp tiền điện thoại\b", "nạp tiền điện thoại"),
-    (r"\b(chuyển khoản|chuyên khoan)\b", "chuyển khoản"),
-
-    # Thể thao & Đời sống (Fitness, Alarm, Reminder - Chỉ giữ lại sửa lỗi gõ/lỗi âm, không đổi từ đồng nghĩa)
-    (r"\b(báo thức|bao thuc)\b", "báo thức"),
-    (r"\b(nhắc nhở|nhac nho)\b", "nhắc nhở"),
+    (r"\b(?:za lo pay|dza lo pay|zalo pey|zalopay)\b", "ZaloPay"),
+    (r"\b(?:mo mo|mo-mo|mô mô|momo)\b", "MoMo"),
+    (r"\b(?:vê tê vê|v t v)\s*([136])\b", r"VTV\1"),
 ]
-
 COMPILED_DOMAIN_REPLACEMENTS = [
     (re.compile(pat, re.IGNORECASE), repl) for pat, repl in DOMAIN_PHONETIC_REPLACEMENTS
 ]
@@ -106,135 +62,13 @@ class LexiconPostProcessor:
 # BỘ HẬU XỬ LÝ CAN THIỆP THÔ BẠO (AGGRESSIVE PHONETIC & DOMAIN CORRECTION)
 # ==============================================================================
 
-AGGRESSIVE_PHONETIC_REPLACEMENTS = [
-    # 1. Thương hiệu, ứng dụng, nhà hàng, đơn vị đối tác
-    (r"\b(lumia kroos|lumina kitch(en)?|lumi na kịt chen|lumi na)\b", "Lumina Kitchen"),
-    (r"\b(marilyn goldford|marico phước|vinh marico phước|vinh marico|mari gold foods?|mari gold|mari gôn)\b", "Marigold Foods"),
-    (r"\b(evergreenwood|ever green foods?|e vơ grin)\b", "Evergreen Foods"),
-    (r"\b(cabin quá chặt chẽ|ke vin oắt|kê vin oát|kê vin quách|cabin quách)\b", "Kevin Walsh dặn nhé"),
-    (r"\b(ke vin oen|ke vin welsh)\b", "Kevin Welsh"),
-    (r"\b(the lemmen trey|lemmen trey)\b", "The Lemon Tree"),
-    (r"\b(thể công sao ten|sao ten)\b", "SaoTel"),
-    (r"\b(vi tech telecom|vi tếch|vitech)\b", "Vitech Telecom"),
-    (r"\b(sa wa co|xa va co|sa va cô)\b", "Sawaco"),
-    (r"\b(thịnh phát bank|thinh phat)\b", "Thịnh Phát Bank"),
-    (r"\b(vi tube premium|vitube premium|vi túp)\b", "ViTube Premium"),
-    (r"\b(cloud pro 2tb|c lao pro)\b", "Cloud Pro 2TB"),
-    (r"\b(za lo pay|zalo pay|za lo|dza lo)\b", "ZaloPay"),
-    (r"\b(mo mo|mô mô)\b", "MoMo"),
-    (r"\b(bộ hội xã đà nẵng|hội xã đà nẵng)\b", "buổi workshop ở Đà Nẵng"),
-    (r"\b(check in|chếch in)\b", "check-in"),
-
-    # 2. Tên riêng, nhân vật, danh bạ
-    (r"\b(giai đô vía na|giao đô vía na|giai đối phương a|giao đối phương na|đối phương a)\b", "giao cho Bé Na"),
-    (r"\b(vía na|ve na)\b", "Bé Na"),
-    (r"\b(chú năm|chu nam)\b", "Chú Năm"),
-    (r"\b(bà nội|ba noi)\b", "Bà nội"),
-    (r"\b(anh khan|anh kha)\b", "Anh Kha"),
-    (r"\b(chị yến|chi yen)\b", "chị Yến"),
-    (r"\b(chị gấm nhiều khối|chị linh nhiều khối)\b", "chị Linh điều phối"),
-    (r"\b(lê minh|le minh)\b", "Lê Minh"),
-    (r"\b(trần văn tuấn)\b", "Trần Văn Tuấn"),
-    (r"\b(anh đan)\b", "Lan"),
-
-    # 3. Can thiệp sửa lỗi phát âm và từ vựng đời sống
-    (r"\b(cửa khoa cũ|cửa kho cũ)\b", "cửa kho phụ"),
-    (r"\b(trực hoa)\b", "trực kho"),
-    (r"\b(khoá và nắp|khoá và nắp\.)\b", "khóa rồi đó"),
-    (r"\b(dọn thùng hạng|dọn thùng hàng)\b", "nhận thùng hàng bên"),
-    (r"\b(mặc nhặt nhăn vào|nhặt nhăn vào)\b", "bật giặt nhanh"),
-    (r"\b(đội chính giai năm mươi|chín giai năm mươi)\b", "chín giờ năm mươi"),
-    (r"\b(anh rời đi đồ điểm phở|đồ điểm phở|đi đồ điểm phở)\b", "nhắc anh ra lấy đồ đem phơi"),
-    (r"\b(đếch báo thức)\b", "đặt báo thức"),
-    (r"\b(nhết tui|nhết tôi)\b", "nhắc tui"),
-    (r"\b(tắm duễ|tắm dưởi)\b", "tám rưỡi"),
-    (r"\b(máy hoa đơn|mấy khóa đơn|máy khoá đơn|hoa đơn)\b", "mấy hoá đơn"),
-    (r"\b(đến hàng trăm năm ngày|đến hàng trong năm ngày)\b", "đến hạn trong năm ngày"),
-    (r"\b(ngân hàng nhà)\b", "ngân hàng nha"),
-    (r"\b(còn trả để đó|khoan trả để đó)\b", "khoan trả, để đó"),
-    (r"\b(báo tuýp|báo típ|báo týp)\b", "báo thức"),
-    (r"\b(hay chụp anh|hay chụp em|chụp anh)\b", "mai giúp anh"),
-    (r"\b(giục chị|giục em)\b", "giúp chị"),
-    (r"\b(dạy cho anh|day cho anh)\b", "lại cho anh"),
-    (r"\b(thắp bếp|thắp lửa)\b", "tắt bếp"),
-    (r"\b(sáng vai nhà|sáng mai nhà)\b", "sáng mai nha"),
-    (r"\b(thái lụi|thế lụi)\b", "thế lùi"),
-    (r"\b(sang bún giờ|sang bốn giờ)\b", "sang bốn giờ"),
-    (r"\b(vẫn thơm đấy|vẫn thơm đây)\b", "vẫn hôm đấy"),
-    (r"\b(hình ngoại tri|dính hình ngoại|phạt ngoại)\b", "phạt nguội chi"),
-    (r"\b(nối dọn|nó dọn dẹp)\b", "nó dọn"),
-    (r"\b(phòng tiến khách|phòng tiếng khách)\b", "phòng tiếp khách"),
-    (r"\b(gạo hẳn xuống dưới|dọn hẳn xuống dưới)\b", "dọn, hạn chín giờ sáng mai"),
-    (r"\b(tiền mặt tháng này)\b", "tiền mạng tháng này"),
-    (r"\b(chuyển thai)\b", "chuyển thay"),
-    (r"\b(nhãn dáng)\b", "nhãn dán"),
-    (r"\b(sau khi mời gà|sau khi mởi gà)\b", "sau thư mời nha"),
-    (r"\b(đài đăng|đài tin)\b", "bài đăng"),
-    (r"\b(chân lệnh xanh|chân lịch xanh)\b", "trong lịch"),
-    (r"\b(mỹ thảo kết nối xanh|mỹ thảo)\b", "hội thảo Kết nối Xanh"),
-    (r"\b(hộp tứ trao|hộp thứ tư trao)\b", "hôm thứ tư giao"),
-    (r"\b(an nhầm|ăn nhầm)\b", "à nhầm"),
-    (r"\b(cho lên công ty)\b", "giao lên công ty"),
-    (r"\b(đường bún bò sao rồi)\b", "đơn bún bò giao rồi"),
-    (r"\b(toan đã giấu xong dụng vợ|toan đã giấu)\b", "con đánh dấu xong giùm cô"),
-    (r"\b(thì bốn be|xe bốn be)\b", "xe bốn ba A,"),
-    (r"\b(ừ hiểu hết đó đi|hiểu hết gói đó đi)\b", "ừ huỷ gói đó đi"),
-    (r"\b(e mưa tháng này)\b", "hai mươi tháng này"),
-    (r"\b(làm mười tuấn|vào làm mười tuấn)\b", "vào ngày mười tám"),
-    (r"\b(xóa kế hoạch hàng phòng khách)\b", "xoá cái hẹn bật đèn phòng khách"),
-    (r"\b(khuya chị về nga)\b", "chị về khuya nghe"),
-    (r"\b(thêm điều chuẩn bị tài liệu hả)\b", "thêm việc chuẩn bị tài liệu, hạn"),
-    (r"\b(hoa vạn ơi)\b", "ơ bạn ơi"),
-    (r"\b(mạnh nhai)\b", "mình nha"),
-    (r"\b(bảy lưỡi)\b", "bảy rưỡi"),
-]
-
-COMPILED_AGGRESSIVE_REPLACEMENTS = [
-    (re.compile(pat, re.IGNORECASE), repl) for pat, repl in AGGRESSIVE_PHONETIC_REPLACEMENTS
-]
+# Compatibility names: legacy aggressive mode now uses the safe lexicon only.
+AGGRESSIVE_PHONETIC_REPLACEMENTS = []
+COMPILED_AGGRESSIVE_REPLACEMENTS = []
 
 
-class AggressivePostProcessor:
-    """
-    Bộ hậu xử lý CAN THIỆP THÔ BẠO (Aggressive Post-Processor):
-    - Chuẩn hóa Unicode NFC.
-    - Sửa toàn bộ lỗi phát âm, lỗi nghe sai của ASR đối với thực thể tên riêng, nhà hàng, đối tác.
-    - Chuẩn hóa các cụm từ sai ngữ pháp thành câu chuẩn của LifeMate.
-    - Viết hoa đầu câu và sửa dấu câu tự động.
-    """
-    def __init__(self):
-        self.rules = list(COMPILED_DOMAIN_REPLACEMENTS) + list(COMPILED_AGGRESSIVE_REPLACEMENTS)
-
-    def process(self, text: str) -> str:
-        if not text:
-            return ""
-
-        # 1. Chuẩn hóa NFC
-        out = unicodedata.normalize("NFC", text)
-        out = re.sub(r"\s+", " ", out).strip()
-
-        # 2. Áp dụng toàn bộ quy tắc can thiệp thô bạo
-        for pattern, replacement in self.rules:
-            out = pattern.sub(replacement, out)
-
-        # 3. Chuẩn hóa số và thời gian
-        out = re.sub(r"\bbốn ba a\b", "43A", out, flags=re.IGNORECASE)
-        out = re.sub(r"\bbảy rưỡi\b", "7:30", out, flags=re.IGNORECASE)
-        out = re.sub(r"\bnăm giờ rưỡi\b", "5:30", out, flags=re.IGNORECASE)
-
-        # 4. Viết hoa chữ cái đầu câu
-        if out and out[0].islower():
-            out = out[0].upper() + out[1:]
-
-        # 5. Đảm bảo có dấu chấm câu nếu câu đã hoàn chỉnh
-        if out and out[-1] not in (".", "?", "!", ","):
-            out = out + "."
-
-        return out.strip()
-
-    def process_batch(self, texts: List[str]) -> List[str]:
-        return [self.process(t) for t in texts]
-
+class AggressivePostProcessor(LexiconPostProcessor):
+    """Backward-compatible alias; never rewrites names, sentences or numbers."""
 
 class LLMAssistedPostProcessor:
     """
@@ -270,14 +104,14 @@ class LLMAssistedPostProcessor:
         return [self.process(t) for t in texts]
 
 
-def get_post_processor(mode: str = "aggressive", llm_client: Optional[Any] = None) -> Any:
+def get_post_processor(mode: str = "lexicon", llm_client: Optional[Any] = None) -> Any:
     """
     Factory tạo bộ hậu xử lý:
-    - 'aggressive': Can thiệp thô bạo bằng bộ từ điển âm vị học mở rộng chuyên sâu (Khuyên dùng).
+    - 'aggressive': Alias tương thích của chế độ lexicon an toàn.
     - 'llm': Can thiệp tối đa bằng mô hình ngôn ngữ LLM Rewrite.
     - 'lexicon': Can thiệp cơ bản theo từ điển tĩnh gốc.
     """
-    m = (mode or "aggressive").lower().strip()
+    m = (mode or "lexicon").lower().strip()
     if m == "llm" and llm_client is not None:
         return LLMAssistedPostProcessor(llm_client)
     elif m == "lexicon":

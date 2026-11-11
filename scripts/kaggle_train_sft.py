@@ -18,6 +18,8 @@ import json
 import math
 import time
 import argparse
+import random
+from functools import partial
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 
@@ -147,7 +149,7 @@ class SFTDataset(Dataset):
         return self.samples[idx]
 
 
-def collate_fn(batch):
+def collate_fn(batch, pad_token_id=0):
     input_ids = [item[0] for item in batch]
     labels = [item[1] for item in batch]
 
@@ -159,7 +161,7 @@ def collate_fn(batch):
 
     for ids, labs in zip(input_ids, labels):
         pad_len = max_len - len(ids)
-        padded_input_ids.append(torch.cat([ids, torch.full((pad_len,), 151643, dtype=torch.long)])) # 151643 là pad token của Qwen
+        padded_input_ids.append(torch.cat([ids, torch.full((pad_len,), pad_token_id, dtype=torch.long)]))
         padded_labels.append(torch.cat([labs, torch.full((pad_len,), -100, dtype=torch.long)]))
         attention_masks.append(torch.cat([torch.ones(len(ids), dtype=torch.long), torch.zeros(pad_len, dtype=torch.long)]))
 
@@ -182,8 +184,18 @@ def main():
     parser.add_argument("--rank", type=int, default=32, help="LoRA rank (r)")
     parser.add_argument("--alpha", type=int, default=64, help="LoRA alpha")
     parser.add_argument("--max_len", type=int, default=4096, help="Độ dài tối đa token")
-    parser.add_argument("--qlora", action="store_true", default=True, help="Bật 4-bit QLoRA")
+    parser.add_argument("--qlora", action=argparse.BooleanOptionalAction, default=True, help="Bật 4-bit QLoRA")
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
+    if min(args.epochs, args.batch_size, args.grad_accum, args.rank, args.max_len) <= 0:
+        parser.error("Epochs, batch size, accumulation, rank and max_len must be positive")
+    if args.max_len > 16384:
+        parser.error("max_len must not exceed the competition's 16K context limit")
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if not torch.cuda.is_available():
+        raise RuntimeError("Training requires a CUDA GPU; use a Kaggle T4/P100 session")
+    torch.cuda.manual_seed_all(args.seed)
 
     print("=" * 60)
     print(f"[*] Bắt đầu Pipeline Huấn Luyện SFT LoRA: {args.model}")
@@ -197,7 +209,10 @@ def main():
 
     # 2. Chuẩn bị Dataset & DataLoader
     dataset = SFTDataset(args.data, tokenizer, max_len=args.max_len)
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn)
+    if not len(dataset):
+        raise ValueError("No usable training samples; check data and max_len")
+    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True,
+                            collate_fn=partial(collate_fn, pad_token_id=tokenizer.pad_token_id))
 
     # 3. Nạp Model (với QLoRA 4-bit để vừa VRAM Kaggle T4 16GB)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -226,7 +241,8 @@ def main():
         )
 
     # Kích hoạt gradient checkpointing để tiết kiệm bộ nhớ
-    model.gradient_checkpointing_enable()
+    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    model.config.use_cache = False
 
     # 4. Gắn LoRA Adapter
     peft_config = LoraConfig(
@@ -242,12 +258,14 @@ def main():
 
     # 5. Optimizer & Scheduler
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
-    total_steps = (len(dataloader) // args.grad_accum) * args.epochs
+    total_steps = math.ceil(len(dataloader) / args.grad_accum) * args.epochs
     warmup_steps = min(50, int(total_steps * 0.05))
     scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_steps)
 
     # 6. Training Loop
     model.train()
+    scaler = torch.amp.GradScaler("cuda")
+    input_device = model.get_input_embeddings().weight.device
     step_count = 0
     start_time = time.time()
     out_dir = Path(args.out)
@@ -260,21 +278,28 @@ def main():
         optimizer.zero_grad()
 
         for step, batch in enumerate(dataloader):
-            input_ids = batch["input_ids"].to(device)
-            labels = batch["labels"].to(device)
-            attention_mask = batch["attention_mask"].to(device)
+            input_ids = batch["input_ids"].to(input_device)
+            labels = batch["labels"].to(input_device)
+            attention_mask = batch["attention_mask"].to(input_device)
 
-            outputs = model(input_ids=input_ids, labels=labels, attention_mask=attention_mask)
-            loss = outputs.loss / args.grad_accum
-            loss.backward()
+            with torch.autocast(device_type="cuda", dtype=torch.float16):
+                outputs = model(input_ids=input_ids, labels=labels, attention_mask=attention_mask)
+            window_start = (step // args.grad_accum) * args.grad_accum
+            window_size = min(args.grad_accum, len(dataloader) - window_start)
+            loss = outputs.loss / window_size
+            scaler.scale(loss).backward()
 
-            epoch_loss += loss.item() * args.grad_accum
-            running_loss += loss.item() * args.grad_accum
+            epoch_loss += loss.item() * window_size
+            running_loss += loss.item()
 
             if (step + 1) % args.grad_accum == 0 or (step + 1) == len(dataloader):
+                scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                optimizer.step()
-                scheduler.step()
+                old_scale = scaler.get_scale()
+                scaler.step(optimizer)
+                scaler.update()
+                if scaler.get_scale() >= old_scale:
+                    scheduler.step()
                 optimizer.zero_grad()
                 step_count += 1
 
@@ -296,6 +321,10 @@ def main():
     print(f"[*] Hoàn thành toàn bộ huấn luyện! Đang lưu adapter tại: {final_out}")
     model.save_pretrained(final_out)
     tokenizer.save_pretrained(final_out)
+    if not (final_out / "adapter_config.json").is_file() or not any(
+        (final_out / name).is_file() for name in ("adapter_model.safetensors", "adapter_model.bin")
+    ):
+        raise RuntimeError(f"Incomplete adapter artifact: {final_out}")
     print("[✓] Huấn luyện thành công!")
 
 

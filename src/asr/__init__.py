@@ -1,40 +1,20 @@
-"""
-src/asr package — Module ASR & Multi-tier Post-Processing cho ZAC 2026 LifeMate.
-"""
+"""ASR exports loaded on demand so text normalization needs no GPU dependencies."""
+from importlib import import_module
 
-from src.asr.config import ASRConfig, get_asr_config
-from src.asr.transcribe import (
-    SpeechTranscriber,
-    UnifiedASRTranscriber,
-    PhoWhisperEngine,
-    PhoASREngine,
-    FasterWhisperEngine
-)
-from src.asr.post_processor import (
-    LexiconPostProcessor,
-    ContextualPostProcessor,
-    PunctuationPostProcessor,
-    CompositePostProcessor
-)
-from src.asr.evaluate import ASREvaluator, compute_wer, compute_cer, compute_token_f1
-from src.asr.batch_runner import ASRBatchRunner
+_EXPORTS = {
+    "config": ["ASRConfig", "get_asr_config"],
+    "transcribe": ["SpeechTranscriber", "UnifiedASRTranscriber", "PhoWhisperEngine", "PhoASREngine", "FasterWhisperEngine"],
+    "post_processor": ["LexiconPostProcessor", "ContextualPostProcessor", "PunctuationPostProcessor", "CompositePostProcessor"],
+    "evaluate": ["ASREvaluator", "compute_wer", "compute_cer", "compute_token_f1"],
+    "batch_runner": ["ASRBatchRunner"],
+}
+__all__ = [name for names in _EXPORTS.values() for name in names]
 
-__all__ = [
-    "ASRConfig",
-    "get_asr_config",
-    "SpeechTranscriber",
-    "UnifiedASRTranscriber",
-    "PhoWhisperEngine",
-    "PhoASREngine",
-    "FasterWhisperEngine",
-    "LexiconPostProcessor",
-    "ContextualPostProcessor",
-    "PunctuationPostProcessor",
-    "CompositePostProcessor",
-    "ASREvaluator",
-    "compute_wer",
-    "compute_cer",
-    "compute_token_f1",
-    "ASRBatchRunner",
-]
 
+def __getattr__(name):
+    for module, names in _EXPORTS.items():
+        if name in names:
+            value = getattr(import_module(f"src.asr.{module}"), name)
+            globals()[name] = value
+            return value
+    raise AttributeError(name)
