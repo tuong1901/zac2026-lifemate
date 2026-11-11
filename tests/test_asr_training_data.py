@@ -4,10 +4,56 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.asr.training_data import collect_clips, split_clips, cast_acoustic_features
+from src.asr.training_data import (collect_clips, split_clips, cast_acoustic_features,
+                                   select_saved_checkpoint, speed_output_length)
+from src.asr.benchmark import score_predictions, decoding_configs
 
 
 class ASRTrainingDataTests(unittest.TestCase):
+    def test_speed_augmentation_preserves_whisper_window_without_cropping(self):
+        self.assertEqual(speed_output_length(16000, 0.8), 20000)
+        self.assertEqual(speed_output_length(16000, 1.25), 12800)
+        self.assertEqual(speed_output_length(480000, 0.9), 480000)
+        for invalid in (0, -1, float('nan'), float('inf')):
+            with self.assertRaises(ValueError):
+                speed_output_length(16000, invalid)
+
+    def test_benchmark_uses_corpus_wer_and_same_normalization_as_training(self):
+        rows = [{'reference': 'A b c d e f g h i', 'prediction': 'a b c d e f g h x'},
+                {'reference': 'yes', 'prediction': 'no'}]
+        scores = score_predictions(rows)
+        self.assertEqual(scores['reference_words'], 10)
+        self.assertEqual(scores['errors'], 2)
+        self.assertAlmostEqual(scores['wer'], 0.2)
+        self.assertAlmostEqual(scores['raw_wer'], 0.3)
+
+    def test_decoding_configs_control_one_change_at_a_time(self):
+        self.assertEqual(decoding_configs('1:3,1:0,5:0,1:3'), [(1, 3), (1, 0), (5, 0)])
+        for invalid in ('0:3', '1:-1', 'bad'):
+            with self.assertRaises(ValueError):
+                decoding_configs(invalid)
+
+    def test_recovery_selects_best_existing_checkpoint_not_latest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for step, wer in ((141, 0.16), (282, 0.12), (423, 0.139)):
+                checkpoint = root / f'checkpoint-{step}'
+                checkpoint.mkdir()
+                (checkpoint / 'adapter_config.json').write_text('{}')
+                (checkpoint / 'adapter_model.safetensors').write_bytes(b'invented')
+                (checkpoint / 'trainer_state.json').write_text(json.dumps({
+                    'log_history': [{'step': step, 'eval_wer': wer}]}))
+            checkpoint, details = select_saved_checkpoint(root)
+            self.assertEqual(checkpoint.name, 'checkpoint-282')
+            self.assertEqual(details['eval_wer'], 0.12)
+            (checkpoint / 'adapter_model.safetensors').write_bytes(b'')
+            self.assertEqual(select_saved_checkpoint(root)[0].name, 'checkpoint-423')
+
+    def test_recovery_does_not_claim_success_without_saved_weights(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, 'No complete checkpoint'):
+                select_saved_checkpoint(directory)
+
     def test_generation_batch_matches_encoder_without_casting_integer_fields(self):
         class Tensor:
             def __init__(self, dtype):

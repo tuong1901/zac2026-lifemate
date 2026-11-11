@@ -1,7 +1,16 @@
 """Audio/text manifests and leakage-safe splitting; no runtime or GPU imports."""
 import json
+import math
 import random
 from pathlib import Path
+
+
+def speed_output_length(length, factor, max_samples=480000):
+    """Skip a slowdown if it would exceed Whisper's 30s window; never crop speech."""
+    if length <= 0 or not math.isfinite(factor) or factor <= 0:
+        raise ValueError("Require nonempty audio and a finite positive speed factor")
+    proposed = max(1, math.ceil(length / factor))
+    return length if proposed > max_samples else proposed
 
 
 def cast_acoustic_features(batch, dtype):
@@ -11,6 +20,31 @@ def cast_acoustic_features(batch, dtype):
     """
     batch["input_features"] = batch["input_features"].to(dtype=dtype)
     return batch
+
+
+def select_saved_checkpoint(run_dir):
+    """Select the lowest logged validation WER among complete saved adapters."""
+    root = Path(run_dir)
+    candidates = []
+    for checkpoint in root.glob("checkpoint-*"):
+        if not (checkpoint / "adapter_config.json").is_file():
+            continue
+        if not any((checkpoint / name).is_file() and (checkpoint / name).stat().st_size > 0
+                   for name in ("adapter_model.safetensors", "adapter_model.bin")):
+            continue
+        state_file = checkpoint / "trainer_state.json"
+        if not state_file.is_file():
+            continue
+        state = json.loads(state_file.read_text(encoding="utf-8"))
+        step = int(checkpoint.name.split("-")[-1])
+        for row in state.get("log_history", []):
+            if row.get("step") == step and isinstance(row.get("eval_wer"), (float, int)):
+                candidates.append((float(row["eval_wer"]), -step, checkpoint))
+    if not candidates:
+        raise ValueError("No complete checkpoint with saved validation WER found; inspect run directory")
+    wer, negative_step, checkpoint = min(candidates)
+    return checkpoint, {"checkpoint": str(checkpoint), "step": -negative_step, "eval_wer": wer,
+                        "selection": "lowest saved validation WER among available adapter checkpoints"}
 
 
 def collect_clips(train_json, audio_root=None):

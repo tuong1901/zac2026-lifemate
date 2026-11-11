@@ -13,7 +13,8 @@ os.environ["USE_TF"] = "0"
 os.environ["USE_TORCH"] = "1"
 os.environ["USE_FLAX"] = "0"
 
-from src.asr.training_data import collect_clips, split_clips, cast_acoustic_features
+from src.asr.training_data import (collect_clips, split_clips, cast_acoustic_features,
+                                   select_saved_checkpoint, speed_output_length)
 
 
 def write_json(path, value):
@@ -47,7 +48,16 @@ def train(args):
     if not args.resume and list(out.glob("checkpoint-*")):
         raise ValueError("Output already has checkpoints; use --resume or a new --out")
     processor = WhisperProcessor.from_pretrained(args.model, language="vi", task="transcribe")
-    train_rows, val_rows = split_clips(collect_clips(args.train_json, args.audio_root), args.val_ratio, args.seed)
+    if args.split_manifest:
+        fixed = json.loads(Path(args.split_manifest).read_text(encoding="utf-8"))
+        train_rows, val_rows = fixed["train"], fixed["validation"]
+        if {row["audio"] for row in train_rows} & {row["audio"] for row in val_rows}:
+            raise ValueError("Split manifest has overlapping train/validation audio")
+        for row in train_rows + val_rows:
+            if not Path(row["audio"]).is_file():
+                raise FileNotFoundError(row["audio"])
+    else:
+        train_rows, val_rows = split_clips(collect_clips(args.train_json, args.audio_root), args.val_ratio, args.seed)
     skipped = []
 
     def prepare(rows):
@@ -72,11 +82,19 @@ def train(args):
         if old != manifest:
             raise ValueError("Resume manifest differs; keep the same model, data paths, split and seed")
     write_json(out / "split_manifest.json", manifest)
+    config = {key: value for key, value in vars(args).items() if key != "handler"}
+    config.pop("resume", None)
+    config_file = out / "run_config.json"
+    if args.resume and config_file.exists():
+        if json.loads(config_file.read_text(encoding="utf-8")) != config:
+            raise ValueError("Resume configuration changed; use a new run directory instead")
+    write_json(config_file, config)
     print(f"Train={len(train_rows)}; validation={len(val_rows)}; skipped={len(skipped)}", flush=True)
 
     class AudioDataset(torch.utils.data.Dataset):
-        def __init__(self, rows):
+        def __init__(self, rows, augment=False):
             self.rows = rows
+            self.augment = augment
 
         def __len__(self):
             return len(self.rows)
@@ -88,6 +106,12 @@ def train(args):
             if sr != 16000:
                 common = gcd(sr, 16000)
                 wave = resample_poly(wave, 16000 // common, sr // common).astype(np.float32)
+            if self.augment and args.speed:
+                factor = np.random.uniform(1 - args.speed, 1 + args.speed)
+                length = speed_output_length(len(wave), factor)
+                if length != len(wave):
+                    wave = np.interp(np.linspace(0, len(wave) - 1, length),
+                                     np.arange(len(wave)), wave).astype(np.float32)
             acoustic = processor.feature_extractor(wave, sampling_rate=16000, return_attention_mask=True)
             return {"input_features": acoustic.input_features[0],
                     "attention_mask": acoustic.attention_mask[0],
@@ -153,20 +177,41 @@ def train(args):
         lr_scheduler_type="cosine", fp16=True, gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
         eval_strategy="epoch", save_strategy="epoch", save_total_limit=2,
-        load_best_model_at_end=True, metric_for_best_model="wer", greater_is_better=False,
+        # Select/load only after every rank finishes training. Checkpoint path
+        # existence can differ between ranks while rank 0 is still saving it.
+        load_best_model_at_end=False, metric_for_best_model="wer", greater_is_better=False,
         predict_with_generate=True, generation_max_length=448, generation_num_beams=1,
         remove_unused_columns=False, label_names=["labels"], report_to=[],
         ddp_find_unused_parameters=False,
         seed=args.seed, data_seed=args.seed, logging_steps=10,
         dataloader_num_workers=0, eval_accumulation_steps=1)
     trainer = Seq2SeqTrainer(
-        model=model, args=options, train_dataset=AudioDataset(train_rows),
+        model=model, args=options, train_dataset=AudioDataset(train_rows, augment=True),
         eval_dataset=AudioDataset(val_rows), data_collator=collate,
         processing_class=processor, compute_metrics=metrics)
     # Fresh zero-initialized LoRA is the base model; compare on the same holdout.
-    if not args.resume:
+    if not args.resume and not args.skip_baseline:
         write_json(out / "baseline_metrics.json", trainer.evaluate(metric_key_prefix="baseline"))
     trainer.train(resume_from_checkpoint=args.resume)
+    import torch.distributed as dist
+    distributed = dist.is_available() and dist.is_initialized()
+    if distributed:
+        dist.barrier()
+    selected = [None]
+    if trainer.is_world_process_zero():
+        try:
+            checkpoint, details = select_saved_checkpoint(out)
+            selected[0] = {"path": str(checkpoint), "wer": details["eval_wer"]}
+            write_json(out / "selected_checkpoint.json", details)
+        except Exception as error:
+            selected[0] = {"error": str(error)}
+    if distributed:
+        dist.broadcast_object_list(selected, src=0)
+    if "error" in selected[0]:
+        raise RuntimeError(f"Checkpoint selection failed: {selected[0]['error']}")
+    trainer.state.best_model_checkpoint = selected[0]["path"]
+    trainer.state.best_metric = selected[0]["wer"]
+    trainer._load_best_model()
     trainer.save_model(str(out / "best_adapter"))
     if trainer.is_world_process_zero():
         processor.save_pretrained(out / "best_adapter")
@@ -195,8 +240,17 @@ def merge(args):
     model.generation_config.do_sample = False
     model.generation_config.condition_on_prev_tokens = False
     model.save_pretrained(args.out, safe_serialization=True)
-    WhisperProcessor.from_pretrained(args.adapter).save_pretrained(args.out)
+    processor_source = args.adapter if (Path(args.adapter) / "preprocessor_config.json").is_file() else base
+    WhisperProcessor.from_pretrained(processor_source).save_pretrained(args.out)
     print(f"Merged model ready for src.asr: {args.out}")
+
+
+def recover(args):
+    checkpoint, details = select_saved_checkpoint(args.run_dir)
+    print(f"Recovering step={details['step']} saved WER={details['eval_wer']:.4%} from {checkpoint}", flush=True)
+    args.adapter = str(checkpoint)
+    merge(args)
+    write_json(Path(args.out) / "recovery_summary.json", details)
 
 
 def main():
@@ -213,6 +267,9 @@ def main():
     fit.add_argument("--lr", type=float, default=1e-4)
     fit.add_argument("--rank", type=int, default=32)
     fit.add_argument("--specaug", type=float, default=0.05)
+    fit.add_argument("--speed", type=float, default=0.0, help="Train-only speed variation, e.g. 0.1 = +/-10%%")
+    fit.add_argument("--split-manifest", help="Reuse the exact train/validation clips of an earlier run")
+    fit.add_argument("--skip-baseline", action="store_true", help="Skip initial base WER; never skips epoch validation")
     fit.add_argument("--val-ratio", type=float, default=0.1)
     fit.add_argument("--seed", type=int, default=42)
     fit.add_argument("--resume", help="Path to checkpoint-N including optimizer/RNG state")
@@ -222,12 +279,19 @@ def main():
     export.add_argument("--out", required=True)
     export.add_argument("--model", help="Optional local base model path; defaults to adapter's base")
     export.set_defaults(handler=merge)
+    recovery = sub.add_parser("recover", help="Merge best saved adapter after an interrupted run; no training")
+    recovery.add_argument("--run-dir", required=True)
+    recovery.add_argument("--out", required=True)
+    recovery.add_argument("--model", help="Optional local base model path")
+    recovery.set_defaults(handler=recover)
     args = parser.parse_args()
     if args.command == "train":
         if min(args.epochs, args.batch_size, args.grad_accum, args.rank, args.lr) <= 0:
             parser.error("Training counts, rank and learning rate must be positive")
         if not 0 <= args.specaug < 1 or not 0 < args.val_ratio < 1:
             parser.error("Require 0<=specaug<1 and 0<val-ratio<1")
+        if not 0 <= args.speed < 1:
+            parser.error("Require 0<=speed<1")
     args.handler(args)
 
 

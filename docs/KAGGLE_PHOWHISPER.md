@@ -76,3 +76,30 @@ Notebook có cell gdown tải model của người dùng từ URL bạn nhập r
 Train dùng DDP hai process: batch/GPU=1, accumulation=16, global effective batch=32 clips/optimizer step. Chọn T4 x2 và restart session nếu torch đã import khi chỉ GPU0 được hiển thị. DDP phân chia dữ liệu/gradient; file metrics, manifest và processor chỉ được ghi ở rank 0. Chưa đo utilization/throughput thực tế; không bảo đảm luôn 100% GPU.
 
 Không thể lấy lại dataset gốc từ weights. Với audio có nhãn chuẩn, giữ gold audio_text; không nhân đôi cùng audio bằng nhãn model để giả tăng dữ liệu. Với audio bổ sung chưa nhãn, có thể dùng hai model tạo transcript rồi lọc chất lượng, bảo đảm không trùng holdout. Chưa tạo pseudo-label hoặc thêm bất kỳ public/private test sample nào vào train. Chờ người dùng xác định nguồn audio bổ sung/dataset và checkpoint thứ hai để nối bước này.
+## Khôi phục khi DDP timeout sau khi đã chạy hết các bước
+
+Nếu log đã tới 423/423 rồi NCCL timeout cuối quá trình, không xóa thư mục asr_training hoặc chạy lại từ đầu. Sau git pull, dùng một process để chọn checkpoint có eval_wer thấp nhất trong các checkpoint còn đủ adapter + trainer_state.json:
+
+```python
+subprocess.run([sys.executable, '-m', 'src.asr.finetune', 'recover',
+    '--run-dir', '/kaggle/working/asr_training',
+    '--out', '/kaggle/working/phowhisper-large-finetuned'], check=True)
+```
+
+Lệnh này không train lại và không đo WER mới; nó đọc WER đã lưu, merge checkpoint tốt nhất còn trên đĩa và ghi recovery_summary.json. Không khẳng định khôi phục được khi chưa thấy checkpoint thực tế. Sau đó chạy cell nhận dạng thử và đóng ZIP; bỏ qua cell metrics yêu cầu validation_metrics.json/best_adapter nếu lần chạy cũ chưa xuất các file đó.
+
+Trainer mới tắt load_best_model_at_end tự động, chờ mọi rank hoàn tất rồi chọn checkpoint ở rank 0 và broadcast cùng đường dẫn cho mọi rank trước khi load. Đây là biện pháp tránh nhánh load-best khác nhau giữa các rank trong lúc checkpoint còn đang được ghi; chưa tái hiện/xác minh lỗi này bằng DDP GPU thật tại môi trường phát triển. Log timeout chỉ chứng minh collective bị lệch/chờ quá hạn, chưa đủ kết luận mọi nguyên nhân NCCL đã được xử lý.
+## Thử giảm WER sau lượt chạy 13,91%
+
+Mở `notebooks/kaggle_phowhisper_wer_experiments.ipynb`, dùng cùng phiên Kaggle còn model đã merge và thư mục asr_training. Nếu phiên đã hết, gắn Output cũ làm Input và sửa BASE_RUN/BASE_MODEL; các đường dẫn audio trong split_manifest.json phải còn đúng. Giữ bản model/checkpoint cũ trước khi thử nghiệm.
+
+1. Setup clone/pull public và bật T4 x2. Không cần model Drive.
+2. Đánh giá model 13,91% trên chính danh sách validation cũ với ba cấu hình: beam1/ngram3 (mốc cũ), beam1/ngram0 (chỉ bỏ chặn lặp), beam5/ngram0 (chỉ đổi beam so với cấu hình thứ hai). Hai GPU chia danh sách audio, không chạy huấn luyện. Có thể mất đáng kể thời gian cho cả ba lượt, chưa đo trên GPU thật. Beam5 không bảo đảm tốt hơn.
+3. Đọc report.json và 15 câu lỗi nhiều nhất. Có transcript/reference từng clip để kiểm tra lỗi tên riêng, số và dấu câu. WER corpus, NFC/lowercase/whitespace giống trainer; raw_wer giữ case/dấu câu. Đây là tuning trên validation, không phải kết quả test độc lập.
+4. Nếu cần train thử, đặt RUN_TRAIN=True và chọn PROFILE:
+   - speed_only: LR=1e-4, accumulation=16, thêm speed +/-10%; global batch 32, giữ những cấu hình khác như cũ.
+   - reference_like: LR=5e-4, accumulation=8, speed +/-10%; global batch 16. Đây là lịch gần mặc định script minggu, không khẳng định là cấu hình sinh ra 8,4%. Chỉ thử sau khi xem speed_only hoặc khi có đủ ngân sách GPU.
+5. Mỗi profile khởi tạo từ base Hugging Face, 3 epochs, cùng split cũ qua --split-manifest. Không resume optimizer từ lượt cũ với LR mới. Output riêng trong asr_wer_experiments, không ghi đè model 13,91%. run_config.json lưu cấu hình; resume bị chặn nếu cấu hình thay đổi. Speed chỉ thay đổi audio train; validation giữ nguyên. Nếu làm chậm khiến audio vượt 30s thì bỏ augmentation của clip đó, không cắt lời nói.
+6. Sau train, notebook merge sang thư mục riêng và benchmark lại cùng ba cấu hình. Chỉ báo cải thiện khi so cùng manifest và decoding. Dữ liệu synthetic tool-call và nhãn do hai ASR đoán không được thêm vào audio_text chuẩn.
+
+Code mới gồm khôi phục checkpoint/DDP cuối run đang chuẩn bị từ đợt sửa trước. Đã kiểm tra cú pháp và 11 unit test CPU/stdlib; chưa chạy benchmark/augmentation/huấn luyện trên CUDA tại máy phát triển, chưa có WER mới. T4 x2 không bảo đảm utilization 100%; DDP không cộng VRAM thành một GPU lớn. Nếu WER kém hơn, giữ model cũ. Không tự động thay cấu hình pipeline inference theo config thắng cuộc; cần áp dụng đúng beam/ngram đã đo khi dùng model sau này.
