@@ -226,7 +226,8 @@ class PhoWhisperEngine:
             "do_sample": False,
             "temperature": 0.0,
             "num_beams": 5,
-            "no_repeat_ngram_size": 3,
+            # Fixed validation: disabling the blanket 3-gram block reduced WER.
+            "no_repeat_ngram_size": int(os.getenv("ASR_NO_REPEAT_NGRAM_SIZE", "0")),
             "condition_on_prev_tokens": False,
         }
         results = self.pipe(

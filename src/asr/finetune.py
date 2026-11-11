@@ -129,7 +129,7 @@ def train(args):
     model.generation_config.forced_decoder_ids = None
     model.generation_config.do_sample = False
     model.generation_config.condition_on_prev_tokens = False
-    model.generation_config.no_repeat_ngram_size = 3
+    model.generation_config.no_repeat_ngram_size = args.eval_ngram
     # Generic PeftModel preserves Whisper's input_features interface (not text input_ids).
     if args.init_adapter:
         adapter_config = PeftConfig.from_pretrained(args.init_adapter)
@@ -186,7 +186,7 @@ def train(args):
         # Select/load only after every rank finishes training. Checkpoint path
         # existence can differ between ranks while rank 0 is still saving it.
         load_best_model_at_end=False, metric_for_best_model="wer", greater_is_better=False,
-        predict_with_generate=True, generation_max_length=448, generation_num_beams=1,
+        predict_with_generate=True, generation_max_length=448, generation_num_beams=args.eval_beams,
         remove_unused_columns=False, label_names=["labels"], report_to=[],
         ddp_find_unused_parameters=False,
         seed=args.seed, data_seed=args.seed, logging_steps=10,
@@ -246,6 +246,8 @@ def merge(args):
     model.generation_config.task = "transcribe"
     model.generation_config.do_sample = False
     model.generation_config.condition_on_prev_tokens = False
+    model.generation_config.num_beams = 5
+    model.generation_config.no_repeat_ngram_size = 0
     model.save_pretrained(args.out, safe_serialization=True)
     processor_source = args.adapter if (Path(args.adapter) / "preprocessor_config.json").is_file() else base
     WhisperProcessor.from_pretrained(processor_source).save_pretrained(args.out)
@@ -281,6 +283,8 @@ def main():
     fit.add_argument("--seed", type=int, default=42)
     fit.add_argument("--resume", help="Path to checkpoint-N including optimizer/RNG state")
     fit.add_argument("--init-adapter", help="Warm-start LoRA weights with a new optimizer/schedule; original base required")
+    fit.add_argument("--eval-beams", type=int, default=1)
+    fit.add_argument("--eval-ngram", type=int, default=3, help="Use 0 to disable ngram blocking")
     fit.set_defaults(handler=train)
     export = sub.add_parser("merge")
     export.add_argument("--adapter", required=True)
@@ -300,6 +304,8 @@ def main():
             parser.error("Require 0<=specaug<1 and 0<val-ratio<1")
         if not 0 <= args.speed < 1:
             parser.error("Require 0<=speed<1")
+        if args.eval_beams < 1 or args.eval_ngram < 0:
+            parser.error("Require eval-beams>=1 and eval-ngram>=0")
     args.handler(args)
 
 
