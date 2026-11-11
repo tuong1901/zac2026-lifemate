@@ -4,10 +4,24 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.asr.training_data import collect_clips, split_clips
+from src.asr.training_data import collect_clips, split_clips, cast_acoustic_features
 
 
 class ASRTrainingDataTests(unittest.TestCase):
+    def test_generation_batch_matches_encoder_without_casting_integer_fields(self):
+        class Tensor:
+            def __init__(self, dtype):
+                self.dtype = dtype
+            def to(self, *, dtype):
+                return Tensor(dtype)
+        labels, mask = Tensor('long'), Tensor('long')
+        batch = {'input_features': Tensor('float32'), 'labels': labels, 'attention_mask': mask}
+        result = cast_acoustic_features(batch, 'float16')
+        self.assertEqual(result['input_features'].dtype, 'float16')
+        self.assertIs(result['labels'], labels)
+        self.assertIs(result['attention_mask'], mask)
+        self.assertEqual(cast_acoustic_features(result, 'float32')['input_features'].dtype, 'float32')
+
     def test_shared_audio_connects_conversations_and_deduplicates(self):
         clips = [
             {"sample_id": "a", "audio": "/shared.wav", "text": "Xin chào"},

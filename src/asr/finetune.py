@@ -13,7 +13,7 @@ os.environ["USE_TF"] = "0"
 os.environ["USE_TORCH"] = "1"
 os.environ["USE_FLAX"] = "0"
 
-from src.asr.training_data import collect_clips, split_clips
+from src.asr.training_data import collect_clips, split_clips, cast_acoustic_features
 
 
 def write_json(path, value):
@@ -88,7 +88,9 @@ def train(args):
             if sr != 16000:
                 common = gcd(sr, 16000)
                 wave = resample_poly(wave, 16000 // common, sr // common).astype(np.float32)
-            return {"input_features": processor.feature_extractor(wave, sampling_rate=16000).input_features[0],
+            acoustic = processor.feature_extractor(wave, sampling_rate=16000, return_attention_mask=True)
+            return {"input_features": acoustic.input_features[0],
+                    "attention_mask": acoustic.attention_mask[0],
                     "labels": processor.tokenizer(row["text"]).input_ids}
 
     model = WhisperForConditionalGeneration.from_pretrained(args.model, torch_dtype=torch.float16)
@@ -113,6 +115,7 @@ def train(args):
     model.accepts_loss_kwargs = False
     model.print_trainable_parameters()
     start_token = model.config.decoder_start_token_id
+    acoustic_dtype = model.get_base_model().model.encoder.conv1.weight.dtype
 
     def collate(features):
         batch = processor.feature_extractor.pad(
@@ -122,7 +125,9 @@ def train(args):
         if (labels[:, 0] == start_token).all().item():
             labels = labels[:, 1:]
         batch["labels"] = labels
-        return batch
+        batch["attention_mask"] = torch.as_tensor(
+            np.stack([f["attention_mask"] for f in features]), dtype=torch.long)
+        return cast_acoustic_features(batch, acoustic_dtype)
 
     def metrics(prediction):
         ids = prediction.predictions

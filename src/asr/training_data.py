@@ -4,6 +4,15 @@ import random
 from pathlib import Path
 
 
+def cast_acoustic_features(batch, dtype):
+    """Generation runs outside training autocast; match the frozen encoder dtype.
+
+    Token labels and attention masks must keep their integer dtype.
+    """
+    batch["input_features"] = batch["input_features"].to(dtype=dtype)
+    return batch
+
+
 def collect_clips(train_json, audio_root=None):
     path = Path(train_json).resolve()
     root = Path(audio_root).resolve() if audio_root else path.parent
