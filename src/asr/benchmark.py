@@ -18,15 +18,21 @@ from src.asr.evaluate import compute_levenshtein_distance, normalize_text_for_ev
 
 def score_predictions(rows):
     errors = words = raw_errors = raw_words = 0
+    labeled = 0
     for row in rows:
         ref, hyp = row["reference"], row["prediction"]
+        if not isinstance(ref, str) or not ref.strip():
+            continue
+        labeled += 1
         raw_errors += compute_levenshtein_distance(ref.split(), hyp.split())[0]
         raw_words += len(ref.split())
         ref, hyp = normalize_text_for_eval(ref), normalize_text_for_eval(hyp)
         errors += compute_levenshtein_distance(ref.split(), hyp.split())[0]
         words += len(ref.split())
-    return {"wer": errors / max(1, words), "raw_wer": raw_errors / max(1, raw_words),
-            "errors": errors, "reference_words": words, "clips": len(rows)}
+    return {"wer": errors / max(1, words) if labeled else None,
+            "raw_wer": raw_errors / max(1, raw_words) if labeled else None,
+            "errors": errors if labeled else None, "reference_words": words,
+            "clips": len(rows), "labeled_clips": labeled}
 
 
 def decoding_configs(value):
@@ -127,9 +133,11 @@ def main():
                 with (out / f"{name}.predictions.jsonl").open("w", encoding="utf-8") as stream:
                     for prediction in predictions:
                         stream.write(json.dumps(prediction, ensure_ascii=False) + "\n")
+            measured = [name for name in scores if scores[name]["wer"] is not None]
             report = {"model": args.model, "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
-                      "scores": scores, "best_config": min(scores, key=lambda name: scores[name]["wer"]),
-                      "note": "Decoding selected on validation; not an independent test-set estimate."}
+                      "scores": scores, "best_config": min(measured, key=lambda name: scores[name]["wer"]) if measured else None,
+                      "note": ("Metrics cover labelled clips only. Decoding selection is not an independent test-set estimate."
+                               if measured else "Unlabelled audio: transcripts only, WER unavailable.")}
             (out / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
             print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
         if world > 1:

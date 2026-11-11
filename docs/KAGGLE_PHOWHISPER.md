@@ -122,3 +122,19 @@ Nếu Drive có split_manifest.json, dùng lại sau khi kiểm tra đường d�
 --save-steps 50 đánh giá/lưu checkpoint mỗi 50 updates, đồng thời bắt buộc đánh giá/lưu ở update cuối. Điều này tăng thời gian validation. Đây CHỈ là lưu local trong /kaggle/working, KHÔNG bảo vệ khỏi mất cả runtime. Kết thúc notebook phải tải phowhisper-selected-model.zip và phowhisper-training-records.zip ra máy/Drive hoặc lưu Kaggle version với outputs. Notebook không tự upload lên Drive, không có quyền OAuth/token để làm việc đó.
 
 Giữ model Drive gốc, baseline metrics, split_manifest.json, run_config.json và checkpoint. Chỉ chọn model mới nếu WER thấp hơn; nếu không giữ weights đã tải. Chưa có WER mới hoặc lượt restore GPU được chạy bởi agent ở môi trường phát triển.
+## So sánh hai model trên hai tập
+
+Notebook restore có thêm mục so sánh cuối cùng, mặc định RUN_COMPARE=False. Sau khi train hoàn tất, chọn RUN_COMPARE=True. COMPARE_SPLIT='validation' chạy validation + public_test; 'train' chạy toàn bộ current-turn audio train + public_test. Không đưa user history vào nhãn của audio hiện tại. Chạy toàn bộ train chỉ cho WER in-sample, không thay thế validation/test độc lập.
+
+DRIVE_MODEL dùng RESTORED_MODEL (weights gốc trên Drive). Model mới được merge từ best_adapter sang thư mục riêng, ngay cả khi trước đó FINAL_MODEL đã giữ model cũ vì WER model mới tệ hơn. Tránh so cùng một model với chính nó. Đường dẫn test mặc định lấy thư mục public_test cạnh train; sửa TEST_JSON nếu Dataset bố trí khác.
+
+Runner src.asr.compare chạy hai model lần lượt; mỗi lượt benchmark chia audio cho hai T4, beam5/ngram0 giống nhau. Bốn job cho hai model x hai tập, có thể mất đáng kể thời gian. Không training, không đọc state/environment, không tạo tool calls hoặc state_hash submission.
+
+Output:
+- comparison_report.json: WER của từng model ở phần có gold, số câu transcript khác nhau.
+- validation_drive_transcripts.jsonl, validation_new_transcripts.jsonl (hoặc train_*).
+- public_test_drive_transcripts.jsonl, public_test_new_transcripts.jsonl.
+- *_comparison.jsonl: id, reference nếu có, drive_text, new_text để đối chiếu từng câu.
+
+File transcripts chỉ gồm id/audio_text cho ASR. Public test gốc không có audio_text chuẩn: WER và errors phải là null, không báo 0 hoặc lấy model kia làm ground truth. Các transcript public_test là kết quả inference, không được trộn lại vào nhãn train. Muốn điểm thi phải chạy agent và chấm tool/state theo quy trình riêng. Có cell ZIP kết quả để tải khỏi runtime. Cần cả model mới đã train; nếu chưa có best_adapter thì chưa so hai model được.
+Theo xác nhận mới của người dùng, notebook so sánh mặc định COMPARE_SPLIT='public_test': chỉ chạy public_test bằng hai model, không chạy thêm train/validation. Runner không bắt buộc --validation-manifest hoặc --train-jsonl khi chỉ chạy public test.
