@@ -1,0 +1,6 @@
+max_loop_steps: 12
+generation_max_new_tokens: 512
+temperature: 0.0
+do_sample: false
+strict_json: true
+refuse_invalid_actions: true

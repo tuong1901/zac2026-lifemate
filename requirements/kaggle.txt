@@ -1,0 +1,10 @@
+# Candidate lock for a known QLoRA-compatible stack; verify Kaggle's CUDA image before use.
+# Notebook installs this only if INSTALL_STACK is explicitly set.
+torch==2.6.0
+transformers==4.51.3
+datasets==3.5.0
+accelerate==1.6.0
+peft==0.15.2
+bitsandbytes==0.45.5
+trl==0.17.0
+PyYAML==6.0.2

@@ -1,0 +1,6 @@
+# Environment variables override these defaults. Relative paths resolve from repo root.
+sft_data_dir: ${SFT_DATA_DIR:../sft_full_history_v1}
+original_data_dir: ${ORIGINAL_DATA_DIR:../train+public_test}
+base_model_dir: ${BASE_MODEL_DIR:}
+asr_model_dir: ${ASR_MODEL_DIR:}
+work_dir: ${LIFEMATE_WORK_DIR:./artifacts}

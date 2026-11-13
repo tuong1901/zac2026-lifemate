@@ -1,0 +1,9 @@
+model_id: Qwen/Qwen3-4B-Instruct-2507
+local_files_only: true
+trust_remote_code: false
+use_4bit: true
+quant_type: nf4
+double_quant: true
+compute_dtype: auto
+max_sequence_length: auto_from_data
+thinking_mode: native_model_non_thinking

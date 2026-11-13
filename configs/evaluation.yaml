@@ -1,0 +1,8 @@
+seed: 42
+max_validation_samples: null
+max_public_samples: null
+max_agent_steps: 12
+max_new_tokens: 512
+temperature: 0.0
+do_sample: false
+compare_state_hash: true

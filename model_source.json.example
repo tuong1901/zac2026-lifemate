@@ -1,0 +1,6 @@
+{
+  "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+  "revision": "<40-character Hugging Face commit SHA>",
+  "source": "Kaggle Model/Dataset attachment or offline model export",
+  "license_reviewed": true
+}

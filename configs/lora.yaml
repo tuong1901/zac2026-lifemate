@@ -1,0 +1,6 @@
+r: 16
+alpha: 32
+dropout: 0.05
+bias: none
+task_type: CAUSAL_LM
+target_modules: auto_linear_projection_modules
