@@ -35,6 +35,7 @@ out/sft_preview/
 out/merge_backup/
 
 # Virtual Environments
+out/sft_trajectory_v3_all/
 venv/
 env/
 ENV/

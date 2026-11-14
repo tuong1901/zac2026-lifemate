@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.agent.sft_encoding import encode_decision, check_split_rows
+from src.agent.sft_encoding import encode_sft_row, check_split_rows
 from src.agent.training_attention import configure_training_sdpa, probe_training_sdpa, native_training_dtype
 from src.agent.training_safety import UpdateHealth, make_update_callback
 
@@ -116,8 +116,8 @@ def main():
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = 'right'
-    encoded = [encode_decision(r, tokenizer, args.max_length) for r in rows]
-    encoded_val = [encode_decision(r, tokenizer, args.max_length) for r in val_rows]
+    encoded = [encode_sft_row(r, tokenizer, args.max_length) for r in rows]
+    encoded_val = [encode_sft_row(r, tokenizer, args.max_length) for r in val_rows]
     lengths = [len(r['input_ids']) for r in encoded + encoded_val]
     supervised = sum(sum(t != -100 for t in r['labels']) for r in encoded)
     if args.smoke:
