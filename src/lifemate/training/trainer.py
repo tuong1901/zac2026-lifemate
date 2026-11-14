@@ -49,6 +49,7 @@ def train(args):
     from lifemate.models.loader import discover_lora_targets, inspect_local_model
     from lifemate.training.collator import AssistantOnlyCollator
     from lifemate.training.chunked_loss import install_qwen3_chunked_loss, latest_loss_diagnostic
+    from lifemate.training.sdpa_compat import configure_t4_sdpa, begin_attention_step, latest_attention_report
     from lifemate.utils.hardware import inspect_hardware
     from lifemate.utils.runtime_compat import fp16_dtype_argument
 
@@ -64,6 +65,7 @@ def train(args):
     gpus = check_fsdp_hardware(hw)
     if world_size != len(gpus):
         raise RuntimeError(f"torchrun world size {world_size} does not match selected GPU count {len(gpus)}")
+    attention_policy = configure_t4_sdpa(torch)
     seq_len = args.max_seq_len or choose_sequence_length(min(gpu["total_vram_bytes"] for gpu in gpus))
     if seq_len > 16384:
         raise ValueError("This workflow caps sequence length at 16384")
@@ -117,6 +119,7 @@ def train(args):
                      "transformer_layer_cls_to_wrap": transformer_layer_cls,
                      "loss": "chunked_causal_lm", "loss_chunk_size": 64,
                      "fsdp_activation_checkpointing": True,
+                     "attention_policy": attention_policy,
                      "epochs": args.epochs, "gradient_accumulation_steps": args.grad_accum,
                      "learning_rate": args.learning_rate, "lora_r": args.lora_r,
                      "lora_alpha": args.lora_alpha, "lora_dropout": args.lora_dropout,
@@ -129,14 +132,18 @@ def train(args):
     class FirstStepGradientCheck(TrainerCallback):
         checked = False
         report = {}
+        step_reports = []
 
         def on_step_begin(self, training_args, state, control, **kwargs):
-            if not self.checked:
+            telemetry_steps = 3 if smoke_only else 1
+            if state.global_step < telemetry_steps:
                 torch.cuda.reset_peak_memory_stats(torch.cuda.current_device())
+                begin_attention_step(state.global_step + 1)
             return control
 
         def on_pre_optimizer_step(self, training_args, state, control, model=None, **kwargs):
-            if self.checked or model is None:
+            telemetry_steps = 3 if smoke_only else 1
+            if model is None or state.global_step >= telemetry_steps:
                 return control
             grads = [p.grad.detach() for p in model.parameters() if p.requires_grad and p.grad is not None]
             finite = all(bool(torch.isfinite(g).all()) for g in grads)
@@ -147,7 +154,15 @@ def train(args):
                            "rank": int(os.environ.get("RANK", "0")),
                            "peak_allocated_gib_forward_backward": round(torch.cuda.max_memory_allocated(device) / 1024**3, 3),
                            "peak_reserved_gib_forward_backward": round(torch.cuda.max_memory_reserved(device) / 1024**3, 3)}
-            print("LIFEMATE_FIRST_STEP_SMOKE " + json.dumps(self.report), flush=True)
+            step_report = {"step": state.global_step + 1,
+                           "rank": int(os.environ.get("RANK", "0")),
+                           "attention": latest_attention_report(),
+                           "peak_allocated_gib_forward_backward": self.report["peak_allocated_gib_forward_backward"],
+                           "peak_reserved_gib_forward_backward": self.report["peak_reserved_gib_forward_backward"],
+                           "gradients_finite": finite, "gradients_nonzero": nonzero}
+            self.step_reports.append(step_report)
+            print("LIFEMATE_STEP_GRADIENT_REPORT " + json.dumps(self.report), flush=True)
+            print("LIFEMATE_ATTENTION_STEP_REPORT " + json.dumps(step_report), flush=True)
             self.checked = True
             if not grads or not finite or not nonzero:
                 raise RuntimeError(f"FP16 backward smoke check failed: {self.report}")
@@ -158,7 +173,7 @@ def train(args):
     training_args = TrainingArguments(
         output_dir=str(output / ("smoke_checkpoints" if smoke_only else "checkpoints")),
         num_train_epochs=1 if smoke_only else args.epochs,
-        max_steps=1 if smoke_only else -1,
+        max_steps=3 if smoke_only else -1,
         per_device_train_batch_size=1, per_device_eval_batch_size=1,
         gradient_accumulation_steps=1 if smoke_only else args.grad_accum, learning_rate=args.learning_rate,
         warmup_ratio=0.03, weight_decay=0.01, logging_steps=10, save_steps=args.save_steps,
@@ -186,11 +201,13 @@ def train(args):
         raise RuntimeError("Training completed without observing finite nonzero LoRA gradients")
     if smoke_only:
         local_smoke = {"gradient_check": grad_check.report,
+                       "attention_steps": grad_check.step_reports,
                        "loss_diagnostic": latest_loss_diagnostic()}
         rank_smokes = [None] * world_size
         torch.distributed.all_gather_object(rank_smokes, local_smoke)
-        smoke_result = {"passed": True, "optimizer_steps": int(trainer.state.global_step),
+        smoke_result = {"passed": int(trainer.state.global_step) == 3, "optimizer_steps": int(trainer.state.global_step),
                         "loss": result.metrics.get("train_loss"), "per_rank": rank_smokes,
+                        "attention_policy": attention_policy,
                         "loss_correctness": "chunked loss matches shifted, ignored-label mean CE in unit tests; runtime reports finite loss",
                         "training_seconds": train_time,
                         "precision": "float16", "parallelism": "pytorch_fsdp_full_shard"}
@@ -209,6 +226,7 @@ def train(args):
                     "transformer_layer_cls_to_wrap": transformer_layer_cls,
                     "loss": "chunked_causal_lm", "loss_chunk_size": 64,
                     "fsdp_activation_checkpointing": True,
+                    "attention_policy": attention_policy,
                     "train_examples": len(train_features), "validation_examples": len(val_features),
                     "first_step_gradient_check": grad_check.report, "train_metrics": result.metrics,
                     "eval_metrics": metrics, "training_seconds": train_time, "hardware": hw,

@@ -140,8 +140,12 @@ smoke_cmd=train_cmd+['--smoke-only']
 print('Running two-GPU FSDP loss smoke test before full training:', ' '.join(smoke_cmd))
 subprocess.run(smoke_cmd,cwd=PROJECT,check=True)
 smoke_result=json.loads((TRAIN_DIR/'fsdp_smoke_result.json').read_text())
-if smoke_result.get('passed') is not True or smoke_result.get('optimizer_steps') != 1:
-    raise RuntimeError('Two-GPU FSDP forward/backward/optimizer smoke test did not pass.')
+if smoke_result.get('passed') is not True or smoke_result.get('optimizer_steps') != 3:
+    raise RuntimeError('Three-step two-GPU FSDP real-batch attention smoke test did not pass.')
+for rank_result in smoke_result.get('per_rank',[]):
+    reports=rank_result.get('attention_steps',[])
+    if len(reports)!=3 or any(not row.get('attention') or row['attention'].get('backend_selected')!='pytorch_mem_efficient' for row in reports):
+        raise RuntimeError('A rank did not confirm memory-efficient SDPA on all three real training batches.')
 print('FSDP smoke passed:',json.dumps(smoke_result,indent=2))
 if checkpoints: train_cmd += ['--resume-from-checkpoint',str(checkpoints[-1])]
 print('Running two-GPU FP16 FSDP training:', ' '.join(train_cmd))
