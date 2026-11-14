@@ -34,6 +34,19 @@ probe, model/BitsAndBytes và Trainer autocast. Dtype/capability được ghi v�
 fingerprint và log. Sau pull chỉ cần chạy lại cell smoke trong cùng ENV_PY,
 không cài lại môi trường hoặc chuyển về chunked-math chậm.
 
+Log fused FP16 tiếp theo: attention qua, 2 smoke updates mất 79,3 giây, nhưng
+`grad_norm=nan` cả hai lần. Receipt cũ đã đánh dấu ready chỉ dựa trên loss và tốc
+độ, nên chưa chứng minh optimizer cập nhật đúng. Không dùng receipt đó cho full.
+
+Recipe ổn định mới: GradScaler bắt đầu 8 (thay mặc định 65536), growth interval
+2000; chỉ giữ Liger fused loss, dùng Qwen native RoPE/RMSNorm/MLP. Scale cao gây
+overflow là giả thuyết cần smoke GPU xác nhận, không phải chẩn đoán đã chứng minh.
+Callback chặn gradient norm không finite hoặc AMP skip optimizer. Smoke chỉ ready
+khi có ít nhất 2 updates thật, grad norm finite/dương, một LoRA_B thay đổi hữu hạn,
+loss hợp lệ và tốc độ đạt ngưỡng. Nếu không, không được coi run là train thành công.
+Mỗi run ghi trạng thái update; lỗi numerical ghi `training_failure.json`.
+Smoke path mới `qwen_v2_fast_smoke_fp16_stable`; full vẫn dùng cùng common settings.
+
 Notebook: `notebooks/kaggle_qwen_v2.ipynb`.
 Nguồn dữ liệu: `out/sft_raw_history_v2_all.zip` (4.397 train, 472 validation).
 Đây là Qwen3-4B-Instruct-2507; không phải Qwen3.5, không phải model ASR.

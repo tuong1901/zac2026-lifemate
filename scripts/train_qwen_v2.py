@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.agent.sft_encoding import encode_decision, check_split_rows
 from src.agent.training_attention import configure_training_sdpa, probe_training_sdpa, native_training_dtype
+from src.agent.training_safety import UpdateHealth, make_update_callback
 
 
 def read_rows(path):
@@ -38,16 +39,17 @@ def main():
     ap.add_argument('--attention-mode', choices=['chunked-math', 'fused'], default='chunked-math')
     ap.add_argument('--query-chunk-size', type=int, default=128)
     ap.add_argument('--max-smoke-seconds-per-microbatch', type=float, default=60.0)
+    ap.add_argument('--fp16-init-scale', type=float, default=8.0)
     ap.add_argument('--resume', help='Full checkpoint-N directory, or auto')
     ap.add_argument('--smoke', action='store_true', help='Two updates on longest samples, plus validation')
     ap.add_argument('--smoke-receipt', type=Path, help='Receipt from matching GPU smoke run')
     args = ap.parse_args()
-    if not 0 < args.max_length <= 16384 or min(args.epochs, args.lr, args.rank, args.grad_accum, args.save_steps, args.query_chunk_size, args.max_smoke_seconds_per_microbatch) <= 0:
+    if not 0 < args.max_length <= 16384 or min(args.epochs, args.lr, args.rank, args.grad_accum, args.save_steps, args.query_chunk_size, args.max_smoke_seconds_per_microbatch, args.fp16_init_scale) <= 0:
         ap.error('Invalid training settings')
 
     import torch
     from transformers import (AutoConfig, AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig,
-                              Trainer, TrainingArguments, set_seed)
+                              Trainer, TrainingArguments, TrainerCallback, set_seed)
     from transformers.integrations import sdpa_attention
     from transformers.trainer_utils import get_last_checkpoint
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
@@ -87,6 +89,8 @@ def main():
         'attention_sha256': hashlib.sha256((Path(__file__).resolve().parents[1] / 'src/agent/training_attention.py').read_bytes()).hexdigest(),
         'torch_version': torch.__version__,
         'compute_dtype': str(compute_dtype), 'gpu_capability': list(capability),
+        'fp16_init_scale': args.fp16_init_scale,
+        'safety_sha256': hashlib.sha256((Path(__file__).resolve().parents[1] / 'src/agent/training_safety.py').read_bytes()).hexdigest(),
         'train_sha256': hashlib.sha256(train_path.read_bytes()).hexdigest(),
         'validation_sha256': hashlib.sha256(val_path.read_bytes()).hexdigest(),
         'gpu': torch.cuda.get_device_name(local_rank),
@@ -127,7 +131,10 @@ def main():
 
     # Qwen3 fused linear cross entropy avoids materializing full [12K, vocabulary] logits.
     # Apply before PEFT; every DDP rank holds its own complete 4-bit replica.
-    apply_liger_kernel_to_qwen3()
+    # Keep the memory-saving fused loss; use native Qwen RoPE/RMSNorm/MLP
+    # kernels to reduce the FP16/T4 numerical surface area.
+    apply_liger_kernel_to_qwen3(rope=False, rms_norm=False, swiglu=False,
+                               fused_linear_cross_entropy=True)
     model = AutoModelForCausalLM.from_pretrained(
         args.model, device_map={'': local_rank}, dtype=compute_dtype,
         quantization_config=BitsAndBytesConfig(load_in_4bit=True,
@@ -167,9 +174,21 @@ def main():
         remove_unused_columns=False, label_names=['labels'], seed=42, data_seed=42,
         dataloader_num_workers=0, dataloader_pin_memory=True,
         average_tokens_across_devices=True)
+    health = UpdateHealth()
     trainer = Trainer(model=model, args=training_args, train_dataset=encoded,
                       eval_dataset=encoded_val, data_collator=collate,
-                      processing_class=tokenizer)
+                      processing_class=tokenizer,
+                      callbacks=[make_update_callback(TrainerCallback, health)])
+    if compute_dtype == torch.float16:
+        if trainer.accelerator.scaler is None:
+            raise RuntimeError('FP16 training requires an active GradScaler')
+        # Before optimizer preparation: AcceleratedOptimizer will capture this scaler.
+        trainer.accelerator.scaler = torch.amp.GradScaler(
+            'cuda', init_scale=args.fp16_init_scale, growth_interval=2000)
+        print(f'[rank {local_rank}] FP16 GradScaler init_scale={args.fp16_init_scale}', flush=True)
+    probe_name, probe_parameter = next((n, p) for n, p in model.named_parameters()
+                                      if p.requires_grad and 'lora_B' in n)
+    before_update = probe_parameter.detach().clone() if args.smoke else None
     resume = get_last_checkpoint(str(args.out)) if args.resume == 'auto' else args.resume
     if args.resume == 'auto' and resume is None:
         raise ValueError('No full checkpoint available for resume')
@@ -188,10 +207,17 @@ def main():
         (args.out / 'run_config.json').write_text(json.dumps(config, indent=2), encoding='utf-8')
         print(json.dumps(config, indent=2), flush=True)
         model.print_trainable_parameters()
-    result = trainer.train(resume_from_checkpoint=resume)
+    try:
+        result = trainer.train(resume_from_checkpoint=resume)
+    except FloatingPointError as exc:
+        if trainer.is_world_process_zero():
+            (args.out / 'training_failure.json').write_text(
+                json.dumps({'error': str(exc), 'health': health.summary()}, indent=2), encoding='utf-8')
+        raise
     metrics = trainer.evaluate()
     if trainer.is_world_process_zero():
         metrics.update(result.metrics)
+        metrics.update(health.summary())
         if 'eval_loss' not in metrics or not math.isfinite(metrics['eval_loss']):
             raise RuntimeError('Validation loss is missing/nonfinite; do not mark this run successful')
         if 'train_loss' not in metrics or not math.isfinite(metrics['train_loss']) or metrics['train_loss'] <= 0:
@@ -200,15 +226,19 @@ def main():
         (args.out / 'metrics.json').write_text(json.dumps(metrics, indent=2), encoding='utf-8')
         if args.smoke:
             seconds_per_microbatch = result.metrics['train_runtime'] / 2
-            ready = seconds_per_microbatch <= args.max_smoke_seconds_per_microbatch
+            delta = (probe_parameter.detach() - before_update).abs().max().item()
+            numerically_healthy = health.smoke_is_healthy(delta)
+            ready = numerically_healthy and seconds_per_microbatch <= args.max_smoke_seconds_per_microbatch
             smoke_report = {'fingerprint': fingerprint, 'metrics': metrics,
                             'seconds_per_microbatch_per_rank': seconds_per_microbatch,
                             'ready_for_full_training': ready,
+                            'numerically_healthy': numerically_healthy,
+                            'probe_parameter': probe_name, 'probe_parameter_max_delta': delta,
                             'smoke_actual_gradient_accumulation': 1}
             (args.out / 'smoke_passed.json').write_text(json.dumps(smoke_report, indent=2), encoding='utf-8')
             print('Smoke performance:', json.dumps(smoke_report), flush=True)
             if not ready:
-                print('Memory check passed but speed gate failed; full training is blocked.', flush=True)
+                print('Smoke failed numerical or speed checks; full training is blocked.', flush=True)
         else:
             final = args.out / 'final_adapter'
             trainer.save_model(str(final))
