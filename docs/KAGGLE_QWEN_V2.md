@@ -26,6 +26,14 @@ Dùng `notebooks/kaggle_qwen_v2_fast_t4.ipynb` cho lượt thử tiếp theo:
 Trainer mới kiểm tra receipt có cờ tốc độ, nên receipt 81 phút cũ không dùng để
 bật full run. Full train vẫn khởi tạo LoRA mới; không tiếp tục từ trọng số smoke.
 
+Lỗi được xác định từ log fast T4: probe nhận BF16 trong khi kernel memory-efficient
+trên sm75 chỉ nhận Half/Float. `torch.cuda.is_bf16_supported()` mặc định tính cả
+BF16 emulation nên không đủ để chọn compute dtype. Recipe mới kiểm tra compute
+capability >= 8 và `including_emulation=False`; T4 (7.5) luôn dùng FP16 cho cả
+probe, model/BitsAndBytes và Trainer autocast. Dtype/capability được ghi vào
+fingerprint và log. Sau pull chỉ cần chạy lại cell smoke trong cùng ENV_PY,
+không cài lại môi trường hoặc chuyển về chunked-math chậm.
+
 Notebook: `notebooks/kaggle_qwen_v2.ipynb`.
 Nguồn dữ liệu: `out/sft_raw_history_v2_all.zip` (4.397 train, 472 validation).
 Đây là Qwen3-4B-Instruct-2507; không phải Qwen3.5, không phải model ASR.

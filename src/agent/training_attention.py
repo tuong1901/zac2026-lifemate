@@ -11,6 +11,13 @@ POLICY = 'explicit-kv-fused-sdpa-v1'
 CHUNKED_POLICY = 'query-chunked-math-sdpa-v2'
 
 
+def native_training_dtype(torch, device_index):
+    """Do not mistake BF16 tensor emulation on T4 for native BF16 kernels."""
+    major, _ = torch.cuda.get_device_capability(device_index)
+    native_bf16 = major >= 8 and torch.cuda.is_bf16_supported(including_emulation=False)
+    return torch.bfloat16 if native_bf16 else torch.float16
+
+
 def disable_native_gqa(attention_mask, key):
     return False
 

@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.agent.sft_encoding import encode_decision, check_split_rows
-from src.agent.training_attention import configure_training_sdpa, probe_training_sdpa
+from src.agent.training_attention import configure_training_sdpa, probe_training_sdpa, native_training_dtype
 
 
 def read_rows(path):
@@ -63,7 +63,10 @@ def main():
     set_seed(42)
     policy = configure_training_sdpa(torch, sdpa_attention, mode=args.attention_mode,
                                      query_chunk_size=args.query_chunk_size)
-    compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    compute_dtype = native_training_dtype(torch, local_rank)
+    capability = torch.cuda.get_device_capability(local_rank)
+    print(f'[rank {local_rank}] GPU={torch.cuda.get_device_name(local_rank)} '
+          f'capability={capability} compute_dtype={compute_dtype}', flush=True)
     model_config = AutoConfig.from_pretrained(args.model)
     if model_config.model_type != 'qwen3':
         raise ValueError('This long-context attention recipe is for Qwen3 only')
@@ -83,6 +86,7 @@ def main():
         'query_chunk_size': args.query_chunk_size,
         'attention_sha256': hashlib.sha256((Path(__file__).resolve().parents[1] / 'src/agent/training_attention.py').read_bytes()).hexdigest(),
         'torch_version': torch.__version__,
+        'compute_dtype': str(compute_dtype), 'gpu_capability': list(capability),
         'train_sha256': hashlib.sha256(train_path.read_bytes()).hexdigest(),
         'validation_sha256': hashlib.sha256(val_path.read_bytes()).hexdigest(),
         'gpu': torch.cuda.get_device_name(local_rank),
@@ -125,7 +129,7 @@ def main():
     # Apply before PEFT; every DDP rank holds its own complete 4-bit replica.
     apply_liger_kernel_to_qwen3()
     model = AutoModelForCausalLM.from_pretrained(
-        args.model, device_map={'': local_rank}, torch_dtype=compute_dtype,
+        args.model, device_map={'': local_rank}, dtype=compute_dtype,
         quantization_config=BitsAndBytesConfig(load_in_4bit=True,
             bnb_4bit_quant_type='nf4', bnb_4bit_use_double_quant=True,
             bnb_4bit_compute_dtype=compute_dtype), attn_implementation='sdpa')

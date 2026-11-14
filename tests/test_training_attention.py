@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from src.agent.training_attention import (configure_training_sdpa, POLICY,
-    CHUNKED_POLICY, chunked_sdpa_attention_forward)
+    CHUNKED_POLICY, chunked_sdpa_attention_forward, native_training_dtype)
 
 try:
     import torch
@@ -11,6 +11,24 @@ except ImportError:
 
 
 class AttentionPolicyTests(unittest.TestCase):
+    def test_t4_uses_fp16_even_if_bf16_emulation_exists(self):
+        from unittest.mock import Mock
+        probe = Mock(return_value=True)
+        fake = SimpleNamespace(float16='FP16', bfloat16='BF16', cuda=SimpleNamespace(
+            get_device_capability=lambda index: (7, 5), is_bf16_supported=probe))
+        self.assertEqual(native_training_dtype(fake, 1), 'FP16')
+        probe.assert_not_called()
+
+    def test_ampere_requires_native_bf16_support(self):
+        from unittest.mock import Mock
+        probe = Mock(return_value=True)
+        fake = SimpleNamespace(float16='FP16', bfloat16='BF16', cuda=SimpleNamespace(
+            get_device_capability=lambda index: (8, 0), is_bf16_supported=probe))
+        self.assertEqual(native_training_dtype(fake, 0), 'BF16')
+        probe.assert_called_once_with(including_emulation=False)
+        probe.return_value = False
+        self.assertEqual(native_training_dtype(fake, 0), 'FP16')
+
     def test_explicit_kv_and_no_math_fallback(self):
         calls = {}
         def setter(name):
