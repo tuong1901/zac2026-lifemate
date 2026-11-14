@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 import os
 
 _ORIGINAL_SDPA = None
@@ -23,6 +24,25 @@ def _attention_backend(profiler) -> str:
     if any("_scaled_dot_product_attention_math" in key for key in keys):
         return "pytorch_math"
     return "unknown"
+
+
+def _make_turing_safe_gqa(original, torch):
+    """Wrap the installed Transformers helper without assuming its arity."""
+    signature = inspect.signature(original)
+
+    def turing_safe_use_gqa(*args, **kwargs):
+        bound = signature.bind(*args, **kwargs)
+        key = bound.arguments.get("key")
+        if key is None or not torch.is_tensor(key):
+            raise TypeError(f"Cannot identify the key tensor using installed signature {signature}")
+        if key.device.type == "cuda" and torch.cuda.get_device_capability(key.device)[0] < 8:
+            return False
+        return original(*args, **kwargs)
+
+    turing_safe_use_gqa.__name__ = getattr(original, "__name__", "use_gqa_in_sdpa")
+    turing_safe_use_gqa.__doc__ = getattr(original, "__doc__", None)
+    turing_safe_use_gqa.__signature__ = signature
+    return turing_safe_use_gqa
 
 
 def configure_t4_sdpa(torch) -> dict:
@@ -93,12 +113,7 @@ def configure_t4_sdpa(torch) -> dict:
         F.scaled_dot_product_attention = profiled_sdpa
 
         if _ORIGINAL_USE_GQA is not None:
-            def turing_safe_use_gqa(attention_mask, key, value, *args, **kwargs):
-                capability_now = torch.cuda.get_device_capability(key.device)
-                if capability_now[0] < 8:
-                    return False
-                return _ORIGINAL_USE_GQA(attention_mask, key, value, *args, **kwargs)
-            sdpa_integration.use_gqa_in_sdpa = turing_safe_use_gqa
+            sdpa_integration.use_gqa_in_sdpa = _make_turing_safe_gqa(_ORIGINAL_USE_GQA, torch)
 
     # Do not permit an unnoticed quadratic math fallback on T4. The real-batch
     # smoke below is the compatibility check; if efficient attention is not

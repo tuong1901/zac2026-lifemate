@@ -24,6 +24,7 @@ from lifemate.models.loader import inspect_local_model
 from lifemate.models.policy import PolicyContextOverflow
 from lifemate.training.trainer import check_fsdp_hardware, choose_sequence_length
 from lifemate.training.chunked_loss import chunked_causal_lm_loss
+from lifemate.training.sdpa_compat import _make_turing_safe_gqa
 from lifemate.utils.runtime_compat import fp16_dtype_argument, torchao_compat_action
 
 
@@ -38,6 +39,38 @@ class FakeEnv:
 
 
 class CoreTests(unittest.TestCase):
+    def test_t4_gqa_wrapper_matches_installed_transformers_attention_call(self):
+        import inspect
+        import torch
+        import transformers.integrations.sdpa_attention as sdpa
+
+        installed_helper = sdpa.use_gqa_in_sdpa
+        wrapped = _make_turing_safe_gqa(installed_helper, torch)
+        self.assertEqual(inspect.signature(wrapped), inspect.signature(installed_helper))
+        original_helper = sdpa.use_gqa_in_sdpa
+        sdpa.use_gqa_in_sdpa = wrapped
+        module = torch.nn.Module()
+        module.num_key_value_groups = 2
+        query = torch.randn(1, 4, 3, 8)
+        key = torch.randn(1, 2, 3, 8)
+        value = torch.randn(1, 2, 3, 8)
+        try:
+            with patch("torch.cuda.get_device_capability", return_value=(7, 5)):
+                output, _ = sdpa.sdpa_attention_forward(module, query, key, value, None, is_causal=True)
+            self.assertEqual(tuple(output.shape), (1, 3, 4, 8))
+        finally:
+            sdpa.use_gqa_in_sdpa = original_helper
+
+        def older_two_argument_helper(attention_mask, key):
+            return True
+
+        older_wrapped = _make_turing_safe_gqa(older_two_argument_helper, torch)
+        from types import SimpleNamespace
+        fake_cuda_key = SimpleNamespace(device=SimpleNamespace(type="cuda"))
+        with patch("torch.is_tensor", return_value=True), \
+             patch("torch.cuda.get_device_capability", return_value=(7, 5)):
+            self.assertFalse(older_wrapped(None, fake_cuda_key))
+
     def test_chunked_causal_lm_loss_matches_transformers_shift_and_mask(self):
         import torch
         import torch.nn.functional as F
