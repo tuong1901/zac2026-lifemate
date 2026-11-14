@@ -1,5 +1,31 @@
 # Fine-tune Qwen3-4B trên raw-history data v2
 
+## Sau khi smoke chunked-math thành công nhưng mất 81 phút
+
+Lượt thực tế: 2 updates, accumulation 8, mẫu dài nhất; train_runtime khoảng
+4.870 giây và peak rank0 khoảng 10,71 GiB. Kết quả xác nhận đủ bộ nhớ nhưng quá
+chậm để khuyến nghị full train. Đây không phải hoàn tất fine-tune bộ dữ liệu.
+
+Dùng `notebooks/kaggle_qwen_v2_fast_t4.ipynb` cho lượt thử tiếp theo:
+
+- Tạo môi trường riêng `/tmp/lifemate-qwen-cu128`, Python 3.11, torch 2.8.0 CUDA
+  12.8 theo wheel chính thức PyTorch; giữ nguyên torch/kernel Kaggle hiện tại.
+- Thử `--attention-mode fused`, explicit KV heads và không cho fallback math.
+  Đây là ứng viên cần probe trên T4 thực tế, chưa bảo đảm kernel/VRAM/tốc độ.
+- Smoke mới chỉ 2 updates, **accumulation=1**, vẫn sequence dài nhất và có optimizer
+  state. Không lặp 16 microbatches/GPU chỉ để kiểm tra bộ nhớ. Full vẫn accum 8.
+- Receipt ghi giây/microbatch và `ready_for_full_training`. Quá 60 giây/microbatch
+  thì chặn full run. Ngưỡng chỉ loại cấu hình rõ ràng quá chậm, không cam kết cả
+  2 epoch vừa một runtime. Dùng trace/progress và checkpoint để đo ETA thật.
+- OUT mới `qwen_v2_fast_training`, SMOKE_OUT mới `qwen_v2_fast_smoke`; không xóa
+  kết quả smoke cũ. Cache HF/data vẫn dùng được trong cùng runtime.
+- Chạy notebook mới từ đầu trong runtime hiện tại, attach cùng data. Không cần
+  thêm API trả phí. Python/torch wheels cần tải qua Internet và tốn thêm dung lượng
+  tạm; môi trường trong /tmp không phải artifact cần tải về hoặc đưa vào Output.
+
+Trainer mới kiểm tra receipt có cờ tốc độ, nên receipt 81 phút cũ không dùng để
+bật full run. Full train vẫn khởi tạo LoRA mới; không tiếp tục từ trọng số smoke.
+
 Notebook: `notebooks/kaggle_qwen_v2.ipynb`.
 Nguồn dữ liệu: `out/sft_raw_history_v2_all.zip` (4.397 train, 472 validation).
 Đây là Qwen3-4B-Instruct-2507; không phải Qwen3.5, không phải model ASR.

@@ -37,11 +37,12 @@ def main():
     ap.add_argument('--save-steps', type=int, default=50)
     ap.add_argument('--attention-mode', choices=['chunked-math', 'fused'], default='chunked-math')
     ap.add_argument('--query-chunk-size', type=int, default=128)
+    ap.add_argument('--max-smoke-seconds-per-microbatch', type=float, default=60.0)
     ap.add_argument('--resume', help='Full checkpoint-N directory, or auto')
     ap.add_argument('--smoke', action='store_true', help='Two updates on longest samples, plus validation')
     ap.add_argument('--smoke-receipt', type=Path, help='Receipt from matching GPU smoke run')
     args = ap.parse_args()
-    if not 0 < args.max_length <= 16384 or min(args.epochs, args.lr, args.rank, args.grad_accum, args.save_steps, args.query_chunk_size) <= 0:
+    if not 0 < args.max_length <= 16384 or min(args.epochs, args.lr, args.rank, args.grad_accum, args.save_steps, args.query_chunk_size, args.max_smoke_seconds_per_microbatch) <= 0:
         ap.error('Invalid training settings')
 
     import torch
@@ -92,6 +93,8 @@ def main():
         receipt = json.loads(args.smoke_receipt.read_text())
         if receipt.get('fingerprint') != fingerprint:
             raise ValueError('Smoke settings/data/GPU do not match this run')
+        if not receipt.get('ready_for_full_training', False):
+            raise ValueError('Smoke did not pass the speed gate; do not start an impractically slow full run')
     conflict = args.out.exists() and any(args.out.iterdir()) and not args.resume
     if world_size > 1:
         # Decide before any rank creates files in the shared output directory.
@@ -112,7 +115,10 @@ def main():
     if args.smoke:
         # Every rank exercises the longest training sequence, not an easy short row.
         longest = max(encoded, key=lambda r: len(r['input_ids']))
-        encoded = [longest] * (2 * args.grad_accum * world_size)
+        # Accumulation changes effective batch, not the longest-sequence activation
+        # shape. Two updates with accumulation=1 test optimizer states and avoid
+        # repeating 16 expensive backward passes per GPU just for a smoke test.
+        encoded = [longest] * (2 * world_size)
         encoded_val = [max(encoded_val, key=lambda r: len(r['input_ids']))] * world_size
 
     # Qwen3 fused linear cross entropy avoids materializing full [12K, vocabulary] logits.
@@ -144,7 +150,7 @@ def main():
         output_dir=str(args.out), num_train_epochs=args.epochs,
         max_steps=2 if args.smoke else -1, learning_rate=args.lr,
         per_device_train_batch_size=1, per_device_eval_batch_size=1,
-        gradient_accumulation_steps=args.grad_accum,
+        gradient_accumulation_steps=1 if args.smoke else args.grad_accum,
         fp16=compute_dtype==torch.float16, bf16=compute_dtype==torch.bfloat16,
         gradient_checkpointing=True, gradient_checkpointing_kwargs={'use_reentrant': False},
         ddp_find_unused_parameters=False, ddp_timeout=3600,
@@ -152,7 +158,7 @@ def main():
         save_strategy='no' if args.smoke else 'steps', save_steps=args.save_steps,
         save_total_limit=3, save_safetensors=True, logging_steps=1 if args.smoke else 5,
         logging_nan_inf_filter=False,
-        lr_scheduler_type='cosine', warmup_ratio=0.05, optim='adamw_torch',
+        lr_scheduler_type='cosine', warmup_ratio=0.0 if args.smoke else 0.05, optim='adamw_torch',
         max_grad_norm=1.0, weight_decay=0.01, report_to='none',
         remove_unused_columns=False, label_names=['labels'], seed=42, data_seed=42,
         dataloader_num_workers=0, dataloader_pin_memory=True,
@@ -172,7 +178,9 @@ def main():
                   'train_decisions': len(rows), 'validation_decisions': len(val_rows),
                   'max_actual_tokens': max(lengths), 'supervised_train_tokens': supervised,
                   'attention_preflight': attention_preflight,
-                  'effective_batch': world_size * args.grad_accum, 'smoke': args.smoke}
+                  'actual_gradient_accumulation': 1 if args.smoke else args.grad_accum,
+                  'effective_batch': world_size * (1 if args.smoke else args.grad_accum),
+                  'planned_full_effective_batch': world_size * args.grad_accum, 'smoke': args.smoke}
         (args.out / 'run_config.json').write_text(json.dumps(config, indent=2), encoding='utf-8')
         print(json.dumps(config, indent=2), flush=True)
         model.print_trainable_parameters()
@@ -187,7 +195,16 @@ def main():
         metrics['gpu_peak_allocated_gib_rank0'] = torch.cuda.max_memory_allocated(local_rank)/2**30
         (args.out / 'metrics.json').write_text(json.dumps(metrics, indent=2), encoding='utf-8')
         if args.smoke:
-            (args.out / 'smoke_passed.json').write_text(json.dumps({'fingerprint': fingerprint, 'metrics': metrics}, indent=2), encoding='utf-8')
+            seconds_per_microbatch = result.metrics['train_runtime'] / 2
+            ready = seconds_per_microbatch <= args.max_smoke_seconds_per_microbatch
+            smoke_report = {'fingerprint': fingerprint, 'metrics': metrics,
+                            'seconds_per_microbatch_per_rank': seconds_per_microbatch,
+                            'ready_for_full_training': ready,
+                            'smoke_actual_gradient_accumulation': 1}
+            (args.out / 'smoke_passed.json').write_text(json.dumps(smoke_report, indent=2), encoding='utf-8')
+            print('Smoke performance:', json.dumps(smoke_report), flush=True)
+            if not ready:
+                print('Memory check passed but speed gate failed; full training is blocked.', flush=True)
         else:
             final = args.out / 'final_adapter'
             trainer.save_model(str(final))
