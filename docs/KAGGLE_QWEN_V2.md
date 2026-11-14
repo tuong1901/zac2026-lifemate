@@ -35,7 +35,7 @@ Nhánh inference hiện tại không thay đổi. Không có API trả phí ho�
 | Compute | FP16 trên T4; BF16 nếu GPU hỗ trợ |
 | Batch | 1/GPU × 2 GPU × accumulation 8 = 16 |
 | Epoch / LR | 2 / 1e-4 |
-| Bộ nhớ | Gradient checkpointing, SDPA, Liger fused loss cả train lẫn eval |
+| Bộ nhớ | Query-chunked SDPA + gradient checkpointing, Liger fused loss cả train lẫn eval |
 | Checkpoint | Mỗi 50 optimizer updates, giữ 3 checkpoint gần nhất |
 | Evaluation | Loss trên toàn bộ validation mỗi epoch và cuối run |
 
@@ -96,3 +96,30 @@ Sau lỗi cũ, pull nhánh `test` và dùng SMOKE_OUT mới
 `/kaggle/working/qwen_v2_smoke_t4_fused_v1` vì thư mục smoke cũ có run_config
 dở dang. Không cần tải lại weights/data và không xóa checkpoint cũ.
 Không tái sử dụng receipt trước khi đổi backend/script/PyTorch.
+
+### Build Kaggle trả Invalid backend (bản sửa tiếp theo)
+
+Smoke thực tế tiếp theo thất bại ở probe 256 token với `Invalid backend`, trước
+khi tải weights. Do đó recipe mặc định hiện là `--attention-mode chunked-math
+--query-chunk-size 128`. Không yêu cầu fused SDPA kernel trên GPU/build đó.
+
+Attention chia **query** thành tối đa 128 vị trí mỗi lần; mỗi query vẫn được
+attend tới toàn bộ key quá khứ hợp lệ. Causal/padding/additive mask và GQA được
+giữ, không phải sliding window, không tách input thành các mẫu độc lập.
+Checkpoint từng khối giúp không giữ score matrices của tất cả khối đến backward.
+Math SDPA chỉ nhận từng khối, thay vì ma trận score 10K×10K của cả sequence.
+Đổi lại chậm hơn fused attention; thời gian cả epoch phải đo trong runtime.
+
+Notebook mới dùng `/kaggle/working/qwen_v2_smoke_t4_chunked_v2` và thêm hai cờ
+trên cho cả smoke lẫn full train. Nếu dùng notebook cũ, phải cập nhật `common`
+cho cả hai lượt để fingerprint khớp. Không chỉ đổi cờ lúc smoke rồi dùng recipe
+cũ khi full train. Không cần cài lại torch hay xóa weights/dataset đã cache.
+Mode `fused` vẫn còn để dùng ở GPU/build có kernel đã qua probe, không phải
+lựa chọn phù hợp với build vừa báo lỗi. Smoke model đầy đủ vẫn phải qua trước.
+
+Kiểm chứng bản query-chunked: 16 test đã qua trên PyTorch 2.8.0 CPU, gồm so sánh
+output và gradient với dense SDPA ở float64 (atol/rtol 1e-10), GQA, causal,
+padding, additive mask, noncausal và checkpoint lồng nhau. Test cũng kiểm tra
+mỗi phép attention không vượt query chunk-size và khối cuối vẫn thấy toàn bộ
+key hợp lệ. Đây là bằng chứng tính đúng của phép chia khối, chưa phải đo VRAM
+hoặc kiểm chứng toàn bộ trainer/Liger/DDP trên GPU T4 của Kaggle.

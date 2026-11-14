@@ -35,11 +35,13 @@ def main():
     ap.add_argument('--rank', type=int, default=16)
     ap.add_argument('--grad-accum', type=int, default=8)
     ap.add_argument('--save-steps', type=int, default=50)
+    ap.add_argument('--attention-mode', choices=['chunked-math', 'fused'], default='chunked-math')
+    ap.add_argument('--query-chunk-size', type=int, default=128)
     ap.add_argument('--resume', help='Full checkpoint-N directory, or auto')
     ap.add_argument('--smoke', action='store_true', help='Two updates on longest samples, plus validation')
     ap.add_argument('--smoke-receipt', type=Path, help='Receipt from matching GPU smoke run')
     args = ap.parse_args()
-    if not 0 < args.max_length <= 16384 or min(args.epochs, args.lr, args.rank, args.grad_accum, args.save_steps) <= 0:
+    if not 0 < args.max_length <= 16384 or min(args.epochs, args.lr, args.rank, args.grad_accum, args.save_steps, args.query_chunk_size) <= 0:
         ap.error('Invalid training settings')
 
     import torch
@@ -58,7 +60,8 @@ def main():
     if world_size > 1 and not torch.distributed.is_initialized():
         torch.distributed.init_process_group(backend='nccl', device_id=torch.device('cuda', local_rank))
     set_seed(42)
-    policy = configure_training_sdpa(torch, sdpa_attention)
+    policy = configure_training_sdpa(torch, sdpa_attention, mode=args.attention_mode,
+                                     query_chunk_size=args.query_chunk_size)
     compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     model_config = AutoConfig.from_pretrained(args.model)
     if model_config.model_type != 'qwen3':
@@ -76,6 +79,7 @@ def main():
         'script_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         'encoding_sha256': hashlib.sha256((Path(__file__).resolve().parents[1] / 'src/agent/sft_encoding.py').read_bytes()).hexdigest(),
         'attention_policy': policy,
+        'query_chunk_size': args.query_chunk_size,
         'attention_sha256': hashlib.sha256((Path(__file__).resolve().parents[1] / 'src/agent/training_attention.py').read_bytes()).hexdigest(),
         'torch_version': torch.__version__,
         'train_sha256': hashlib.sha256(train_path.read_bytes()).hexdigest(),
