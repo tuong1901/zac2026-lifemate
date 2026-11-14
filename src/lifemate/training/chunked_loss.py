@@ -5,6 +5,36 @@ from types import MethodType
 
 _DIAGNOSTIC_REPORTED = False
 LAST_LOSS_DIAGNOSTIC = None
+_NUMERICAL_STEP = None
+_NUMERICAL_REPORT = None
+
+
+def begin_numerical_step(step: int) -> None:
+    global _NUMERICAL_STEP, _NUMERICAL_REPORT
+    _NUMERICAL_STEP = int(step)
+    _NUMERICAL_REPORT = None
+
+
+def latest_numerical_report():
+    return _NUMERICAL_REPORT
+
+
+def _tensor_numerics(tensor):
+    import torch
+
+    detached = tensor.detach()
+    finite = torch.isfinite(detached)
+    finite_values = detached[finite]
+    return {
+        "shape": list(detached.shape),
+        "dtype": str(detached.dtype),
+        "finite": int(finite.sum().item()),
+        "elements": detached.numel(),
+        "nan": int(torch.isnan(detached).sum().item()),
+        "inf": int(torch.isinf(detached).sum().item()),
+        "finite_abs_max": float(finite_values.abs().max().item()) if finite_values.numel() else None,
+        "finite_abs_mean": float(finite_values.abs().float().mean().item()) if finite_values.numel() else None,
+    }
 
 
 def chunked_causal_lm_loss(hidden_states, lm_head, labels, vocab_size: int,
@@ -29,6 +59,18 @@ def chunked_causal_lm_loss(hidden_states, lm_head, labels, vocab_size: int,
         raise ValueError("chunk_size must be positive")
 
     first_logits_shape = None
+    numerical_report = None
+    numerical_chunk_stats = []
+    if _NUMERICAL_STEP is not None:
+        numerical_report = {
+            "step": _NUMERICAL_STEP,
+            "rank": int(__import__("os").environ.get("RANK", "0")),
+            "hidden_states": _tensor_numerics(hidden_states),
+            "input_token_lengths": input_token_lengths,
+            "logits": {"chunks": 0, "elements": 0, "nonfinite": 0, "nan": 0, "inf": 0,
+                       "finite_abs_max": 0.0, "first_nonfinite_chunk": None,
+                       "chunk_shape": None},
+        }
 
     total = None
     for start in range(0, sequence_length, chunk_size):
@@ -36,13 +78,27 @@ def chunked_causal_lm_loss(hidden_states, lm_head, labels, vocab_size: int,
         hidden_chunk = hidden_states[:, start:stop, :]
         label_chunk = labels[:, start:stop]
 
+        chunk_index = start // chunk_size
+
         def chunk_sum(hidden, targets):
             nonlocal first_logits_shape
             logits = lm_head(hidden).float()
             if first_logits_shape is None:
                 first_logits_shape = tuple(logits.shape)
-            return F.cross_entropy(logits.reshape(-1, vocab_size), targets.reshape(-1),
-                                   ignore_index=ignore_index, reduction="sum")
+            chunk_loss = F.cross_entropy(logits.reshape(-1, vocab_size), targets.reshape(-1),
+                                         ignore_index=ignore_index, reduction="sum")
+            if numerical_report is not None and chunk_index == len(numerical_chunk_stats):
+                detached_logits = logits.detach()
+                finite_mask = torch.isfinite(detached_logits)
+                chunk_stats = torch.stack((
+                    finite_mask.sum().to(torch.float64), torch.isnan(detached_logits).sum().to(torch.float64),
+                    torch.isinf(detached_logits).sum().to(torch.float64),
+                    torch.where(finite_mask, detached_logits.abs(), 0).amax().to(torch.float64),
+                    torch.isfinite(chunk_loss.detach()).to(torch.float64),
+                    torch.tensor(detached_logits.numel(), device=detached_logits.device, dtype=torch.float64),
+                )).detach()
+                numerical_chunk_stats.append(chunk_stats)
+            return chunk_loss
 
         part = checkpoint(chunk_sum, hidden_chunk, label_chunk, use_reentrant=False)
         total = part if total is None else total + part
@@ -59,6 +115,34 @@ def chunked_causal_lm_loss(hidden_states, lm_head, labels, vocab_size: int,
             denominator = total.new_tensor(denominator)
         denominator = denominator.clamp_min(1)
     loss = total / denominator
+    if numerical_report is not None:
+        chunk_rows = torch.stack(numerical_chunk_stats).cpu().tolist() if numerical_chunk_stats else []
+        logit_report = numerical_report["logits"]
+        logit_report.update({"chunks": len(chunk_rows), "elements": 0,
+                             "nonfinite": 0, "nan": 0, "inf": 0,
+                             "finite_abs_max": 0.0, "first_nonfinite_chunk": None,
+                             "chunk_shape": list(first_logits_shape or ())})
+        for index, (finite_count, nan_count, inf_count, abs_max, loss_finite, chunk_elements) in enumerate(chunk_rows):
+            chunk_elements = int(chunk_elements)
+            logit_report["elements"] += chunk_elements
+            nonfinite_count = chunk_elements - int(finite_count)
+            logit_report["nonfinite"] += nonfinite_count
+            logit_report["nan"] += int(nan_count)
+            logit_report["inf"] += int(inf_count)
+            logit_report["finite_abs_max"] = max(logit_report["finite_abs_max"], float(abs_max))
+            if nonfinite_count and logit_report["first_nonfinite_chunk"] is None:
+                logit_report["first_nonfinite_chunk"] = {"index": index, "start": index * chunk_size,
+                                                          "nonfinite": nonfinite_count,
+                                                          "nan": int(nan_count), "inf": int(inf_count)}
+            if not bool(loss_finite):
+                logit_report["nonfinite_chunk_loss"] = index
+        numerical_report["loss"] = {"value": float(loss.detach().item()),
+                                    "finite": bool(torch.isfinite(loss.detach()).item()),
+                                    "valid_targets": int(labels.ne(ignore_index).sum().item()),
+                                    "denominator": float(denominator.detach().item())}
+        global _NUMERICAL_REPORT
+        _NUMERICAL_REPORT = numerical_report
+        print("LIFEMATE_NUMERICS_FORWARD " + __import__("json").dumps(numerical_report), flush=True)
     global _DIAGNOSTIC_REPORTED, LAST_LOSS_DIAGNOSTIC
     if not _DIAGNOSTIC_REPORTED and hidden_states.is_cuda:
         rank = int(__import__("os").environ.get("RANK", "0"))

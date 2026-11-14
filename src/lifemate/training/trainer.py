@@ -48,7 +48,8 @@ def train(args):
     from lifemate.data.loader import iter_jsonl
     from lifemate.models.loader import discover_lora_targets, inspect_local_model
     from lifemate.training.collator import AssistantOnlyCollator
-    from lifemate.training.chunked_loss import install_qwen3_chunked_loss, latest_loss_diagnostic
+    from lifemate.training.chunked_loss import (begin_numerical_step, install_qwen3_chunked_loss,
+                                                latest_loss_diagnostic, latest_numerical_report)
     from lifemate.training.sdpa_compat import configure_t4_sdpa, begin_attention_step, latest_attention_report
     from lifemate.utils.hardware import inspect_hardware
     from lifemate.utils.runtime_compat import fp16_dtype_argument
@@ -133,25 +134,83 @@ def train(args):
         checked = False
         report = {}
         step_reports = []
+        parameter_state_at_step = None
+
+        @staticmethod
+        def _parameter_health(model):
+            for name, parameter in model.named_parameters():
+                if not parameter.requires_grad:
+                    continue
+                value = parameter.detach()
+                finite = torch.isfinite(value)
+                if not bool(finite.all()):
+                    return {"all_finite": False, "first_nonfinite_parameter": {
+                        "name": name, "shape": list(value.shape), "dtype": str(value.dtype),
+                        "elements": value.numel(), "nan": int(torch.isnan(value).sum().item()),
+                        "inf": int(torch.isinf(value).sum().item())}}
+            return {"all_finite": True, "first_nonfinite_parameter": None}
 
         def on_step_begin(self, training_args, state, control, **kwargs):
             telemetry_steps = 3 if smoke_only else 1
             if state.global_step < telemetry_steps:
                 torch.cuda.reset_peak_memory_stats(torch.cuda.current_device())
                 begin_attention_step(state.global_step + 1)
+                begin_numerical_step(state.global_step + 1)
+                model = kwargs.get("model")
+                self.parameter_state_at_step = self._parameter_health(model) if model is not None else None
             return control
 
         def on_pre_optimizer_step(self, training_args, state, control, model=None, **kwargs):
             telemetry_steps = 3 if smoke_only else 1
             if model is None or state.global_step >= telemetry_steps:
                 return control
-            grads = [p.grad.detach() for p in model.parameters() if p.requires_grad and p.grad is not None]
-            finite = all(bool(torch.isfinite(g).all()) for g in grads)
-            nonzero = any(bool(torch.count_nonzero(g)) for g in grads)
+            grads = []
+            finite = True
+            nonzero = False
+            first_nonfinite_gradient = None
+            grad_abs_max = 0.0
+            for name, parameter in model.named_parameters():
+                if not parameter.requires_grad or parameter.grad is None:
+                    continue
+                grad = parameter.grad.detach()
+                grads.append(grad)
+                grad_finite = torch.isfinite(grad)
+                if bool(grad_finite.any()):
+                    grad_abs_max = max(grad_abs_max, float(grad[grad_finite].abs().max().item()))
+                if not bool(grad_finite.all()):
+                    finite = False
+                    if first_nonfinite_gradient is None:
+                        first_nonfinite_gradient = {
+                            "name": name, "shape": list(grad.shape), "dtype": str(grad.dtype),
+                            "elements": grad.numel(), "nan": int(torch.isnan(grad).sum().item()),
+                            "inf": int(torch.isinf(grad).sum().item()),
+                            "finite_abs_max": (float(grad[grad_finite].abs().max().item())
+                                               if bool(grad_finite.any()) else None),
+                        }
+                nonzero = nonzero or bool(torch.count_nonzero(grad))
             device = torch.cuda.current_device()
             torch.cuda.synchronize(device)
+            scaler = getattr(getattr(self, "trainer", None).accelerator, "scaler", None) if getattr(self, "trainer", None) is not None else None
+            scaler_state = scaler.state_dict() if scaler is not None else {}
+            optimizer_states = getattr(scaler, "_per_optimizer_states", {}) if scaler is not None else {}
+            scaler_report = {
+                "class": type(scaler).__name__ if scaler is not None else None,
+                "enabled": scaler.is_enabled() if scaler is not None and hasattr(scaler, "is_enabled") else None,
+                "state": scaler_state,
+                "optimizer_states": [{
+                    "stage": str(value.get("stage")),
+                    "found_inf_per_device": {str(key): float(found_inf.item())
+                                              for key, found_inf in value.get("found_inf_per_device", {}).items()},
+                } for value in optimizer_states.values()],
+                "gradient_check_timing": "after Trainer clip_grad_norm; Accelerate unscales FP16 gradients there",
+                "native_amp": getattr(self.trainer.accelerator, "native_amp", None) if getattr(self, "trainer", None) is not None else None,
+                "mixed_precision": getattr(self.trainer.accelerator, "mixed_precision", None) if getattr(self, "trainer", None) is not None else None,
+            }
             self.report = {"gradient_tensors": len(grads), "all_finite": finite, "any_nonzero": nonzero,
                            "rank": int(os.environ.get("RANK", "0")),
+                           "first_nonfinite_gradient": first_nonfinite_gradient,
+                           "finite_gradient_abs_max": grad_abs_max,
+                           "loss_scale": scaler_report,
                            "peak_allocated_gib_forward_backward": round(torch.cuda.max_memory_allocated(device) / 1024**3, 3),
                            "peak_reserved_gib_forward_backward": round(torch.cuda.max_memory_reserved(device) / 1024**3, 3)}
             step_report = {"step": state.global_step + 1,
@@ -159,13 +218,35 @@ def train(args):
                            "attention": latest_attention_report(),
                            "peak_allocated_gib_forward_backward": self.report["peak_allocated_gib_forward_backward"],
                            "peak_reserved_gib_forward_backward": self.report["peak_reserved_gib_forward_backward"],
-                           "gradients_finite": finite, "gradients_nonzero": nonzero}
+                           "gradients_finite": finite, "gradients_nonzero": nonzero,
+                           "first_nonfinite_gradient": first_nonfinite_gradient,
+                           "loss_scale": scaler_report,
+                           "parameters_at_step_start": self.parameter_state_at_step,
+                           "numerics": latest_numerical_report()}
             self.step_reports.append(step_report)
             print("LIFEMATE_STEP_GRADIENT_REPORT " + json.dumps(self.report), flush=True)
             print("LIFEMATE_ATTENTION_STEP_REPORT " + json.dumps(step_report), flush=True)
             self.checked = True
             if not grads or not finite or not nonzero:
                 raise RuntimeError(f"FP16 backward smoke check failed: {self.report}")
+            return control
+
+        def on_optimizer_step(self, training_args, state, control, **kwargs):
+            telemetry_steps = 3 if smoke_only else 1
+            if state.global_step >= telemetry_steps:
+                return control
+            trainer = getattr(self, "trainer", None)
+            scaler = getattr(trainer.accelerator, "scaler", None) if trainer is not None else None
+            optimizer_report = {
+                "step": state.global_step + 1,
+                "rank": int(os.environ.get("RANK", "0")),
+                "optimizer_step_was_skipped": getattr(trainer.accelerator, "optimizer_step_was_skipped", None) if trainer is not None else None,
+                "loss_scale_after_step": scaler.get_scale() if scaler is not None else None,
+                "parameters_after_step": self._parameter_health(kwargs.get("model", trainer.model) if trainer is not None else kwargs.get("model")),
+            }
+            if self.step_reports and self.step_reports[-1]["step"] == optimizer_report["step"]:
+                self.step_reports[-1]["optimizer"] = optimizer_report
+            print("LIFEMATE_OPTIMIZER_NUMERICS " + json.dumps(optimizer_report), flush=True)
             return control
 
     grad_check = FirstStepGradientCheck()
@@ -194,6 +275,18 @@ def train(args):
                       eval_dataset=None if smoke_only else Dataset.from_list(val_features),
                       data_collator=AssistantOnlyCollator(tokenizer), processing_class=tokenizer,
                       callbacks=[grad_check])
+    grad_check.trainer = trainer
+    scaler = getattr(trainer.accelerator, "scaler", None)
+    if training_args.fp16 and (scaler is None or not scaler.is_enabled()):
+        raise RuntimeError("FP16 FSDP requires an enabled Accelerate GradScaler; refusing unscaled training.")
+    if local_rank == 0:
+        print("LIFEMATE_FP16_SCALER " + json.dumps({
+            "class": type(scaler).__name__ if scaler is not None else None,
+            "enabled": scaler.is_enabled() if scaler is not None else False,
+            "initial_scale": scaler.get_scale() if scaler is not None else None,
+            "accelerate_distributed_type": str(trainer.accelerator.distributed_type),
+            "mixed_precision": str(trainer.accelerator.mixed_precision),
+        }), flush=True)
     started = time.perf_counter()
     result = trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     train_time = time.perf_counter() - started
