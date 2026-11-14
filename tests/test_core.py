@@ -23,6 +23,7 @@ from lifemate.deployment.submission import validate_submission
 from lifemate.models.loader import inspect_local_model
 from lifemate.models.policy import PolicyContextOverflow
 from lifemate.training.trainer import check_training_hardware, choose_sequence_length
+from lifemate.utils.runtime_compat import fp16_dtype_argument, torchao_compat_action
 
 
 class FakeEnv:
@@ -163,6 +164,22 @@ class CoreTests(unittest.TestCase):
         with patch("lifemate.training.trainer.platform.system", return_value="Linux"):
             with self.assertRaisesRegex(RuntimeError,"No CUDA GPU"):
                 check_training_hardware({"cuda_available":True,"gpu":[]})
+
+    def test_old_optional_torchao_is_removed_without_changing_torch(self):
+        self.assertEqual(torchao_compat_action(None),"not_installed")
+        self.assertEqual(torchao_compat_action("0.10.0"),"remove")
+        self.assertEqual(torchao_compat_action("0.16.0"),"keep")
+        self.assertEqual(torchao_compat_action("1.0.0+cu128"),"keep")
+
+    def test_fp16_loader_uses_supported_transformers_dtype_keyword(self):
+        class NewLoader:
+            @classmethod
+            def from_pretrained(cls, path, *, dtype=None): pass
+        class OldLoader:
+            @classmethod
+            def from_pretrained(cls, path, *, torch_dtype=None): pass
+        self.assertEqual(fp16_dtype_argument(NewLoader,"fp16"),{"dtype":"fp16"})
+        self.assertEqual(fp16_dtype_argument(OldLoader,"fp16"),{"torch_dtype":"fp16"})
 
     def test_env_config_expansion_and_original_data_discovery(self):
         self.assertEqual(_expand("${ABSENT_VAR:abc}"),"abc")

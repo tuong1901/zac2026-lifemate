@@ -54,14 +54,27 @@ print({'project':str(PROJECT),'branch':actual_branch,'commit':actual_commit})
 """),
     ("markdown", "## 2. Inspect and install only project dependencies\nThe notebook does not install or replace PyTorch. If the Kaggle image has an incompatible Torch/CUDA build, it stops instead of silently changing precision or CUDA packages."),
     ("code", """import importlib.metadata as metadata
-for package in ('torch','transformers','datasets','accelerate','peft','huggingface_hub','PyYAML'):
+for package in ('torch','transformers','datasets','accelerate','peft','huggingface_hub','PyYAML','torchao'):
     try: print(package, metadata.version(package))
     except metadata.PackageNotFoundError: print(package, 'not installed')
 
 subprocess.run([sys.executable,'-m','pip','install','-r',str(PROJECT/'requirements/kaggle.txt'),
                 '--disable-pip-version-check'],check=True)
+from lifemate.utils.runtime_compat import torchao_compat_action
+try: torchao_version=metadata.version('torchao')
+except metadata.PackageNotFoundError: torchao_version=None
+if torchao_compat_action(torchao_version) == 'remove':
+    print(f'Removing unused incompatible torchao {torchao_version}; FP16 LoRA does not use TorchAO and Torch/CUDA will not be changed.')
+    subprocess.run([sys.executable,'-m','pip','uninstall','-y','torchao'],check=True)
+    try: metadata.version('torchao')
+    except metadata.PackageNotFoundError: pass
+    else: raise RuntimeError('Incompatible torchao remains installed; stopping before model/training process.')
 import torch, transformers
-print({package:metadata.version(package) for package in ('torch','transformers','datasets','accelerate','peft','huggingface-hub','PyYAML')})
+def installed_version(package):
+    try: return metadata.version(package)
+    except metadata.PackageNotFoundError: return None
+versions={package:installed_version(package) for package in ('torch','transformers','datasets','accelerate','peft','huggingface-hub','PyYAML','torchao')}
+print(versions)
 if tuple(int(x) for x in torch.__version__.split('+')[0].split('.')[:2]) < (2,6):
     raise RuntimeError(f'Kaggle Torch {torch.__version__} is below Qwen3 recommended 2.6; refusing to replace the CUDA build.')
 if tuple(int(x) for x in transformers.__version__.split('.')[:2]) < (4,51):

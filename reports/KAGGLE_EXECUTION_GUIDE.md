@@ -17,6 +17,8 @@ Training uses FP16 LoRA on one selected Tesla T4 with the standard Trainer and S
 
 The dependency step does not replace PyTorch/CUDA. It requires Torch >=2.6 and Transformers >=4.51 after inspecting the image. If Kaggle's current Torch build does not satisfy this, the notebook stops and asks for a runtime choice rather than changing precision or CUDA stack.
 
+The setup checks the optional `torchao` package before importing PEFT. If the Kaggle image contains `torchao<0.16`, it removes only that unused optional package; the FP16 model and standard LoRA path do not use TorchAO. This avoids an upstream PEFT compatibility error that can occur when LoRA injection sees an old TorchAO installation. Torch and CUDA are left untouched.
+
 If the gate fails, no Qwen weights are downloaded and no training starts. Select a clean Tesla T4 session with enough free VRAM, or revise the model/precision requirements explicitly. Precision is never changed automatically.
 
 ## Outputs

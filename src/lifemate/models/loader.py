@@ -60,6 +60,7 @@ def load_local_qwen(model_dir: str | Path, *, precision: str = "float16", model_
     """Load the exact local Qwen snapshot in FP16. Model dispatch is for inference only."""
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
+    from lifemate.utils.runtime_compat import fp16_dtype_argument
 
     if precision != "float16":
         raise ValueError(f"This Kaggle workflow requires float16, got {precision!r}")
@@ -69,8 +70,9 @@ def load_local_qwen(model_dir: str | Path, *, precision: str = "float16", model_
     metadata = inspect_local_model(path)
     tokenizer = AutoTokenizer.from_pretrained(path, local_files_only=True, trust_remote_code=False)
     tokenizer.padding_side = "right"
-    kwargs = {"local_files_only": True, "trust_remote_code": False, "torch_dtype": torch.float16,
+    kwargs = {"local_files_only": True, "trust_remote_code": False,
               "low_cpu_mem_usage": True, "attn_implementation": "sdpa"}
+    kwargs.update(fp16_dtype_argument(AutoModelForCausalLM, torch.float16))
     if torch.cuda.is_available() and model_parallel:
         kwargs["device_map"] = "auto"
     model = AutoModelForCausalLM.from_pretrained(path, **kwargs)

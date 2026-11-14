@@ -46,6 +46,7 @@ def train(args):
     from lifemate.models.loader import discover_lora_targets, inspect_local_model
     from lifemate.training.collator import AssistantOnlyCollator
     from lifemate.utils.hardware import inspect_hardware
+    from lifemate.utils.runtime_compat import fp16_dtype_argument
 
     hw = inspect_hardware([args.train_jsonl, args.validation_jsonl, args.output_dir])
     gpu = check_training_hardware(hw)
@@ -65,9 +66,10 @@ def train(args):
     tokenizer.padding_side = "right"
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(
-        str(model_dir), local_files_only=True, trust_remote_code=False,
-        torch_dtype=torch.float16, low_cpu_mem_usage=True, attn_implementation="sdpa")
+    load_kwargs = {"local_files_only": True, "trust_remote_code": False,
+                   "low_cpu_mem_usage": True, "attn_implementation": "sdpa"}
+    load_kwargs.update(fp16_dtype_argument(AutoModelForCausalLM, torch.float16))
+    model = AutoModelForCausalLM.from_pretrained(str(model_dir), **load_kwargs)
     if next(model.parameters()).dtype != torch.float16:
         raise RuntimeError("Base model did not load in FP16; refusing precision fallback")
     targets = discover_lora_targets(model)
