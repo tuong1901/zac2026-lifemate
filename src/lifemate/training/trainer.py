@@ -6,6 +6,20 @@ import platform
 import time
 from pathlib import Path
 
+FP16_INITIAL_LOSS_SCALE = 1024.0
+
+
+def configure_initial_fp16_loss_scale(scaler, initial_scale: float = FP16_INITIAL_LOSS_SCALE) -> float:
+    """Set a conservative initial scale on a fresh CUDA GradScaler/FSDP ShardedGradScaler."""
+    if scaler is None or not hasattr(scaler, "is_enabled") or not scaler.is_enabled():
+        raise RuntimeError("FP16 training requires an enabled GradScaler")
+    if not hasattr(scaler, "_init_scale") or not hasattr(scaler, "_scale"):
+        raise RuntimeError(f"Unsupported GradScaler implementation: {type(scaler).__name__}")
+    if scaler._scale is not None or getattr(scaler, "_growth_tracker", None) is not None:
+        raise RuntimeError("Cannot configure loss scale after the GradScaler has started; create a fresh Trainer")
+    scaler._init_scale = float(initial_scale)
+    return float(scaler.get_scale())
+
 
 def choose_sequence_length(total_vram_bytes: int) -> int:
     """Choose a sequence cap from per-GPU VRAM; FSDP does not shard activations."""
@@ -279,11 +293,12 @@ def train(args):
     scaler = getattr(trainer.accelerator, "scaler", None)
     if training_args.fp16 and (scaler is None or not scaler.is_enabled()):
         raise RuntimeError("FP16 FSDP requires an enabled Accelerate GradScaler; refusing unscaled training.")
+    initial_scale = configure_initial_fp16_loss_scale(scaler) if training_args.fp16 else None
     if local_rank == 0:
         print("LIFEMATE_FP16_SCALER " + json.dumps({
             "class": type(scaler).__name__ if scaler is not None else None,
             "enabled": scaler.is_enabled() if scaler is not None else False,
-            "initial_scale": scaler.get_scale() if scaler is not None else None,
+            "initial_scale": initial_scale,
             "accelerate_distributed_type": str(trainer.accelerator.distributed_type),
             "mixed_precision": str(trainer.accelerator.mixed_precision),
         }), flush=True)

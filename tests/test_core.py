@@ -22,7 +22,8 @@ from lifemate.data.trajectory import group_trajectories
 from lifemate.deployment.submission import validate_submission
 from lifemate.models.loader import inspect_local_model
 from lifemate.models.policy import PolicyContextOverflow
-from lifemate.training.trainer import check_fsdp_hardware, choose_sequence_length
+from lifemate.training.trainer import (check_fsdp_hardware, choose_sequence_length,
+                                      configure_initial_fp16_loss_scale)
 from lifemate.training.chunked_loss import chunked_causal_lm_loss
 from lifemate.training.sdpa_compat import _make_turing_safe_gqa
 from lifemate.utils.runtime_compat import fp16_dtype_argument, torchao_compat_action
@@ -39,6 +40,20 @@ class FakeEnv:
 
 
 class CoreTests(unittest.TestCase):
+    def test_initial_fp16_scaler_scale_is_set_only_before_first_use(self):
+        class FreshScaler:
+            _init_scale = 65536.0
+            _scale = None
+            _growth_tracker = None
+            def is_enabled(self): return True
+            def get_scale(self): return self._init_scale if self._scale is None else float(self._scale)
+
+        scaler = FreshScaler()
+        self.assertEqual(configure_initial_fp16_loss_scale(scaler), 1024.0)
+        scaler._scale = object()
+        with self.assertRaisesRegex(RuntimeError, "after the GradScaler has started"):
+            configure_initial_fp16_loss_scale(scaler)
+
     def test_t4_gqa_wrapper_matches_installed_transformers_attention_call(self):
         import inspect
         import torch
