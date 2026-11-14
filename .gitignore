@@ -30,6 +30,7 @@ out/sft_data_audit/
 out/sft_full_history_v1/
 out/sft_raw_history_v2/
 out/sft_raw_history_v2_all/
+out/qwen_v2_preflight/
 out/sft_preview/
 out/merge_backup/
 
