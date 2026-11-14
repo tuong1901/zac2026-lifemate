@@ -41,7 +41,7 @@ def main():
     args = p.parse_args()
     sys.path.insert(0, str(Path(args.original_dir) / "train"))
     from zaic_tools import schema_validate
-    model, tokenizer, model_info = load_local_qwen(args.model_dir, quantized=False, model_parallel=True)
+    model, tokenizer, model_info = load_local_qwen(args.model_dir, precision="float16", model_parallel=True)
     if args.adapter_dir:
         from peft import PeftModel
         model = PeftModel.from_pretrained(model, args.adapter_dir, is_trainable=False)

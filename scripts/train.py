@@ -10,7 +10,7 @@ from lifemate.training.trainer import train
 
 def main():
     repo = Path(__file__).resolve().parents[1]
-    p = argparse.ArgumentParser(description="FP32 LoRA SFT with PyTorch FSDP full-shard model parallelism")
+    p = argparse.ArgumentParser(description="FP16 LoRA SFT on one CUDA GPU")
     p.add_argument("--model-dir", required=True, help="Local model folder; no network fallback")
     p.add_argument("--train-jsonl", default=str(repo / "data/processed/train.jsonl"))
     p.add_argument("--validation-jsonl", default=str(repo / "data/processed/validation.jsonl"))

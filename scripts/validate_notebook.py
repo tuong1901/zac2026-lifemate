@@ -22,17 +22,19 @@ def validate(path: Path) -> dict:
         "https://github.com/tuong1901/zac2026-lifemate.git", "frame-agent",
         "/kaggle/input/datasets/estherle/sft-data/sft_full_history_v1",
         "/kaggle/input/datasets/estherle/zalo-dataset/zalo-ai-challenge/train+public_test",
-        "Qwen/Qwen3-4B-Instruct-2507", "torchrun", "FULL_SHARD",
+        "Qwen/Qwen3-4B-Instruct-2507", "float16", "check_training_hardware",
     )
     missing = [marker for marker in required if marker not in all_text]
     if missing:
         raise ValueError(f"notebook is missing required workflow markers: {missing}")
-    gate = merged.find("check_fsdp_hardware(runtime)")
+    gate = merged.find("check_training_hardware(runtime)")
     download = merged.find("download_qwen_model(MODEL_DIR)")
     if gate < 0 or download < 0 or gate > download:
         raise ValueError("hardware feasibility gate must precede the model download")
     if "INSTALL_STACK = False" in merged or "RUN_FULL_TRAINING = False" in merged:
         raise ValueError("one-click notebook still contains opt-in workflow flags")
+    if "torchrun" in merged or "FULL_SHARD" in all_text:
+        raise ValueError("single-T4 FP16 notebook still contains multi-GPU FSDP configuration")
     return {"valid": True, "cells": len(cells), "code_cells": len(code), "path": str(path)}
 
 

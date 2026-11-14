@@ -16,13 +16,13 @@ This report describes the portable local-development and Kaggle-oriented pipelin
 
 ## System design
 
-Training and inference use a structured, single-action-per-decision policy. Tool calls are checked against the supplied catalog and official environment; only actual tool results update agent state. Trajectory evaluation uses fresh environments per sample, and training excludes overlength rows with an explicit record rather than truncating them. The revised notebook downloads the exact base model from Hugging Face after its hardware gate and uses FP32 LoRA with FSDP full-shard model parallelism; it does not use hosted inference.
+Training and inference use a structured, single-action-per-decision policy. Tool calls are checked against the supplied catalog and official environment; only actual tool results update agent state. Trajectory evaluation uses fresh environments per sample, and training excludes overlength rows with an explicit record rather than truncating them. The revised notebook downloads the exact base model from Hugging Face after its hardware gate and uses FP16 LoRA on one GPU; it does not use hosted inference.
 
 The loader requires the exact Qwen model ID and a recorded 40-character source revision. The selected upstream model is Qwen3-4B-Instruct-2507, the non-thinking variant; its official card documents a native 262,144-token context window. This is not the configured training length, which is bounded by available GPU resources. See [official model card](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) and [Qwen Transformers guide](https://github.com/QwenLM/Qwen3/blob/main/docs/source/inference/transformers.md).
 
 ## Status and limits
 
-No base weights or Kaggle session were available. Therefore no Qwen model load, baseline inference, fine-tuning, checkpoint comparison, public-test inference, or Kaggle run is claimed. The laptop GPU has 4 GiB VRAM. The workflow requires at least two Tesla T4s, 30 GiB aggregate VRAM, and 12 GiB free per GPU before model download. Dependencies and FSDP have not been validated against a live Kaggle image. The current changes are local and have not been pushed.
+No base weights or Kaggle session were available. Therefore no Qwen model load, baseline inference, fine-tuning, checkpoint comparison, public-test inference, or Kaggle run is claimed. The laptop GPU has 4 GiB VRAM. The workflow requires one Tesla T4 with at least 14 GiB total and 12 GiB free before model download. FP16 training has not been validated against a live Kaggle image. The current changes are local and have not been pushed.
 
 ## Artifacts
 

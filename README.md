@@ -44,7 +44,7 @@ These commands never train Qwen on the local RTX 3050 Ti. The recorded local GPU
 
 The only entry point is [notebooks/kaggle_train_eval.ipynb](notebooks/kaggle_train_eval.ipynb). It clones `https://github.com/tuong1901/zac2026-lifemate.git`, branch `frame-agent`, and uses the two fixed Kaggle dataset paths in the notebook. Enable Kaggle Internet for GitHub cloning, missing Python dependencies, and the Hugging Face download. No model is expected in Kaggle Input.
 
-Training is FP32 LoRA with PyTorch FSDP `FULL_SHARD`, transformer decoder-layer auto-wrap, and `use_orig_params=True`; training does not use DDP, `device_map`, FP16/BF16, or quantization. The notebook checks the live runtime and requires at least two Tesla T4 GPUs, 30 GiB aggregate VRAM, and 12 GiB free on each before downloading the model. A one-T4 session stops before download. The check is a conservative gate, not a guarantee of runtime fit. Lengths beyond the selected limit are recorded and excluded, not truncated.
+Training is FP16 LoRA on one Tesla T4 using the standard Hugging Face Trainer and SDPA attention. It does not use FSDP, DDP, or quantization. Before downloading Qwen, the notebook checks for at least 14 GiB total and 12 GiB free on the selected GPU. A T4 selects an 8,192-token cap; longer examples are recorded and excluded, not truncated. In the current `lengths.csv`, 3,924/4,397 train and 419/472 validation rows are at or below that cap. Passing the memory gate does not guarantee a successful run; the forward smoke and first optimizer step verify actual fit and gradients.
 
 The notebook clones source into `/kaggle/working/lifemate_repo`; run outputs, downloaded base weights, checkpoints, adapter, logs and metrics go under `/kaggle/working/lifemate_run`. It exports a timestamped `/kaggle/working/lifemate_export_*.zip` without base weights or datasets and prints the exact file path. See [Kaggle execution guide](reports/KAGGLE_EXECUTION_GUIDE.md) for output locations and retrieval.
 
@@ -64,7 +64,7 @@ After reviewing `git status` and `git diff`, the initial commit can be made with
 git add .
 git diff --cached --stat
 git diff --cached
-git commit -m "Refactor Kaggle training to FP32 FSDP"
+git commit -m "Refactor Kaggle training to FP16"
 git push origin frame-agent
 ```
 

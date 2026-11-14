@@ -11,13 +11,13 @@ The notebook uses these fixed inputs:
 
 It preserves the SFT manifest split, never trains on public_test, runs data audit and official train ToolEnv replay, then performs baseline and fine-tuned validation with the existing evaluation scripts.
 
-## FP32 and GPU feasibility
+## FP16 and GPU feasibility
 
-Training uses FP32 LoRA with PyTorch FSDP `FULL_SHARD`, auto-wrap at Qwen decoder layers, and `use_orig_params=True`. DDP alone would replicate the full model per GPU and is not used as a substitute for model sharding. Training does not use FP16, BF16, `device_map`, or quantization. Before downloading weights, the notebook requires at least two Tesla T4 GPUs, 30 GiB aggregate VRAM, and 12 GiB free on each GPU. If the runtime fails any condition, it stops before model download. Even passing this conservative gate does not constitute a verified training run; FSDP initialization and a real backward step remain runtime-dependent.
+Training uses FP16 LoRA on one selected Tesla T4 with the standard Trainer and SDPA attention. It does not use FSDP, DDP, or quantization. Before downloading weights, the notebook requires at least 14 GiB total and 12 GiB free on the selected GPU. If the runtime fails either condition, it stops before model download. A 16 GiB-class T4 selects an 8,192-token cap with gradient checkpointing; rows exceeding it are explicitly logged/excluded. Existing lengths indicate 3,924/4,397 train rows and 419/472 validation rows fit that cap, while the preparation report produced during training is authoritative. The memory gate does not guarantee a successful run; the model smoke and first optimizer step still validate actual runtime fit and gradients.
 
 The dependency step does not replace PyTorch/CUDA. It requires Torch >=2.6 and Transformers >=4.51 after inspecting the image. If Kaggle's current Torch build does not satisfy this, the notebook stops and asks for a runtime choice rather than changing precision or CUDA stack.
 
-If the gate fails, no Qwen weights are downloaded and no training starts. The FP32 options are a Kaggle 2x T4 session or another supported multi-GPU runtime meeting the stated aggregate/free VRAM checks. The other technical option is to explicitly change the precision requirement (for example FP16/BF16 or quantization); the notebook never does that on its own.
+If the gate fails, no Qwen weights are downloaded and no training starts. Select a clean Tesla T4 session with enough free VRAM, or revise the model/precision requirements explicitly. Precision is never changed automatically.
 
 ## Outputs
 

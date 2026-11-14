@@ -15,4 +15,4 @@
 - SFT action reconstruction: zero discrepancies.
 - All notebook code cells passed Python syntax parsing; `compileall` passed for source, scripts, and tests.
 
-The historical test files were not present, so the prior ten-test suite cannot be reproduced. No model run, Kaggle run, or GitHub action is represented as completed. ToolEnv emits upstream `ResourceWarning`s for unclosed JSON files during its integration test; the test itself passes. The revised FP32 FSDP workflow has not been run on Kaggle.
+The historical test files were not present, so the prior ten-test suite cannot be reproduced. No model run, Kaggle run, or GitHub action is represented as completed. ToolEnv emits upstream `ResourceWarning`s for unclosed JSON files during its integration test; the test itself passes. The revised FP16 single-GPU workflow has not been run on Kaggle.

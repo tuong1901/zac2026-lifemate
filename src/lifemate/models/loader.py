@@ -18,7 +18,7 @@ def download_qwen_model(model_dir: str | Path) -> dict:
     if not re.fullmatch(r"[0-9a-fA-F]{40}", revision or ""):
         raise RuntimeError(f"Hugging Face returned an invalid immutable revision for {MODEL_ID}: {revision!r}")
     snapshot_download(repo_id=MODEL_ID, revision=revision, local_dir=str(target))
-    manifest = {"model_id": MODEL_ID, "revision": revision, "source": "huggingface.co", "precision": "float32"}
+    manifest = {"model_id": MODEL_ID, "revision": revision, "source": "huggingface.co", "load_precision": "float16"}
     (target / "model_source.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return inspect_local_model(target)
 
@@ -56,21 +56,21 @@ def inspect_local_model(model_dir: str | Path) -> dict:
             "generation_config": json.loads(generation_config.read_text(encoding="utf-8")) if generation_config.exists() else {}}
 
 
-def load_local_qwen(model_dir: str | Path, *, quantized: bool = False, model_parallel: bool = True):
-    """Load the exact local Qwen snapshot in FP32. Model dispatch is for inference only."""
+def load_local_qwen(model_dir: str | Path, *, precision: str = "float16", model_parallel: bool = True):
+    """Load the exact local Qwen snapshot in FP16. Model dispatch is for inference only."""
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    if quantized:
-        raise ValueError("Quantization is disabled: the requested workflow requires FP32")
+    if precision != "float16":
+        raise ValueError(f"This Kaggle workflow requires float16, got {precision!r}")
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
     path = str(Path(model_dir).resolve())
     metadata = inspect_local_model(path)
     tokenizer = AutoTokenizer.from_pretrained(path, local_files_only=True, trust_remote_code=False)
     tokenizer.padding_side = "right"
-    kwargs = {"local_files_only": True, "trust_remote_code": False, "torch_dtype": torch.float32,
-              "low_cpu_mem_usage": True}
+    kwargs = {"local_files_only": True, "trust_remote_code": False, "torch_dtype": torch.float16,
+              "low_cpu_mem_usage": True, "attn_implementation": "sdpa"}
     if torch.cuda.is_available() and model_parallel:
         kwargs["device_map"] = "auto"
     model = AutoModelForCausalLM.from_pretrained(path, **kwargs)
@@ -88,11 +88,3 @@ def discover_lora_targets(model) -> list[str]:
     if not selected:
         raise RuntimeError("No recognized linear projection modules found by model inspection")
     return sorted(selected)
-
-
-def fsdp_layer_class(model) -> str:
-    """Return the decoder layer class used for transformer-layer FSDP wrapping."""
-    try:
-        return type(model.model.layers[0]).__name__
-    except (AttributeError, IndexError, TypeError) as exc:
-        raise RuntimeError("Could not identify the Qwen decoder layer for FSDP auto-wrap") from exc

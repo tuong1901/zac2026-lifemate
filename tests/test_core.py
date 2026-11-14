@@ -22,7 +22,7 @@ from lifemate.data.trajectory import group_trajectories
 from lifemate.deployment.submission import validate_submission
 from lifemate.models.loader import inspect_local_model
 from lifemate.models.policy import PolicyContextOverflow
-from lifemate.training.trainer import check_fsdp_hardware
+from lifemate.training.trainer import check_training_hardware, choose_sequence_length
 
 
 class FakeEnv:
@@ -150,18 +150,19 @@ class CoreTests(unittest.TestCase):
             (p/"config.json").write_text(json.dumps({"model_type":"qwen3","_name_or_path":"Qwen/Qwen3-8B","_commit_hash":"a"*40}),encoding="utf-8")
             with self.assertRaises(ValueError): inspect_local_model(p)
 
-    def test_fp32_training_requires_sharded_multigpu_before_model_download(self):
+    def test_fp16_training_accepts_one_t4_and_gates_memory(self):
         with patch("lifemate.training.trainer.platform.system", return_value="Linux"):
             hw={"cuda_available":True,"gpu":[{"index":0,"name":"Tesla T4","total_vram_bytes":16*1024**3,"free_vram_bytes":15*1024**3}]}
-            with self.assertRaisesRegex(RuntimeError,"at least two GPUs"):
-                check_fsdp_hardware(hw)
+            self.assertEqual(check_training_hardware(hw),hw["gpu"][0])
+            self.assertEqual(choose_sequence_length(16*1024**3),8192)
+            hw["gpu"][0]["free_vram_bytes"]=8*1024**3
+            with self.assertRaisesRegex(RuntimeError,"12 GiB free"):
+                check_training_hardware(hw)
 
-    def test_two_t4_fsdp_hardware_passes_conservative_gate(self):
+    def test_fp16_training_rejects_missing_gpu_before_download(self):
         with patch("lifemate.training.trainer.platform.system", return_value="Linux"):
-            hw={"cuda_available":True,"gpu":[
-                {"index":0,"name":"Tesla T4","total_vram_bytes":16*1024**3,"free_vram_bytes":14*1024**3},
-                {"index":1,"name":"Tesla T4","total_vram_bytes":16*1024**3,"free_vram_bytes":14*1024**3}]}
-            self.assertEqual(len(check_fsdp_hardware(hw)),2)
+            with self.assertRaisesRegex(RuntimeError,"No CUDA GPU"):
+                check_training_hardware({"cuda_available":True,"gpu":[]})
 
     def test_env_config_expansion_and_original_data_discovery(self):
         self.assertEqual(_expand("${ABSENT_VAR:abc}"),"abc")

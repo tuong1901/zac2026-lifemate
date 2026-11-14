@@ -40,7 +40,7 @@ def main():
     if args.max_samples:
         rows = rows[:args.max_samples]
     _, tool_specs = load_catalog(data, "public_test")
-    model, tokenizer, model_info = load_local_qwen(args.model_dir, quantized=False, model_parallel=True)
+    model, tokenizer, model_info = load_local_qwen(args.model_dir, precision="float16", model_parallel=True)
     if args.adapter_dir:
         from peft import PeftModel
         model = PeftModel.from_pretrained(model, args.adapter_dir, is_trainable=False)
