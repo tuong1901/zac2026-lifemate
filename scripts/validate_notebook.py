@@ -23,6 +23,7 @@ def validate(path: Path) -> dict:
         "/kaggle/input/datasets/estherle/sft-data/sft_full_history_v1",
         "/kaggle/input/datasets/estherle/zalo-dataset/zalo-ai-challenge/train+public_test",
         "Qwen/Qwen3-4B-Instruct-2507", "float16", "check_fsdp_hardware", "FULL_SHARD", "torch.distributed.run",
+        "--smoke-only", "fsdp_smoke_result.json",
     )
     missing = [marker for marker in required if marker not in all_text]
     if missing:

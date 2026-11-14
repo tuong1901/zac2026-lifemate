@@ -48,6 +48,7 @@ def train(args):
     from lifemate.data.loader import iter_jsonl
     from lifemate.models.loader import discover_lora_targets, inspect_local_model
     from lifemate.training.collator import AssistantOnlyCollator
+    from lifemate.training.chunked_loss import install_qwen3_chunked_loss, latest_loss_diagnostic
     from lifemate.utils.hardware import inspect_hardware
     from lifemate.utils.runtime_compat import fp16_dtype_argument
 
@@ -92,8 +93,7 @@ def train(args):
     model = get_peft_model(model, LoraConfig(
         r=args.lora_r, lora_alpha=args.lora_alpha, lora_dropout=args.lora_dropout,
         bias="none", task_type="CAUSAL_LM", target_modules=targets))
-    if hasattr(model, "gradient_checkpointing_enable"):
-        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    install_qwen3_chunked_loss(model, chunk_size=64)
 
     def encode(rows):
         kept, excluded = [], []
@@ -115,6 +115,8 @@ def train(args):
                      "model_revision": model_info["commit_hash"], "precision": "float16",
                      "parallelism": "pytorch_fsdp_full_shard", "gpus": gpus, "sequence_length": seq_len,
                      "transformer_layer_cls_to_wrap": transformer_layer_cls,
+                     "loss": "chunked_causal_lm", "loss_chunk_size": 64,
+                     "fsdp_activation_checkpointing": True,
                      "epochs": args.epochs, "gradient_accumulation_steps": args.grad_accum,
                      "learning_rate": args.learning_rate, "lora_r": args.lora_r,
                      "lora_alpha": args.lora_alpha, "lora_dropout": args.lora_dropout,
@@ -128,37 +130,53 @@ def train(args):
         checked = False
         report = {}
 
+        def on_step_begin(self, training_args, state, control, **kwargs):
+            if not self.checked:
+                torch.cuda.reset_peak_memory_stats(torch.cuda.current_device())
+            return control
+
         def on_pre_optimizer_step(self, training_args, state, control, model=None, **kwargs):
             if self.checked or model is None:
                 return control
             grads = [p.grad.detach() for p in model.parameters() if p.requires_grad and p.grad is not None]
             finite = all(bool(torch.isfinite(g).all()) for g in grads)
             nonzero = any(bool(torch.count_nonzero(g)) for g in grads)
-            self.report = {"gradient_tensors": len(grads), "all_finite": finite, "any_nonzero": nonzero}
+            device = torch.cuda.current_device()
+            torch.cuda.synchronize(device)
+            self.report = {"gradient_tensors": len(grads), "all_finite": finite, "any_nonzero": nonzero,
+                           "rank": int(os.environ.get("RANK", "0")),
+                           "peak_allocated_gib_forward_backward": round(torch.cuda.max_memory_allocated(device) / 1024**3, 3),
+                           "peak_reserved_gib_forward_backward": round(torch.cuda.max_memory_reserved(device) / 1024**3, 3)}
+            print("LIFEMATE_FIRST_STEP_SMOKE " + json.dumps(self.report), flush=True)
             self.checked = True
             if not grads or not finite or not nonzero:
                 raise RuntimeError(f"FP16 backward smoke check failed: {self.report}")
             return control
 
     grad_check = FirstStepGradientCheck()
+    smoke_only = bool(getattr(args, "smoke_only", False))
     training_args = TrainingArguments(
-        output_dir=str(output / "checkpoints"), num_train_epochs=args.epochs,
+        output_dir=str(output / ("smoke_checkpoints" if smoke_only else "checkpoints")),
+        num_train_epochs=1 if smoke_only else args.epochs,
+        max_steps=1 if smoke_only else -1,
         per_device_train_batch_size=1, per_device_eval_batch_size=1,
-        gradient_accumulation_steps=args.grad_accum, learning_rate=args.learning_rate,
+        gradient_accumulation_steps=1 if smoke_only else args.grad_accum, learning_rate=args.learning_rate,
         warmup_ratio=0.03, weight_decay=0.01, logging_steps=10, save_steps=args.save_steps,
-        eval_steps=args.eval_steps, save_strategy="steps", eval_strategy="steps",
-        gradient_checkpointing=True, gradient_checkpointing_kwargs={"use_reentrant": False},
+        eval_steps=args.eval_steps, save_strategy="no" if smoke_only else "steps",
+        eval_strategy="no" if smoke_only else "steps",
         max_grad_norm=1.0, optim="adamw_torch", fp16=True, bf16=False, tf32=False,
         fsdp="full_shard auto_wrap", fsdp_config={
             "transformer_layer_cls_to_wrap": transformer_layer_cls,
             "use_orig_params": True, "sync_module_states": True,
             "cpu_ram_efficient_loading": True, "limit_all_gathers": True,
+            "activation_checkpointing": True,
             "state_dict_type": "FULL_STATE_DICT",
         },
-        report_to="none", seed=args.seed, save_total_limit=2, load_best_model_at_end=True,
-        metric_for_best_model="eval_loss", greater_is_better=False, remove_unused_columns=False)
+        report_to="none", seed=args.seed, save_total_limit=2, load_best_model_at_end=not smoke_only,
+        metric_for_best_model="eval_loss", greater_is_better=False, remove_unused_columns=False,
+        prediction_loss_only=True)
     trainer = Trainer(model=model, args=training_args, train_dataset=Dataset.from_list(train_features),
-                      eval_dataset=Dataset.from_list(val_features),
+                      eval_dataset=None if smoke_only else Dataset.from_list(val_features),
                       data_collator=AssistantOnlyCollator(tokenizer), processing_class=tokenizer,
                       callbacks=[grad_check])
     started = time.perf_counter()
@@ -166,6 +184,20 @@ def train(args):
     train_time = time.perf_counter() - started
     if not grad_check.checked:
         raise RuntimeError("Training completed without observing finite nonzero LoRA gradients")
+    if smoke_only:
+        local_smoke = {"gradient_check": grad_check.report,
+                       "loss_diagnostic": latest_loss_diagnostic()}
+        rank_smokes = [None] * world_size
+        torch.distributed.all_gather_object(rank_smokes, local_smoke)
+        smoke_result = {"passed": True, "optimizer_steps": int(trainer.state.global_step),
+                        "loss": result.metrics.get("train_loss"), "per_rank": rank_smokes,
+                        "loss_correctness": "chunked loss matches shifted, ignored-label mean CE in unit tests; runtime reports finite loss",
+                        "training_seconds": train_time,
+                        "precision": "float16", "parallelism": "pytorch_fsdp_full_shard"}
+        if local_rank == 0:
+            (output / "fsdp_smoke_result.json").write_text(json.dumps(smoke_result, indent=2), encoding="utf-8")
+        print("LIFEMATE_FSDP_SMOKE_RESULT " + json.dumps(smoke_result), flush=True)
+        return smoke_result
     metrics = trainer.evaluate()
     trainer.save_model(str(output / "adapter"))
     if local_rank == 0:
@@ -175,6 +207,8 @@ def train(args):
         manifest = {"model": model_info, "precision": "float16", "parallelism": "pytorch_fsdp_full_shard",
                     "gpus": gpus, "lora_targets_inspected": targets, "sequence_length": seq_len,
                     "transformer_layer_cls_to_wrap": transformer_layer_cls,
+                    "loss": "chunked_causal_lm", "loss_chunk_size": 64,
+                    "fsdp_activation_checkpointing": True,
                     "train_examples": len(train_features), "validation_examples": len(val_features),
                     "first_step_gradient_check": grad_check.report, "train_metrics": result.metrics,
                     "eval_metrics": metrics, "training_seconds": train_time, "hardware": hw,

@@ -23,6 +23,7 @@ from lifemate.deployment.submission import validate_submission
 from lifemate.models.loader import inspect_local_model
 from lifemate.models.policy import PolicyContextOverflow
 from lifemate.training.trainer import check_fsdp_hardware, choose_sequence_length
+from lifemate.training.chunked_loss import chunked_causal_lm_loss
 from lifemate.utils.runtime_compat import fp16_dtype_argument, torchao_compat_action
 
 
@@ -37,6 +38,44 @@ class FakeEnv:
 
 
 class CoreTests(unittest.TestCase):
+    def test_chunked_causal_lm_loss_matches_transformers_shift_and_mask(self):
+        import torch
+        import torch.nn.functional as F
+
+        torch.manual_seed(7)
+        hidden = torch.randn(2, 11, 5, requires_grad=True)
+        head = torch.nn.Linear(5, 17, bias=False)
+        labels = torch.randint(0, 17, (2, 11))
+        labels[0, :4] = -100  # masked prompt tokens
+        labels[1, 8:] = -100  # padding / ignored targets
+        labels[0, 10] = -100
+
+        ref_hidden = hidden.detach().clone().requires_grad_(True)
+        ref_head = torch.nn.Linear(5, 17, bias=False)
+        ref_head.load_state_dict(head.state_dict())
+        shifted = F.pad(labels, (0, 1), value=-100)[..., 1:].contiguous()
+        ref_logits = ref_head(ref_hidden).float()
+        reference = F.cross_entropy(ref_logits.reshape(-1, 17), shifted.reshape(-1),
+                                    ignore_index=-100, reduction="mean")
+        actual = chunked_causal_lm_loss(hidden, head, labels, 17, chunk_size=3)
+        torch.testing.assert_close(actual, reference, rtol=1e-6, atol=1e-7)
+        actual.backward(); reference.backward()
+        torch.testing.assert_close(hidden.grad, ref_hidden.grad, rtol=1e-6, atol=1e-7)
+        torch.testing.assert_close(head.weight.grad, ref_head.weight.grad, rtol=1e-6, atol=1e-7)
+
+    def test_chunked_causal_lm_loss_honors_global_item_count(self):
+        import torch
+        import torch.nn.functional as F
+
+        hidden = torch.randn(1, 5, 4, requires_grad=True)
+        head = torch.nn.Linear(4, 9, bias=False)
+        labels = torch.tensor([[-100, 1, 2, -100, 4]])
+        shifted = F.pad(labels, (0, 1), value=-100)[..., 1:]
+        ref = F.cross_entropy(head(hidden).float().reshape(-1, 9), shifted.reshape(-1),
+                              ignore_index=-100, reduction="sum") / 7
+        actual = chunked_causal_lm_loss(hidden, head, labels, 9, chunk_size=2, num_items_in_batch=7)
+        torch.testing.assert_close(actual, ref)
+
     def test_strict_target_json(self):
         target=parse_target('{"thought":"","actions":[],"is_finished":true}')
         self.assertTrue(target["is_finished"])

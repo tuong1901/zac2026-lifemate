@@ -136,6 +136,13 @@ checkpoints=sorted((TRAIN_DIR/'checkpoints').glob('checkpoint-*'),key=lambda p:i
 train_cmd=[sys.executable,'-m','torch.distributed.run','--standalone','--nproc_per_node',str(len(gpus)),str(PROJECT/'scripts/train.py'),
            '--model-dir',str(MODEL_DIR),'--train-jsonl',str(RUN_ROOT/'processed/train.jsonl'),
            '--validation-jsonl',str(RUN_ROOT/'processed/validation.jsonl'),'--output-dir',str(TRAIN_DIR)]
+smoke_cmd=train_cmd+['--smoke-only']
+print('Running two-GPU FSDP loss smoke test before full training:', ' '.join(smoke_cmd))
+subprocess.run(smoke_cmd,cwd=PROJECT,check=True)
+smoke_result=json.loads((TRAIN_DIR/'fsdp_smoke_result.json').read_text())
+if smoke_result.get('passed') is not True or smoke_result.get('optimizer_steps') != 1:
+    raise RuntimeError('Two-GPU FSDP forward/backward/optimizer smoke test did not pass.')
+print('FSDP smoke passed:',json.dumps(smoke_result,indent=2))
 if checkpoints: train_cmd += ['--resume-from-checkpoint',str(checkpoints[-1])]
 print('Running two-GPU FP16 FSDP training:', ' '.join(train_cmd))
 subprocess.run(train_cmd,cwd=PROJECT,check=True)
@@ -159,7 +166,7 @@ EXPORT_DIR.mkdir(parents=True,exist_ok=True)
 for source in ('audit','training','baseline','finetuned','evaluation'):
     path=RUN_ROOT/source
     if path.exists(): shutil.copytree(path,EXPORT_DIR/source,dirs_exist_ok=True)
-for source in ('model_smoke.json','runtime_initial.json','runtime_training.json'):
+for source in ('model_smoke.json','runtime_initial.json','runtime_training.json','training/fsdp_smoke_result.json'):
     path=RUN_ROOT/source
     if path.exists(): shutil.copy2(path,EXPORT_DIR/source)
 shutil.copy2(PROJECT/'reports/REPRODUCIBILITY.md',EXPORT_DIR/'REPRODUCIBILITY.md')

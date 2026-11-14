@@ -26,6 +26,8 @@ def main():
     p.add_argument("--eval-steps", type=int, default=100)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--resume-from-checkpoint")
+    p.add_argument("--smoke-only", action="store_true",
+                   help="Run one real FSDP forward/backward/optimizer step and exit before full training")
     args = p.parse_args()
     if not Path(args.model_dir).is_dir():
         p.error(f"downloaded model directory does not exist: {args.model_dir}")
