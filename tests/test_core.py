@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/"src"))
 
@@ -21,6 +22,7 @@ from lifemate.data.trajectory import group_trajectories
 from lifemate.deployment.submission import validate_submission
 from lifemate.models.loader import inspect_local_model
 from lifemate.models.policy import PolicyContextOverflow
+from lifemate.training.trainer import check_fsdp_hardware
 
 
 class FakeEnv:
@@ -142,10 +144,24 @@ class CoreTests(unittest.TestCase):
     def test_local_model_identity_is_checked_without_loading(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp); (p/"config.json").write_text(json.dumps({"model_type":"qwen3","_name_or_path":"Qwen/Qwen3-4B-Instruct-2507","_commit_hash":"a"*40,"max_position_embeddings":262144}),encoding="utf-8")
+            (p/"model.safetensors").touch()
             result=inspect_local_model(p)
             self.assertEqual(result["model_id_verified"],"Qwen/Qwen3-4B-Instruct-2507")
             (p/"config.json").write_text(json.dumps({"model_type":"qwen3","_name_or_path":"Qwen/Qwen3-8B","_commit_hash":"a"*40}),encoding="utf-8")
             with self.assertRaises(ValueError): inspect_local_model(p)
+
+    def test_fp32_training_requires_sharded_multigpu_before_model_download(self):
+        with patch("lifemate.training.trainer.platform.system", return_value="Linux"):
+            hw={"cuda_available":True,"gpu":[{"index":0,"name":"Tesla T4","total_vram_bytes":16*1024**3,"free_vram_bytes":15*1024**3}]}
+            with self.assertRaisesRegex(RuntimeError,"at least two GPUs"):
+                check_fsdp_hardware(hw)
+
+    def test_two_t4_fsdp_hardware_passes_conservative_gate(self):
+        with patch("lifemate.training.trainer.platform.system", return_value="Linux"):
+            hw={"cuda_available":True,"gpu":[
+                {"index":0,"name":"Tesla T4","total_vram_bytes":16*1024**3,"free_vram_bytes":14*1024**3},
+                {"index":1,"name":"Tesla T4","total_vram_bytes":16*1024**3,"free_vram_bytes":14*1024**3}]}
+            self.assertEqual(len(check_fsdp_hardware(hw)),2)
 
     def test_env_config_expansion_and_original_data_discovery(self):
         self.assertEqual(_expand("${ABSENT_VAR:abc}"),"abc")

@@ -13,6 +13,12 @@ eval_strategy: steps
 eval_steps: 100
 gradient_checkpointing: true
 max_grad_norm: 0.3
-optim: paged_adamw_8bit
+optim: adamw_torch
+fp16: false
+bf16: false
+fsdp: full_shard auto_wrap
+fsdp_min_gpu_count: 2
+fsdp_cpu_ram_efficient_loading: true
+tf32: false
 packing: false
 resume_from_checkpoint: null

@@ -42,19 +42,21 @@ These commands never train Qwen on the local RTX 3050 Ti. The recorded local GPU
 
 ## Kaggle workflow
 
-See [data attachment guide](docs/DATA_SETUP.md) and [Kaggle execution guide](reports/KAGGLE_EXECUTION_GUIDE.md). Attach the SFT data, original competition package, Qwen base model, ASR model, and source ZIP/private repository as separate inputs. The notebook discovers mount locations from file markers. It loads model and ASR assets locally with Hugging Face offline flags; inference never calls a hosted LLM or transcription API.
+The only entry point is [notebooks/kaggle_train_eval.ipynb](notebooks/kaggle_train_eval.ipynb). It clones `https://github.com/tuong1901/zac2026-lifemate.git`, branch `frame-agent`, and uses the two fixed Kaggle dataset paths in the notebook. Enable Kaggle Internet for GitHub cloning, missing Python dependencies, and the Hugging Face download. No model is expected in Kaggle Input.
 
-Open `notebooks/kaggle_train_eval.ipynb`. The notebook checks GPU/VRAM, RAM, storage and installed packages before running. Costly full training and public inference are controlled by explicit notebook flags. QLoRA starts only on Linux/CUDA with at least 15 GiB total and 12 GiB free VRAM, after a reversible forward/backward smoke step. Context over the selected sequence length is recorded in `length_exclusions.json`, not silently truncated.
+Training is FP32 LoRA with PyTorch FSDP `FULL_SHARD`, transformer decoder-layer auto-wrap, and `use_orig_params=True`; training does not use DDP, `device_map`, FP16/BF16, or quantization. The notebook checks the live runtime and requires at least two Tesla T4 GPUs, 30 GiB aggregate VRAM, and 12 GiB free on each before downloading the model. A one-T4 session stops before download. The check is a conservative gate, not a guarantee of runtime fit. Lengths beyond the selected limit are recorded and excluded, not truncated.
 
-Qwen3-4B-Instruct-2507 is the non-thinking variant; its chat template is used without injecting `enable_thinking`. The upstream model card lists native 262,144-token context; actual training sequence length is GPU-bounded. Transformers support for Qwen3 begins at 4.51.0 and the Qwen guide recommends PyTorch 2.6 or newer. See the [model card](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) and [Qwen Transformers guide](https://github.com/QwenLM/Qwen3/blob/main/docs/source/inference/transformers.md). Kaggle still must be checked dynamically; the pinned candidate stack is in `requirements/kaggle.txt` and is not claimed tested on Kaggle.
+The notebook clones source into `/kaggle/working/lifemate_repo`; run outputs, downloaded base weights, checkpoints, adapter, logs and metrics go under `/kaggle/working/lifemate_run`. It exports a timestamped `/kaggle/working/lifemate_export_*.zip` without base weights or datasets and prints the exact file path. See [Kaggle execution guide](reports/KAGGLE_EXECUTION_GUIDE.md) for output locations and retrieval.
+
+Qwen3-4B-Instruct-2507 is the non-thinking variant; its shipped chat template is used without injecting a thinking-mode flag. Transformers support for Qwen3 begins at 4.51.0 and the Qwen guide recommends PyTorch 2.6 or newer. See the [model card](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) and [Qwen Transformers guide](https://github.com/QwenLM/Qwen3/blob/main/docs/source/inference/transformers.md).
 
 ## Model provenance
 
-The model directory must identify `Qwen/Qwen3-4B-Instruct-2507` and its exact 40-character source revision. Add `model_source.json` beside the attached model files using `model_source.json.example`. The loader refuses unknown IDs/revisions, network fallback, and alternate model sizes. Keep the base model and LoRA adapter separate; the adapter alone is not an offline deployment.
+The notebook downloads `Qwen/Qwen3-4B-Instruct-2507` directly from Hugging Face after checking the GPU gate, pins the resolved commit SHA, and writes `model_source.json` automatically. Training uses the local downloaded snapshot and does not use hosted inference. Keep the base model and LoRA adapter separate; the adapter alone is not a complete deployment.
 
 ## Git/GitHub
 
-The project directory is a separate repository from datasets and legacy work. `.gitignore` excludes data, weights, checkpoints, virtual environments, Kaggle files, logs, and generated submissions. No GitHub remote is configured and no push has been performed.
+The project directory has the `origin` remote and `frame-agent` branch. `.gitignore` excludes data, weights, checkpoints, virtual environments, Kaggle files, logs, and generated submissions. Changes in this working tree are not pushed automatically. Review `git status`/`git diff`, then commit and push to `frame-agent` before the Kaggle notebook clones it.
 
 After reviewing `git status` and `git diff`, the initial commit can be made with:
 
@@ -62,9 +64,8 @@ After reviewing `git status` and `git diff`, the initial commit can be made with
 git add .
 git diff --cached --stat
 git diff --cached
-git commit -m "Build LifeMate workflow agent training pipeline"
-git remote add origin <PRIVATE_OR_CODE_ONLY_GITHUB_REMOTE>
-git push -u origin main
+git commit -m "Refactor Kaggle training to FP32 FSDP"
+git push origin frame-agent
 ```
 
 Never add the SFT/original data or model assets. A code-only ZIP is the Kaggle transfer alternative when GitHub access is unavailable.

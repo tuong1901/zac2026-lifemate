@@ -1,7 +1,7 @@
 # Training report
 
-No Qwen training run has been performed. The machine has an RTX 3050 Ti with 4 GiB VRAM, and no Qwen base weights are cached. Training therefore remains a Kaggle execution task.
+No Qwen training run has been performed. The local machine has an RTX 3050 Ti with 4 GiB VRAM and no cached Qwen weights.
 
-The implementation provides 4-bit NF4 QLoRA, dynamically detected target modules, assistant-only loss, length accounting without silent truncation, a reversible forward/backward smoke step, training/evaluation logs, and bounded checkpoint retention. It refuses to start unless Linux/CUDA reports at least 15 GiB total VRAM and 12 GiB free. These thresholds are gates, not evidence that a particular Kaggle accelerator will fit the run.
+The revised implementation uses FP32 LoRA with PyTorch FSDP `FULL_SHARD`, transformer-layer auto-wrap, `use_orig_params=True`, dynamically detected LoRA targets, assistant-only loss, explicit length exclusions, finite/nonzero gradient checking on the first optimizer step, training logs, and resumable checkpoints. It does not use DDP, inference `device_map`, FP16/BF16, or quantization for training.
 
-The current training configuration and candidate dependencies are in `configs/` and `requirements/kaggle.txt`. The pinned environment has not been installed or tested in Kaggle; inspect the live image before changing Torch or installing packages. No loss curve, adapter, or trained checkpoint is available yet.
+The notebook refuses model download/training unless at least two Tesla T4 GPUs, 30 GiB aggregate VRAM, and 12 GiB free on every GPU are detected. These gates do not guarantee a successful runtime fit. Configuration and dependency minimums are in `configs/` and `requirements/kaggle.txt`; they have not been tested on Kaggle. The notebook does not replace Torch/CUDA. No loss curve, adapter, or trained checkpoint is available yet.

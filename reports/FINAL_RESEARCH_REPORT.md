@@ -12,17 +12,17 @@ This report describes the portable local-development and Kaggle-oriented pipelin
 - Original training JSONL SHA-256: `24c42c79fbe8db932fe9817d041c0d0ca422ac8177b413cc1be0cda1fd8941a8`.
 - SFT split-manifest SHA-256: `d2c8952240d80b5b7c4618a1cbccf4a1f9611fa4bf283e2657f6504de10ebaab`.
 - Replay against the official environment: 3,541 calls, zero result/schema/final-state discrepancies; reconstructed SFT action sequences had zero discrepancies.
-- New tests: 16 CPU unit tests and one official ToolEnv integration test pass. The historical ten-test suite could not be rerun because its files are absent.
+- New tests: 18 CPU unit tests and one official ToolEnv integration test pass. The historical ten-test suite could not be rerun because its files are absent.
 
 ## System design
 
-Training and inference use a structured, single-action-per-decision policy. Tool calls are checked against the supplied catalog and official environment; only actual tool results update agent state. Trajectory evaluation uses fresh environments per sample, and training excludes overlength rows with an explicit record rather than truncating them. QLoRA and local ASR use attached local assets with network fallback disabled.
+Training and inference use a structured, single-action-per-decision policy. Tool calls are checked against the supplied catalog and official environment; only actual tool results update agent state. Trajectory evaluation uses fresh environments per sample, and training excludes overlength rows with an explicit record rather than truncating them. The revised notebook downloads the exact base model from Hugging Face after its hardware gate and uses FP32 LoRA with FSDP full-shard model parallelism; it does not use hosted inference.
 
 The loader requires the exact Qwen model ID and a recorded 40-character source revision. The selected upstream model is Qwen3-4B-Instruct-2507, the non-thinking variant; its official card documents a native 262,144-token context window. This is not the configured training length, which is bounded by available GPU resources. See [official model card](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) and [Qwen Transformers guide](https://github.com/QwenLM/Qwen3/blob/main/docs/source/inference/transformers.md).
 
 ## Status and limits
 
-No base weights or ASR snapshot were present, and no Kaggle session was available. Therefore no model load, baseline inference, fine-tuning, checkpoint comparison, public-test inference, or Kaggle run is claimed. The laptop GPU has 4 GiB VRAM; full training is gated to Linux/CUDA with at least 15 GiB total and 12 GiB free VRAM. The Kaggle dependency file is a candidate stack and has not been validated against a live Kaggle image. No GitHub remote or push exists.
+No base weights or Kaggle session were available. Therefore no Qwen model load, baseline inference, fine-tuning, checkpoint comparison, public-test inference, or Kaggle run is claimed. The laptop GPU has 4 GiB VRAM. The workflow requires at least two Tesla T4s, 30 GiB aggregate VRAM, and 12 GiB free per GPU before model download. Dependencies and FSDP have not been validated against a live Kaggle image. The current changes are local and have not been pushed.
 
 ## Artifacts
 

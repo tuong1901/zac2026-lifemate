@@ -5,33 +5,161 @@ from pathlib import Path
 
 
 CELLS = [
-    ("markdown", "# LifeMate: Kaggle GPU training and evaluation\n\nThis notebook uses attached local assets only. It discovers data/model mount points, validates the official train labels, runs a base-model smoke test, and runs optional training/evaluation stages when their flags are enabled. No hosted LLM API is used. Kaggle execution is gated by the attached inputs and available GPU."),
-    ("code", """# 0. Reproducible run switches and persistent output root\nfrom pathlib import Path\nimport os, json, sys, shutil, subprocess, time, zipfile\n\nRUN_ROOT = Path('/kaggle/working/lifemate_run')\nRUN_ROOT.mkdir(parents=True, exist_ok=True)\n# Keep full training and public inference opt-in so a top-to-bottom smoke run is bounded.\nINSTALL_STACK = False  # only enable after reviewing requirements/kaggle.txt and Kaggle CUDA\nRUN_MODEL_SMOKE = False\nRUN_BASELINE_FULL = False\nRUN_FULL_TRAINING = False\nRUN_FINETUNED_FULL = False\nRUN_AGENT_LOOP_FULL = False\nRUN_PUBLIC_TEST = False\nMAX_SMOKE_SAMPLES = 5\nMAX_LOOP_SMOKE_SAMPLES = 2\nSEED = 42\nos.environ['HF_HUB_OFFLINE'] = '1'\nos.environ['TRANSFORMERS_OFFLINE'] = '1'\nos.environ['HF_DATASETS_OFFLINE'] = '1'\n"""),
-    ("markdown", "## 1. Code setup\nAttach this repository as a Kaggle Dataset, or upload a ZIP containing only source/config/docs. Optionally set `LIFEMATE_GIT_URL` for a one-time code clone when notebook internet is enabled. The dataset/model files remain separate Kaggle inputs."),
-    ("code", """# Locate project code from an input directory; ZIP fallback is for source code only.\nINPUT_ROOT = Path('/kaggle/input')\nproject_candidates = [p.parent for p in INPUT_ROOT.rglob('pyproject.toml') if (p.parent/'configs/paths.yaml').is_file()] if INPUT_ROOT.exists() else []\nif project_candidates:\n    PROJECT = project_candidates[0].resolve()\nelse:\n    zip_candidates = list(INPUT_ROOT.rglob('*.zip')) if INPUT_ROOT.exists() else []\n    PROJECT = None\n    for zpath in zip_candidates:\n        dest = Path('/kaggle/working/lifemate_source')\n        with zipfile.ZipFile(zpath) as zf:\n            names = zf.namelist()\n            if not any(n.endswith('pyproject.toml') for n in names):\n                continue\n            if any(Path(n).is_absolute() or '..' in Path(n).parts for n in names):\n                raise ValueError(f'Unsafe source ZIP paths: {zpath}')\n            zf.extractall(dest)\n        found = list(dest.rglob('pyproject.toml'))\n        if found:\n            PROJECT = found[0].parent\n            break\nif PROJECT is None and os.environ.get('LIFEMATE_GIT_URL'):\n    PROJECT = Path('/kaggle/working/lifemate_repo')\n    subprocess.run(['git','clone','--depth','1',os.environ['LIFEMATE_GIT_URL'],str(PROJECT)],check=True)\nif PROJECT is None:\n    raise FileNotFoundError('Attach project source as Kaggle Dataset/ZIP or set LIFEMATE_GIT_URL for code transfer only.')\nsys.path.insert(0, str(PROJECT/'src'))\nprint('Project:', PROJECT)\n"""),
-    ("markdown", "## 2. Inspect runtime and discover attached inputs\nNo Kaggle device is assumed. The discovery checks file markers and model identity rather than relying on dataset slugs."),
-    ("code", """from lifemate.utils.hardware import inspect_hardware\nhardware = inspect_hardware(['/kaggle/input','/kaggle/working'])\nprint(json.dumps(hardware, indent=2, default=str))\nif not hardware['cuda_available']:\n    print('No CUDA GPU: data checks can run, but QLoRA/model smoke stages will be skipped.')\n"""),
-    ("code", """# Discover SFT/original/model/ASR mounts independently.\nall_files = list(INPUT_ROOT.rglob('*')) if INPUT_ROOT.exists() else []\nsft_candidates = sorted({p.parent for p in all_files if p.name == 'train_all_lengths.jsonl' and (p.parent/'split_manifest.json').is_file()})\ndata_candidates = sorted({p.parent.parent for p in all_files if p.name == 'train.jsonl' and p.parent.name == 'train' and (p.parent.parent/'public_test/public_test.jsonl').is_file() and (p.parent/'zaic_tools').is_dir()})\nmodel_candidates=[]; asr_candidates=[]\nfor cfg_path in (p for p in all_files if p.name == 'config.json'):\n    try: cfg=json.loads(cfg_path.read_text(encoding='utf-8'))\n    except Exception: continue\n    model_id=(cfg.get('_name_or_path') or '').lower()\n    source_path=cfg_path.parent/'model_source.json'\n    if source_path.exists():\n        try: model_id=json.loads(source_path.read_text(encoding='utf-8')).get('model_id','').lower()\n        except Exception: pass\n    if cfg.get('model_type') == 'qwen3' and 'qwen3-4b-instruct-2507' in model_id:\n        model_candidates.append(cfg_path.parent)\n    if cfg.get('model_type') == 'whisper' and (cfg_path.parent/'preprocessor_config.json').exists():\n        asr_candidates.append(cfg_path.parent)\nif not sft_candidates or not data_candidates or not model_candidates:\n    raise FileNotFoundError(json.dumps({'sft_candidates':list(map(str,sft_candidates)),'original_candidates':list(map(str,data_candidates)),'qwen_candidates':list(map(str,model_candidates))},indent=2))\nSFT_DIR=sft_candidates[0]; ORIGINAL_DIR=data_candidates[0]; MODEL_DIR=model_candidates[0]\nASR_DIR=Path(os.environ['ASR_MODEL_DIR']) if os.environ.get('ASR_MODEL_DIR') else (asr_candidates[0] if asr_candidates else None)\nos.environ.update({'SFT_DATA_DIR':str(SFT_DIR),'ORIGINAL_DATA_DIR':str(ORIGINAL_DIR),'BASE_MODEL_DIR':str(MODEL_DIR),'LIFEMATE_WORK_DIR':str(RUN_ROOT)})\nif ASR_DIR: os.environ['ASR_MODEL_DIR']=str(ASR_DIR)\nprint(json.dumps({'SFT_DIR':str(SFT_DIR),'ORIGINAL_DIR':str(ORIGINAL_DIR),'MODEL_DIR':str(MODEL_DIR),'ASR_DIR':str(ASR_DIR) if ASR_DIR else None},indent=2))\n"""),
-    ("markdown", "## 3. Dependency verification\nThe notebook does not upgrade a preinstalled CUDA/PyTorch stack implicitly. The lock file is a candidate environment; inspect the printed versions and install it only through an explicitly reviewed Kaggle session."),
-    ("code", """import importlib.metadata as im\nversions={name:(im.version(name) if __import__('importlib').util.find_spec(name.replace('-','_')) else None) for name in ['torch','transformers','datasets','accelerate','peft','bitsandbytes','trl','PyYAML']}\nprint(json.dumps(versions,indent=2))\nif INSTALL_STACK:\n    subprocess.run([sys.executable,'-m','pip','install','-r',str(PROJECT/'requirements/kaggle.txt')],check=True)\n    raise RuntimeError('Dependencies installed. Restart the Kaggle session, then rerun from the top so CUDA libraries are loaded cleanly.')\nimport torch, transformers\nif tuple(int(x) for x in transformers.__version__.split('.')[:2]) < (4,51): raise RuntimeError('Qwen3 support needs transformers>=4.51.0; review requirements/kaggle.txt')\nif tuple(int(x) for x in torch.__version__.split('+')[0].split('.')[:2]) < (2,6): raise RuntimeError('Qwen3 recommended stack requires torch>=2.6; inspect Kaggle CUDA before changing it')\n"""),
-    ("markdown", "## 4. Validate data and official ToolEnv\nThis stage reads labeled train and the public input metadata. Only train samples are replayed; public test is not used for training."),
-    ("code", """def run_script(name, *args):\n    cmd=[sys.executable,str(PROJECT/'scripts'/name),*map(str,args)]\n    print('>', ' '.join(cmd))\n    subprocess.run(cmd,cwd=PROJECT,check=True)\nrun_script('audit_data.py','--sft-dir',SFT_DIR,'--original-dir',ORIGINAL_DIR,'--output-dir',RUN_ROOT/'audit')\nrun_script('prepare_data.py','--sft-dir',SFT_DIR,'--original-dir',ORIGINAL_DIR,'--output-dir',RUN_ROOT/'processed')\nrun_script('verify_toolenv.py','--sft-dir',SFT_DIR,'--original-dir',ORIGINAL_DIR,'--output',RUN_ROOT/'audit/toolenv_verification.json')\n"""),
-    ("markdown", "## 5. Verify exact model, tokenizer, template, context, and GPU fit\nThe selected variant is the non-thinking `Qwen3-4B-Instruct-2507`; it uses its shipped chat template. The model card states 262,144 native context, but training length is selected conservatively from GPU VRAM and measured tokenized examples. No thinking-mode flag is injected."),
-    ("code", """from lifemate.models.loader import inspect_local_model\nmodel_info=inspect_local_model(MODEL_DIR)\nprint(json.dumps(model_info,indent=2,default=str))\nif model_info.get('model_type')!='qwen3' or model_info.get('model_id_verified')!='Qwen/Qwen3-4B-Instruct-2507': raise RuntimeError('The attached base model is not the requested exact Qwen3-4B-Instruct-2507.')\nfrom transformers import AutoTokenizer\ntokenizer=AutoTokenizer.from_pretrained(str(MODEL_DIR),local_files_only=True,trust_remote_code=False)\nassert tokenizer.chat_template, 'Tokenizer chat template missing'\nprint('EOS:',tokenizer.eos_token,tokenizer.eos_token_id,'PAD:',tokenizer.pad_token,tokenizer.pad_token_id)\nprint('Chat template prefix:',tokenizer.chat_template[:500])\n"""),
-    ("markdown", "## 6. Model load and forward/generation smoke test\nRun only when the dynamically detected GPU has enough free VRAM. The script loads local assets with `local_files_only=True` and records a generated sample."),
-    ("code", """FREE_GIB=(hardware['gpu'][0]['free_vram_bytes']/1024**3) if hardware['gpu'] else 0\nif RUN_MODEL_SMOKE:\n    if FREE_GIB < 6: raise RuntimeError(f'Only {FREE_GIB:.1f} GiB VRAM free; stopping before model load.')\n    run_script('model_smoke.py','--model-dir',MODEL_DIR,'--output',RUN_ROOT/'model_smoke.json')\nelse: print('Model forward smoke skipped by RUN_MODEL_SMOKE=False; no model inference claimed.')\n"""),
-    ("markdown", "## 7. Baseline evaluation\nBaseline is always the unmodified local base model. Smoke evaluation and full validation are separate."),
-    ("code", """if RUN_BASELINE_FULL:\n    run_script('evaluate_baseline.py','--model-dir',MODEL_DIR,'--original-dir',ORIGINAL_DIR,'--sft-dir',SFT_DIR,'--data',RUN_ROOT/'processed/validation.jsonl','--output-dir',RUN_ROOT/'baseline')\nelse:\n    print('Full baseline evaluation skipped. Enable RUN_BASELINE_FULL after a successful model smoke and runtime estimate.')\n"""),
-    ("markdown", "## 8. QLoRA smoke step and training\nTraining is opt-in. `scripts/train.py` checks Linux/CUDA/VRAM, exact local model identity, detects LoRA modules by inspecting the loaded architecture, runs one reversible forward/backward update, records sequence exclusions, then trains and saves resumable checkpoints plus the best adapter."),
-    ("code", """adapter_dir=RUN_ROOT/'lora/run1/adapter'\nif RUN_FULL_TRAINING:\n    if not hardware['cuda_available']: raise RuntimeError('CUDA not available; QLoRA stopped.')\n    run_script('train.py','--model-dir',MODEL_DIR,'--train-jsonl',RUN_ROOT/'processed/train.jsonl','--validation-jsonl',RUN_ROOT/'processed/validation.jsonl','--output-dir',RUN_ROOT/'lora/run1')\n    run_script('select_checkpoint.py','--model-dir',MODEL_DIR,'--checkpoint-root',RUN_ROOT/'lora/run1/checkpoints','--original-dir',ORIGINAL_DIR,'--sft-dir',SFT_DIR,'--output-dir',RUN_ROOT/'lora/run1/checkpoint_selection')\n    adapter_dir=RUN_ROOT/'lora/run1/checkpoint_selection/adapter_selected'\nelse: print('QLoRA not run; set RUN_FULL_TRAINING=True after reviewing GPU and cost estimate.')\n"""),
-    ("markdown", "## 9. Fine-tuned evaluation and comparison"),
-    ("code", """if RUN_FINETUNED_FULL:\n    if not (adapter_dir/'adapter_config.json').exists(): raise FileNotFoundError('No adapter checkpoint found; training must finish first or attach an exported adapter.')\n    run_script('evaluate_finetuned.py','--model-dir',MODEL_DIR,'--adapter-dir',adapter_dir,'--original-dir',ORIGINAL_DIR,'--sft-dir',SFT_DIR,'--data',RUN_ROOT/'processed/validation.jsonl','--output-dir',RUN_ROOT/'finetuned')\n    run_script('compare_models.py','--baseline-steps',RUN_ROOT/'baseline/steps/metrics.json','--finetuned-steps',RUN_ROOT/'finetuned/steps/metrics.json','--baseline-trajectories',RUN_ROOT/'baseline/trajectories/trajectory_evaluation.json','--finetuned-trajectories',RUN_ROOT/'finetuned/trajectories/trajectory_evaluation.json','--output',RUN_ROOT/'evaluation/model_comparison.json')\nelse: print('Fine-tuned evaluation/comparison skipped.')\n"""),
-    ("markdown", "## 10. Full Agent Loop evaluation\nThe trajectory evaluator runs one official ToolEnv per labeled validation sample and injects verified observations between decisions. Ground truth is used only for evaluation, never as policy input."),
-    ("code", """if RUN_AGENT_LOOP_FULL:\n    loop_adapter_args=['--adapter-dir',str(adapter_dir)] if (adapter_dir/'adapter_config.json').exists() else []\n    run_script('evaluate_trajectories.py','--original-dir',ORIGINAL_DIR,'--sft-dir',SFT_DIR,'--model-dir',MODEL_DIR,*loop_adapter_args,'--output-dir',RUN_ROOT/'agent_loop')\nelse: print('Full Agent Loop evaluation skipped.')\n"""),
-    ("markdown", "## 11. Public test inference\nPublic audio requires an attached offline Whisper-family ASR checkpoint in addition to Qwen. Public test has no reference labels; inference counts are not accuracy scores."),
-    ("code", """if RUN_PUBLIC_TEST:\n    if ASR_DIR is None: raise FileNotFoundError('Attach a local ASR model and set/discover ASR_MODEL_DIR; no hosted transcription is used.')\n    run_script('run_public_test.py','--original-dir',ORIGINAL_DIR,'--model-dir',MODEL_DIR,'--adapter-dir',adapter_dir if (adapter_dir/'adapter_config.json').exists() else '', '--asr-model-dir',ASR_DIR,'--output',RUN_ROOT/'submission/submission.jsonl')\n    run_script('build_submission.py','--original-dir',ORIGINAL_DIR,'--submission',RUN_ROOT/'submission/submission.jsonl')\nelse: print('Public inference skipped.')\n"""),
-    ("markdown", "## 12. Offline deployment checks and artifact export\nThe adapter does not replace the base model; both base and adapter, plus offline ASR for audio inputs, are required for the full audio submission pipeline."),
-    ("code", """adapter_arg=['--adapter-dir',str(adapter_dir)] if (adapter_dir/'adapter_config.json').exists() else []\nif model_info and (RUN_MODEL_SMOKE or RUN_FULL_TRAINING):\n    asr_arg=['--asr-model-dir',str(ASR_DIR)] if ASR_DIR else []\n    run_script('offline_check.py','--model-dir',MODEL_DIR,*adapter_arg,*asr_arg,'--output',RUN_ROOT/'offline_check.json')\n# Archive code/report/config/metrics/adapter and submission only; never copy attached datasets or base weights.\nexport=Path('/kaggle/working/lifemate_export'); export.mkdir(parents=True,exist_ok=True)\nshutil.copytree(PROJECT/'reports',export/'reports',dirs_exist_ok=True)\nshutil.copytree(RUN_ROOT,export/'run_artifacts',dirs_exist_ok=True)\narchive=shutil.make_archive('/kaggle/working/lifemate_run_export','zip',root_dir=export)\nprint('Export:',archive)\n"""),
+    ("markdown", "# LifeMate: single-run Kaggle FP32 training\n\nRun this notebook top to bottom. It clones `frame-agent`, validates the two fixed Kaggle inputs, checks for multiple Tesla T4 GPUs before downloading Qwen, downloads the exact Hugging Face model, prepares data, runs FP32 FSDP LoRA training and validation evaluation, then exports reports and adapter artifacts. Internet must be enabled for GitHub, Hugging Face, and any missing Python packages. If the GPU configuration cannot meet the FP32 gate, the workflow stops before model download."),
+    ("code", """from pathlib import Path
+import json, os, shutil, subprocess, sys, time
+
+RUN_ROOT = Path('/kaggle/working/lifemate_run')
+RUN_ROOT.mkdir(parents=True, exist_ok=True)
+probe = RUN_ROOT / '.write_test'
+probe.write_text('ok')
+probe.unlink()
+os.environ['HF_HUB_OFFLINE'] = '0'
+os.environ['TRANSFORMERS_OFFLINE'] = '0'
+os.environ['HF_DATASETS_OFFLINE'] = '1'
+os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
+
+import torch
+runtime = {'python':sys.version,'torch':torch.__version__,'cuda_version':torch.version.cuda,
+           'cuda_available':torch.cuda.is_available(),'gpu':[]}
+if runtime['cuda_available']:
+    for index in range(torch.cuda.device_count()):
+        props=torch.cuda.get_device_properties(index)
+        free,total=torch.cuda.mem_get_info(index)
+        runtime['gpu'].append({'index':index,'name':props.name,'total_vram_bytes':total,'free_vram_bytes':free})
+runtime['nvidia_smi']=subprocess.run(['nvidia-smi'],capture_output=True,text=True).stdout if shutil.which('nvidia-smi') else None
+(RUN_ROOT / 'runtime_initial.json').write_text(json.dumps(runtime, indent=2, default=str))
+print(json.dumps(runtime, indent=2, default=str))
+if not runtime['cuda_available']:
+    raise RuntimeError('CUDA is unavailable. Select Kaggle GPU accelerator and rerun; model download is not started.')
+"""),
+    ("markdown", "## 1. Clone the required repository and branch"),
+    ("code", """REPO_URL = 'https://github.com/tuong1901/zac2026-lifemate.git'
+BRANCH = 'frame-agent'
+PROJECT = Path('/kaggle/working/lifemate_repo')
+if PROJECT.exists():
+    origin = subprocess.run(['git','-C',str(PROJECT),'remote','get-url','origin'],capture_output=True,text=True)
+    branch = subprocess.run(['git','-C',str(PROJECT),'branch','--show-current'],capture_output=True,text=True)
+    if origin.returncode or origin.stdout.strip() != REPO_URL or branch.stdout.strip() != BRANCH:
+        raise RuntimeError(f'Existing {PROJECT} is not the requested repository/branch; remove that Kaggle working folder and rerun.')
+    subprocess.run(['git','-C',str(PROJECT),'pull','--ff-only','origin',BRANCH],check=True)
+else:
+    subprocess.run(['git','clone','--depth','1','--branch',BRANCH,'--single-branch',REPO_URL,str(PROJECT)],check=True)
+actual_branch = subprocess.check_output(['git','-C',str(PROJECT),'branch','--show-current'],text=True).strip()
+actual_commit = subprocess.check_output(['git','-C',str(PROJECT),'rev-parse','HEAD'],text=True).strip()
+if actual_branch != BRANCH: raise RuntimeError(f'Expected {BRANCH}, got {actual_branch}')
+sys.path.insert(0, str(PROJECT/'src'))
+os.environ['PYTHONPATH'] = str(PROJECT/'src')
+print({'project':str(PROJECT),'branch':actual_branch,'commit':actual_commit})
+"""),
+    ("markdown", "## 2. Inspect and install only project dependencies\nThe notebook does not install or replace PyTorch. If the Kaggle image has an incompatible Torch/CUDA build, it stops instead of silently changing precision or CUDA packages."),
+    ("code", """import importlib.metadata as metadata
+for package in ('torch','transformers','datasets','accelerate','peft','huggingface_hub','PyYAML'):
+    try: print(package, metadata.version(package))
+    except metadata.PackageNotFoundError: print(package, 'not installed')
+
+subprocess.run([sys.executable,'-m','pip','install','-r',str(PROJECT/'requirements/kaggle.txt'),
+                '--disable-pip-version-check'],check=True)
+import torch, transformers
+print({package:metadata.version(package) for package in ('torch','transformers','datasets','accelerate','peft','huggingface-hub','PyYAML')})
+if tuple(int(x) for x in torch.__version__.split('+')[0].split('.')[:2]) < (2,6):
+    raise RuntimeError(f'Kaggle Torch {torch.__version__} is below Qwen3 recommended 2.6; refusing to replace the CUDA build.')
+if tuple(int(x) for x in transformers.__version__.split('.')[:2]) < (4,51):
+    raise RuntimeError(f'Transformers {transformers.__version__} lacks supported Qwen3 integration.')
+print('Torch/CUDA:',torch.__version__,torch.version.cuda,'Transformers:',transformers.__version__)
+"""),
+    ("markdown", "## 3. Validate the two fixed Kaggle datasets and preserve the supplied source split"),
+    ("code", """SFT_DIR = Path('/kaggle/input/datasets/estherle/sft-data/sft_full_history_v1')
+ORIGINAL_DIR = Path('/kaggle/input/datasets/estherle/zalo-dataset/zalo-ai-challenge/train+public_test')
+required_sft = ('train_all_lengths.jsonl','validation_all_lengths.jsonl','split_manifest.json','lengths.csv')
+required_original = ('train/train.jsonl','train/zaic_tools','public_test/public_test.jsonl')
+missing = [str(p/name) for p,names in ((SFT_DIR,required_sft),(ORIGINAL_DIR,required_original)) for name in names if not (p/name).exists()]
+if missing: raise FileNotFoundError('Required Kaggle dataset files are missing: '+json.dumps(missing,indent=2))
+os.environ.update({'SFT_DATA_DIR':str(SFT_DIR),'ORIGINAL_DATA_DIR':str(ORIGINAL_DIR),
+                   'LIFEMATE_WORK_DIR':str(RUN_ROOT)})
+print({'sft':str(SFT_DIR),'original':str(ORIGINAL_DIR)})
+
+def run_script(name,*args):
+    cmd=[sys.executable,str(PROJECT/'scripts'/name),*map(str,args)]
+    print('Running:', ' '.join(cmd))
+    subprocess.run(cmd,cwd=PROJECT,check=True)
+
+run_script('audit_data.py','--sft-dir',SFT_DIR,'--original-dir',ORIGINAL_DIR,'--output-dir',RUN_ROOT/'audit')
+run_script('prepare_data.py','--sft-dir',SFT_DIR,'--original-dir',ORIGINAL_DIR,'--output-dir',RUN_ROOT/'processed')
+run_script('verify_toolenv.py','--sft-dir',SFT_DIR,'--original-dir',ORIGINAL_DIR,'--output',RUN_ROOT/'audit/toolenv_verification.json')
+prep=json.loads((RUN_ROOT/'processed/split_manifest.json').read_text())
+if prep.get('public_test_used_for_training') is not False or prep.get('source_overlap'):
+    raise RuntimeError('Data leakage/source split verification failed.')
+print(json.dumps({k:v for k,v in prep.items() if k!='source_split'},indent=2))
+"""),
+    ("markdown", "## 4. Inspect actual hardware and stop before model download unless FP32 FSDP is feasible\nData parallelism/DDP copies the full model on each GPU and does not add VRAM. This workflow uses PyTorch FSDP `FULL_SHARD` with transformer-layer auto-wrap and `use_orig_params=True`, which shards model parameters across GPU ranks. It requires at least two detected Tesla T4s, at least 30 GiB aggregate VRAM and at least 12 GiB free on each. This conservative code gate does not guarantee a successful run; actual forward/backward memory is still verified."),
+    ("code", """from lifemate.utils.hardware import inspect_hardware
+from lifemate.training.trainer import check_fsdp_hardware
+runtime = inspect_hardware(['/kaggle/working', '/kaggle/input'])
+(RUN_ROOT/'runtime_training.json').write_text(json.dumps(runtime,indent=2,default=str))
+print(json.dumps(runtime,indent=2,default=str))
+gpus = check_fsdp_hardware(runtime)  # raises before any model download if hardware is insufficient
+if not shutil.which('torchrun'): raise RuntimeError('torchrun is unavailable in the Kaggle PyTorch installation.')
+print('FSDP GPU count:',len(gpus),'aggregate VRAM GiB:',sum(g['total_vram_bytes'] for g in gpus)/1024**3)
+"""),
+    ("markdown", "## 5. Download and validate the exact Qwen model from Hugging Face\nThis stage downloads only after the GPU feasibility gate. The resolved model commit SHA is recorded automatically in `model_source.json`; no manual manifest or Kaggle-mounted model is used."),
+    ("code", """from lifemate.models.loader import download_qwen_model
+MODEL_DIR = RUN_ROOT/'base_model'
+model_info = download_qwen_model(MODEL_DIR)
+print(json.dumps(model_info,indent=2,default=str))
+if model_info['model_id_verified'] != 'Qwen/Qwen3-4B-Instruct-2507': raise RuntimeError('Unexpected model identity.')
+from transformers import AutoTokenizer
+tokenizer=AutoTokenizer.from_pretrained(str(MODEL_DIR),local_files_only=True,trust_remote_code=False)
+if not tokenizer.chat_template: raise RuntimeError('Downloaded tokenizer has no chat template.')
+print('Model revision:',model_info['commit_hash'],'tokenizer template verified.')
+"""),
+    ("markdown", "## 6. FP32 model smoke test\nThe model is dispatched across available GPUs for inference only. Training later uses FSDP and does not use inference `device_map`."),
+    ("code", """run_script('model_smoke.py','--model-dir',MODEL_DIR,'--output',RUN_ROOT/'model_smoke.json')
+smoke=json.loads((RUN_ROOT/'model_smoke.json').read_text())
+if smoke.get('passed') is not True or not __import__('math').isfinite(smoke['loss']): raise RuntimeError('FP32 forward/loss smoke failed.')
+"""),
+    ("markdown", "## 7. FP32 LoRA training with FSDP full-shard model parallelism\nThe first optimizer step checks that LoRA gradients exist, are finite, and are nonzero. Training can resume from the latest checkpoint under the same output directory."),
+    ("code", """TRAIN_DIR=RUN_ROOT/'training'
+checkpoints=sorted((TRAIN_DIR/'checkpoints').glob('checkpoint-*'),key=lambda p:int(p.name.split('-')[-1])) if (TRAIN_DIR/'checkpoints').exists() else []
+train_cmd=['torchrun','--standalone',f'--nproc_per_node={len(gpus)}',str(PROJECT/'scripts/train.py'),
+           '--model-dir',str(MODEL_DIR),'--train-jsonl',str(RUN_ROOT/'processed/train.jsonl'),
+           '--validation-jsonl',str(RUN_ROOT/'processed/validation.jsonl'),'--output-dir',str(TRAIN_DIR)]
+if checkpoints: train_cmd += ['--resume-from-checkpoint',str(checkpoints[-1])]
+print('Running distributed FP32 training:', ' '.join(train_cmd))
+subprocess.run(train_cmd,cwd=PROJECT,check=True)
+adapter_dir=TRAIN_DIR/'adapter'
+if not (adapter_dir/'adapter_config.json').is_file(): raise FileNotFoundError('Training ended without a saved LoRA adapter.')
+"""),
+    ("markdown", "## 8. Baseline and fine-tuned validation evaluation\nBoth evaluations use the original validation split and official ToolEnv trajectory loop. Public test is not used here."),
+    ("code", """run_script('evaluate_baseline.py','--model-dir',MODEL_DIR,'--original-dir',ORIGINAL_DIR,'--sft-dir',SFT_DIR,
+           '--data',RUN_ROOT/'processed/validation.jsonl','--output-dir',RUN_ROOT/'baseline')
+run_script('evaluate_finetuned.py','--model-dir',MODEL_DIR,'--adapter-dir',adapter_dir,'--original-dir',ORIGINAL_DIR,
+           '--sft-dir',SFT_DIR,'--data',RUN_ROOT/'processed/validation.jsonl','--output-dir',RUN_ROOT/'finetuned')
+run_script('compare_models.py','--baseline-steps',RUN_ROOT/'baseline/steps/metrics.json',
+           '--finetuned-steps',RUN_ROOT/'finetuned/steps/metrics.json',
+           '--baseline-trajectories',RUN_ROOT/'baseline/trajectories/trajectory_evaluation.json',
+           '--finetuned-trajectories',RUN_ROOT/'finetuned/trajectories/trajectory_evaluation.json',
+           '--output',RUN_ROOT/'evaluation/model_comparison.json')
+"""),
+    ("markdown", "## 9. Save and locate artifacts\nThe export excludes the downloaded 16+ GiB base model and the input datasets. The adapter must be paired with the recorded base-model revision."),
+    ("code", """EXPORT_DIR=Path('/kaggle/working/lifemate_export_'+time.strftime('%Y%m%d_%H%M%S'))
+EXPORT_DIR.mkdir(parents=True,exist_ok=True)
+for source in ('audit','training','baseline','finetuned','evaluation'):
+    path=RUN_ROOT/source
+    if path.exists(): shutil.copytree(path,EXPORT_DIR/source,dirs_exist_ok=True)
+for source in ('model_smoke.json','runtime_initial.json','runtime_training.json'):
+    path=RUN_ROOT/source
+    if path.exists(): shutil.copy2(path,EXPORT_DIR/source)
+shutil.copy2(PROJECT/'reports/REPRODUCIBILITY.md',EXPORT_DIR/'REPRODUCIBILITY.md')
+archive=shutil.make_archive(str(EXPORT_DIR),'zip',root_dir=EXPORT_DIR)
+print('Run root:',RUN_ROOT)
+print('Checkpoint directory:',TRAIN_DIR/'checkpoints')
+print('LoRA adapter:',adapter_dir)
+print('Logs/metrics:')
+for p in sorted(TRAIN_DIR.glob('*.json*')): print(' -',p)
+print('Evaluation reports:',RUN_ROOT/'baseline',RUN_ROOT/'finetuned',RUN_ROOT/'evaluation')
+print('Download this file from Kaggle Output:',archive)
+"""),
 ]
 
 
@@ -47,11 +175,12 @@ def main():
     notebook = {"cells": [cell(*c) for c in CELLS], "metadata": {
         "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
         "language_info": {"name": "python", "version": "3.10+"},
-        "kaggle": {"accelerator": "GPU", "internet": False}}, "nbformat": 4, "nbformat_minor": 5}
+        "kaggle": {"accelerator": "GPU", "internet": True}}, "nbformat": 4, "nbformat_minor": 5}
     out = repo / "notebooks/kaggle_train_eval.ipynb"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(notebook, ensure_ascii=False, indent=1), encoding="utf-8")
     print(out)
 
 
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    main()

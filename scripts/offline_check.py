@@ -38,7 +38,7 @@ def main():
         socket.socket.connect=blocked
         try:
             from lifemate.models.loader import load_local_qwen
-            loaded,tokenizer,_=load_local_qwen(a.model_dir,quantized=True)
+            loaded,tokenizer,_=load_local_qwen(a.model_dir,quantized=False,model_parallel=True)
             if a.adapter_dir:
                 from peft import PeftModel
                 loaded=PeftModel.from_pretrained(loaded,a.adapter_dir,is_trainable=False)
