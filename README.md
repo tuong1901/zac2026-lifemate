@@ -80,6 +80,6 @@ Kiểm tra file nộp:
 python scripts/validate_submission.py output/submission.jsonl --data_root "D:/Download/train+public_test/train+public_test"
 ```
 
-Xem hướng dẫn chạy benchmark, ASR, chunking và submission cho toàn đội tại [docs/TEAM_RUNBOOK.md](docs/TEAM_RUNBOOK.md).
+Xem hướng dẫn chạy benchmark, ASR, chunking và submission cho toàn đội tại [docs/TEAM_RUNBOOK.md](docs/TEAM_RUNBOOK.md) và báo cáo chi tiết các cải tiến đạt mốc **47.58 điểm** trên Public Leaderboard tại [docs/AGENT_CHANGELOG_47_58.md](docs/AGENT_CHANGELOG_47_58.md).
 
 > Lưu ý: ASR model/pipeline chưa được bàn giao; hiện chỉ chạy và tối ưu agent với Gold Text. Không tạo submission speech-based cho đến khi ASR chạy offline trong Docker.

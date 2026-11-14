@@ -2,6 +2,7 @@
 from importlib import import_module
 
 _EXPORTS = {
+    "phrase_cleaner": ["PhraseCleaner"],
     "config": ["ASRConfig", "get_asr_config"],
     "transcribe": ["SpeechTranscriber", "UnifiedASRTranscriber", "PhoWhisperEngine", "PhoASREngine", "FasterWhisperEngine"],
     "post_processor": ["LexiconPostProcessor", "ContextualPostProcessor", "PunctuationPostProcessor", "CompositePostProcessor"],

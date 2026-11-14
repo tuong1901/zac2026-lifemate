@@ -39,7 +39,7 @@ def train(args):
     from math import gcd
     from peft import LoraConfig, get_peft_model, PeftConfig, PeftModel
     from transformers import (WhisperForConditionalGeneration, WhisperProcessor,
-                              Seq2SeqTrainer, Seq2SeqTrainingArguments, TrainerCallback, set_seed)
+                              Seq2SeqTrainer, Seq2SeqTrainingArguments, set_seed)
     from src.asr.evaluate import compute_levenshtein_distance, normalize_text_for_eval
 
     set_seed(args.seed)
@@ -129,7 +129,7 @@ def train(args):
     model.generation_config.forced_decoder_ids = None
     model.generation_config.do_sample = False
     model.generation_config.condition_on_prev_tokens = False
-    model.generation_config.no_repeat_ngram_size = args.eval_ngram
+    model.generation_config.no_repeat_ngram_size = 3
     # Generic PeftModel preserves Whisper's input_features interface (not text input_ids).
     if args.init_adapter:
         adapter_config = PeftConfig.from_pretrained(args.init_adapter)
@@ -182,13 +182,11 @@ def train(args):
         learning_rate=args.lr, num_train_epochs=args.epochs, warmup_ratio=0.05,
         lr_scheduler_type="cosine", fp16=True, gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
-        eval_strategy="steps" if args.save_steps else "epoch",
-        save_strategy="steps" if args.save_steps else "epoch",
-        eval_steps=args.save_steps or None, save_steps=args.save_steps or 500, save_total_limit=2,
+        eval_strategy="epoch", save_strategy="epoch", save_total_limit=2,
         # Select/load only after every rank finishes training. Checkpoint path
         # existence can differ between ranks while rank 0 is still saving it.
         load_best_model_at_end=False, metric_for_best_model="wer", greater_is_better=False,
-        predict_with_generate=True, generation_max_length=448, generation_num_beams=args.eval_beams,
+        predict_with_generate=True, generation_max_length=448, generation_num_beams=1,
         remove_unused_columns=False, label_names=["labels"], report_to=[],
         ddp_find_unused_parameters=False,
         seed=args.seed, data_seed=args.seed, logging_steps=10,
@@ -197,12 +195,6 @@ def train(args):
         model=model, args=options, train_dataset=AudioDataset(train_rows, augment=True),
         eval_dataset=AudioDataset(val_rows), data_collator=collate,
         processing_class=processor, compute_metrics=metrics)
-    if args.save_steps:
-        from src.asr.restore import ensure_final_checkpoint
-        class FinalCheckpoint(TrainerCallback):
-            def on_step_end(self, args, state, control, **kwargs):
-                return ensure_final_checkpoint(state, control)
-        trainer.add_callback(FinalCheckpoint())
     # Baseline is the original base, or the initial adapter when warm-starting.
     if not args.resume and not args.skip_baseline:
         write_json(out / "baseline_metrics.json", trainer.evaluate(metric_key_prefix="baseline"))
@@ -254,8 +246,6 @@ def merge(args):
     model.generation_config.task = "transcribe"
     model.generation_config.do_sample = False
     model.generation_config.condition_on_prev_tokens = False
-    model.generation_config.num_beams = 5
-    model.generation_config.no_repeat_ngram_size = 0
     model.save_pretrained(args.out, safe_serialization=True)
     processor_source = args.adapter if (Path(args.adapter) / "preprocessor_config.json").is_file() else base
     WhisperProcessor.from_pretrained(processor_source).save_pretrained(args.out)
@@ -291,10 +281,6 @@ def main():
     fit.add_argument("--seed", type=int, default=42)
     fit.add_argument("--resume", help="Path to checkpoint-N including optimizer/RNG state")
     fit.add_argument("--init-adapter", help="Warm-start LoRA weights with a new optimizer/schedule; original base required")
-    fit.add_argument("--eval-beams", type=int, default=1)
-    fit.add_argument("--eval-ngram", type=int, default=3, help="Use 0 to disable ngram blocking")
-    fit.add_argument("--save-steps", type=int, default=0,
-                     help="Evaluate/save every N updates (0=epoch); working-directory saves are not cloud backups")
     fit.set_defaults(handler=train)
     export = sub.add_parser("merge")
     export.add_argument("--adapter", required=True)
@@ -314,10 +300,6 @@ def main():
             parser.error("Require 0<=specaug<1 and 0<val-ratio<1")
         if not 0 <= args.speed < 1:
             parser.error("Require 0<=speed<1")
-        if args.eval_beams < 1 or args.eval_ngram < 0:
-            parser.error("Require eval-beams>=1 and eval-ngram>=0")
-        if args.save_steps < 0:
-            parser.error("save-steps must be nonnegative")
     args.handler(args)
 
 

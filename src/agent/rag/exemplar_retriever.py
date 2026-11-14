@@ -74,15 +74,90 @@ class BM25ExemplarRetriever:
         self.inverted_index: Dict[str, List[Tuple[int, int]]] = {}
         self.is_indexed: bool = False
 
+    @staticmethod
+    def _compute_called_apps(tool_calls: List[Dict[str, Any]]) -> Set[str]:
+        called_apps: Set[str] = set()
+        for tc in tool_calls:
+            if not isinstance(tc, dict):
+                continue
+            name = tc.get("name", "")
+            if name == "sys.ask_missing_info":
+                called_apps.add("sys")
+                target_tn = tc.get("arguments", {}).get("tool_name", "")
+                if "." in target_tn:
+                    called_apps.add(target_tn.split(".")[0])
+            elif "." in name:
+                app_name = name.split(".")[0]
+                called_apps.add(app_name)
+            elif name:
+                called_apps.add(name)
+        return called_apps
+
+    @classmethod
+    def _extract_history_exemplars(
+        cls,
+        item: Dict[str, Any],
+        installed_apps: List[str],
+    ) -> List[Dict[str, Any]]:
+        """
+        History Mining (muahahaha55): Khai thác các lượt (user -> assistant tool_calls)
+        hợp lệ trong history của mẫu train để mở rộng kho ví dụ BM25.
+        """
+        history = item.get("history") or []
+        if not isinstance(history, list) or not history:
+            return []
+        sample_id = item.get("id", "")
+        mined: List[Dict[str, Any]] = []
+        pending_user_text = ""
+        turn_idx = 0
+        for msg in history:
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role", "")
+            if role == "user":
+                content = msg.get("content")
+                if isinstance(content, str) and content.strip():
+                    pending_user_text = content.strip()
+            elif role == "assistant" and pending_user_text:
+                raw_tcs = msg.get("tool_calls") or []
+                clean_tcs: List[Dict[str, Any]] = []
+                for tc in raw_tcs:
+                    if not isinstance(tc, dict):
+                        continue
+                    fn = tc.get("function") if isinstance(tc.get("function"), dict) else tc
+                    t_name = fn.get("name", "")
+                    t_args = fn.get("arguments", {})
+                    if isinstance(t_args, str):
+                        try:
+                            t_args = json.loads(t_args)
+                        except Exception:
+                            t_args = {}
+                    if t_name and isinstance(t_args, dict):
+                        clean_tcs.append({"name": t_name, "arguments": t_args})
+                if clean_tcs:
+                    called_apps = cls._compute_called_apps(clean_tcs)
+                    if called_apps:
+                        turn_idx += 1
+                        mined.append({
+                            "id": f"{sample_id}#hist_{turn_idx}",
+                            "audio_text": pending_user_text,
+                            "installed_apps": installed_apps,
+                            "called_apps": called_apps,
+                            "tool_calls": clean_tcs,
+                        })
+                pending_user_text = ""
+        return mined
+
     def build_from_train_file(self, train_path: str, exclude_ids: Optional[Set[str]] = None):
         """
-        Nạp toàn bộ các mẫu từ train.jsonl và khởi tạo chỉ mục BM25.
+        Nạp toàn bộ các mẫu từ train.jsonl (kể cả History Mining) và khởi tạo chỉ mục BM25.
         """
         path = Path(train_path)
         if not path.exists():
             raise FileNotFoundError(f"Không tìm thấy file train tại: {train_path}")
 
         records = []
+        seen_pairs: Set[Tuple[str, str]] = set()
         exclude_ids = exclude_ids or set()
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
@@ -100,20 +175,11 @@ class BM25ExemplarRetriever:
 
                 label = item.get("label", {})
                 tool_calls = label.get("tool_calls", [])
+                called_apps = self._compute_called_apps(tool_calls)
 
-                called_apps = set()
-                for tc in tool_calls:
-                    name = tc.get("name", "")
-                    if name == "sys.ask_missing_info":
-                        called_apps.add("sys")
-                        target_tn = tc.get("arguments", {}).get("tool_name", "")
-                        if "." in target_tn:
-                            called_apps.add(target_tn.split(".")[0])
-                    elif "." in name:
-                        app_name = name.split(".")[0]
-                        called_apps.add(app_name)
-                    elif name:
-                        called_apps.add(name)
+                sig_names = ",".join(tc.get("name", "") for tc in tool_calls if isinstance(tc, dict))
+                pair_key = (normalize_vietnamese_text(audio_text), sig_names)
+                seen_pairs.add(pair_key)
 
                 records.append({
                     "id": sample_id,
@@ -123,6 +189,13 @@ class BM25ExemplarRetriever:
                     "tool_calls": tool_calls
                 })
 
+                for h_rec in self._extract_history_exemplars(item, installed_apps):
+                    h_sig = ",".join(tc.get("name", "") for tc in h_rec["tool_calls"])
+                    h_key = (normalize_vietnamese_text(h_rec["audio_text"]), h_sig)
+                    if h_key not in seen_pairs:
+                        seen_pairs.add(h_key)
+                        records.append(h_rec)
+
         self.index_records(records)
 
     def index_records(self, records: List[Dict[str, Any]]):
@@ -130,14 +203,6 @@ class BM25ExemplarRetriever:
         Đánh chỉ mục Inverted Index BM25 cho danh sách bản ghi.
         """
         self.corpus = records
-        self.doc_len = []
-        self.doc_freq = {}
-        self.inverted_index = {}
-        self.idf = {}
-        self.avgdl = 0.0
-        self.is_indexed = False
-        for derived in ('_catalog_exemplars_indexed', '_atomic_retriever'):
-            self.__dict__.pop(derived, None)
         num_docs = len(records)
         if num_docs == 0:
             return
@@ -181,7 +246,7 @@ class BM25ExemplarRetriever:
         """
         Tìm kiếm Top-K ví dụ mẫu tương đồng nhất bằng BM25.
         """
-        if not self.is_indexed or not self.corpus or top_k <= 0:
+        if not self.is_indexed or not self.corpus:
             return []
 
         query_tokens = tokenize_vietnamese(query_text)
@@ -196,34 +261,16 @@ class BM25ExemplarRetriever:
                 allowed_apps = set(installed_apps)
         allowed_apps.add("sys")
 
-        def compatible(record):
-            for call in record.get('tool_calls', []):
-                names = [call.get('name', '')]
-                if names[0] == 'sys.ask_missing_info':
-                    names.append((call.get('arguments') or {}).get('tool_name', ''))
-                for name in names:
-                    app = name.split('.')[0]
-                    if app not in allowed_apps:
-                        return False
-                    if app != 'sys' and isinstance(installed_apps, dict):
-                        info = installed_apps.get(app) or {}
-                        specific = info.get('tools') if isinstance(info, dict) else None
-                        if specific and name not in specific:
-                            return False
-            return True
-
-        eligible = None
-        if hard_app_filter and installed_apps is not None:
-            eligible = {i for i, record in enumerate(self.corpus) if compatible(record)}
-
         scores: Dict[int, float] = {}
         for t in query_tokens:
             if t not in self.inverted_index:
                 continue
             t_idf = self.idf[t]
             for doc_idx, tf in self.inverted_index[t]:
-                if eligible is not None and doc_idx not in eligible:
-                    continue
+                if hard_app_filter and allowed_apps:
+                    rec_called = self.corpus[doc_idx]["called_apps"]
+                    if not rec_called or not rec_called.issubset(allowed_apps):
+                        continue
 
                 d_len = self.doc_len[doc_idx]
                 denominator = tf + self.k1 * (1.0 - self.b + self.b * (d_len / self.avgdl))
@@ -269,6 +316,7 @@ class BM25ExemplarRetriever:
 
     def save_cache(self, cache_path: str):
         data = {
+            "version": "v2_history_mined",
             "k1": self.k1,
             "b": self.b,
             "corpus": self.corpus,
@@ -284,6 +332,8 @@ class BM25ExemplarRetriever:
     def load_cache(self, cache_path: str):
         with open(cache_path, "rb") as f:
             data = pickle.load(f)
+        if data.get("version") != "v2_history_mined":
+            raise ValueError("Outdated BM25 cache version")
         self.k1 = data["k1"]
         self.b = data["b"]
         self.corpus = data["corpus"]

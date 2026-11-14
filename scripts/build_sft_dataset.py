@@ -6,14 +6,17 @@ Never opens split environments. Tool results must already be present in labels.
 import argparse
 import copy
 import json
+import inspect
 import random
+import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from src.agent.prompt import SYSTEM_PROMPT, build_user_prompt
+from src.agent.prompt import SYSTEM_PROMPT, build_user_prompt, format_tools_with_enums
 from src.rules.catalog_filter import CatalogFilter
+from src.agent.sft_input import RAW_SYSTEM_PROMPT, build_raw_user_prompt
 
 
 def get_installed_apps(item):
@@ -26,7 +29,7 @@ def get_gold_apps(calls):
     return {name.split(".")[0] for name in names if "." in name} - {"sys"}
 
 
-def build_rows(item, catalog):
+def build_rows(item, catalog, *, full_history=False, raw_input=False):
     """One supervised decision per observed result; no future result/ID leakage."""
     context = item.get("context", {})
     installed = context.get("installed_apps", {})
@@ -41,15 +44,34 @@ def build_rows(item, catalog):
     if len(results) != len(calls):
         raise ValueError(f"{item['id']}: missing aligned tool results; cannot teach causal execution")
     rows, steps = [], []
+    history = item.get("history", [])
+    allowed_tools = allowed  # Legacy upstream prompt inspects caller locals.
+    explicit_history = "history" in inspect.signature(build_user_prompt).parameters
     for index in range(len(calls) + 1):
-        prompt = build_user_prompt(
-            item.get("audio_text", ""), context, "", "", "", steps,
-            history=item.get("history", []), allowed_tools=allowed, exemplars=[])
+        options = ({"history": history, "allowed_tools": allowed, "exemplars": [],
+                    "full_history": full_history} if explicit_history else {})
+        if raw_input:
+            prompt = build_raw_user_prompt(item.get("audio_text", ""), context,
+                                           history, allowed, steps)
+        else:
+            prompt = build_user_prompt(
+                item.get("audio_text", ""), context, "",
+                format_tools_with_enums(allowed, ""), "", steps, **options)
+        if full_history and not explicit_history and not raw_input:
+            # Keep the incoming agent prompt untouched; adapt only the SFT exporter.
+            memory = json.dumps([{k: v for k, v in turn.items() if k != "audio"}
+                                 for turn in history], ensure_ascii=False) if history else "Không có lịch sử hội thoại trước đó."
+            marker = "[ACTIVE MEMORY FROM PREVIOUS DIALOGUE]\n"
+            before, rest = prompt.split(marker, 1)
+            boundary = re.search(r"\n\n\[", rest)
+            if boundary is None:
+                raise ValueError("Upstream prompt has no history section boundary")
+            prompt = before + marker + memory + rest[boundary.start():]
         actions = [calls[index]] if index < len(calls) else []
         finished = not actions or actions[0]["name"] == "sys.ask_missing_info"
         target = {"thought": "", "actions": actions, "is_finished": finished}
         rows.append({"id": f"{item['id']}#step{index}", "source_id": item["id"].split("#")[0],
-                     "messages": [{"role": "system", "content": SYSTEM_PROMPT},
+                     "messages": [{"role": "system", "content": RAW_SYSTEM_PROMPT if raw_input else SYSTEM_PROMPT},
                                   {"role": "user", "content": prompt},
                                   {"role": "assistant", "content": json.dumps(target, ensure_ascii=False)}]})
         if finished:

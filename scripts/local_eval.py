@@ -196,12 +196,8 @@ def main():
     parser.add_argument("--eval_file", type=str, default="data/val_benchmark_200.jsonl", help="File dữ liệu đánh giá")
     parser.add_argument("--limit", type=int, default=20, help="Số lượng mẫu test offline (mặc định: 20 mẫu)")
     parser.add_argument("--mode", choices=["hf", "server"], default="hf", help="Chế độ LLM: 'hf' hoặc 'server'")
-    parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-3B-Instruct", help="Tên model")
-    parser.add_argument("--base_url", type=str, default="http://localhost:8000/v1", help="Base URL nếu dùng server vLLM/Ollama")
-    parser.add_argument("--checkpoint_file", type=str, default=None,
-                        help="JSONL lưu kết quả từng mẫu để khôi phục khi endpoint ngắt")
-    parser.add_argument("--resume", action="store_true",
-                        help="Bỏ qua các sample đã có trong checkpoint")
+    parser.add_argument("--model", type=str, default="Qwen/Qwen3-4B-Instruct-2507", help="Tên model")
+    parser.add_argument("--base_url", type=str, default="https://paragraphs-preservation-triumph-month.trycloudflare.com/v1", help="Base URL nếu dùng server vLLM/Ollama")
     args = parser.parse_args()
 
     root = Path(args.data_root)
@@ -260,82 +256,46 @@ def main():
 
     print(f"\n--- Bắt đầu đánh giá trên {args.limit} mẫu theo chuẩn BTC ---")
 
-    checkpoint_path = Path(args.checkpoint_file) if args.checkpoint_file else None
-    completed = {}
-    if checkpoint_path:
-        if not checkpoint_path.is_absolute():
-            checkpoint_path = PROJECT_ROOT / checkpoint_path
-        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        if args.resume and checkpoint_path.exists():
-            with open(checkpoint_path, "r", encoding="utf-8") as checkpoint_in:
-                for checkpoint_line in checkpoint_in:
-                    if checkpoint_line.strip():
-                        record = json.loads(checkpoint_line)
-                        completed[int(record["index"])] = record
-            print(f"[Resume] Đã khôi phục {len(completed)} sample từ {checkpoint_path}")
-        else:
-            checkpoint_path.write_text("", encoding="utf-8")
+    scores = []
+    state_matches = 0
+    empty_matches = 0
+    total = 0
+    schema_penalties = 0
 
-    checkpoint_out = (
-        open(checkpoint_path, "a", encoding="utf-8", buffering=1)
-        if checkpoint_path else None
-    )
-    stopped_for_endpoint = False
-    try:
-        with open(eval_path, "r", encoding="utf-8") as f:
-            for idx, line in enumerate(tqdm(f, total=args.limit)):
-                if idx >= args.limit:
-                    break
-                if idx in completed:
-                    continue
-                item = json.loads(line)
-                sample_id = item["id"]
-                user_text = item.get("audio_text", "")
-                gold_calls = item.get("label", {}).get("tool_calls", [])
+    with open(eval_path, "r", encoding="utf-8") as f:
+        for idx, line in enumerate(tqdm(f, total=args.limit)):
+            if idx >= args.limit:
+                break
+            item = json.loads(line)
+            sample_id = item["id"]
+            user_text = item.get("audio_text", "")
+            gold_calls = item.get("label", {}).get("tool_calls", [])
 
-                # 1. Tính hash_gold chuẩn bằng cách chạy replay gold_calls trên 1 ToolEnv sạch
-                gold_env = ToolEnv("train", sample_id, root=root)
-                for c in gold_calls:
-                    gold_env.call(c["name"], c.get("arguments") or {})
-                hash_gold = gold_env.get_state_hash()
+            # 1. Tính hash_gold chuẩn bằng cách chạy replay gold_calls trên 1 ToolEnv sạch
+            gold_env = ToolEnv("train", sample_id, root=root)
+            for c in gold_calls:
+                gold_env.call(c["name"], c.get("arguments") or {})
+            hash_gold = gold_env.get_state_hash()
 
-                # 2. Chạy Agent thật của nhóm trên môi trường ToolEnv sạch
-                sys_env = ToolEnv("train", sample_id, root=root)
-                pred_calls, hash_sys = agent.run(sys_env, item, user_text)
-                if getattr(llm_client, "last_error_kind", None) == "endpoint_unavailable":
-                    stopped_for_endpoint = True
-                    print(
-                        f"\n[Checkpoint] Endpoint ngắt tại mẫu {idx + 1} "
-                        f"({sample_id}); mẫu này chưa được ghi."
-                    )
-                    break
+            # 2. Chạy Agent thật của nhóm trên môi trường ToolEnv sạch
+            sys_env = ToolEnv("train", sample_id, root=root)
+            pred_calls, hash_sys = agent.run(sys_env, item, user_text)
 
-                # 3. Tính điểm theo công thức chính thức
-                has_rejected = any("error" in c.get("result", {}) for c in sys_env.log)
-                sample_score = evaluate_sample(pred_calls, gold_calls, hash_sys, hash_gold, fuzzy_map)
-                record = {
-                    "index": idx,
-                    "sample_id": sample_id,
-                    "score": sample_score,
-                    "state_match": hash_sys == hash_gold,
-                    "schema_penalty": has_rejected,
-                    "pred_calls": pred_calls,
-                    "gold_calls": gold_calls,
-                    "hash_sys": hash_sys,
-                    "hash_gold": hash_gold,
-                }
-                completed[idx] = record
-                if checkpoint_out:
-                    checkpoint_out.write(json.dumps(record, ensure_ascii=False) + "\n")
-    finally:
-        if checkpoint_out:
-            checkpoint_out.close()
+            # Kiểm tra lỗi phạt U
+            has_rejected = any("error" in c.get("result", {}) for c in sys_env.log)
+            if has_rejected:
+                schema_penalties += 1
 
-    records = [completed[index] for index in sorted(completed) if index < args.limit]
-    scores = [record["score"] for record in records]
-    total = len(records)
-    state_matches = sum(bool(record["state_match"]) for record in records)
-    schema_penalties = sum(bool(record["schema_penalty"]) for record in records)
+            # 3. Tính điểm theo công thức chính thức
+            sample_score = evaluate_sample(pred_calls, gold_calls, hash_sys, hash_gold, fuzzy_map)
+            scores.append(sample_score)
+
+            if hash_sys == hash_gold:
+                state_matches += 1
+            if len(gold_calls) == 0 and len(pred_calls) == 0:
+                empty_matches += 1
+
+            total += 1
 
     final_score = (100.0 / total) * sum(scores) if total > 0 else 0.0
     state_match_rate = (state_matches / total) * 100 if total > 0 else 0.0
@@ -345,13 +305,8 @@ def main():
     print("=" * 65)
     print(f"• Tổng số mẫu đánh giá (N):           {total}")
     print(f"• Tỷ lệ khớp State Hash (Cổng sinh tử): {state_match_rate:.2f}% ({state_matches}/{total})")
-    schema_rate = (schema_penalties / total * 100) if total else 0.0
-    print(f"• Số mẫu bị phạt U (Lỗi schema):      {schema_penalties}/{total} ({schema_rate:.1f}%)")
+    print(f"• Số mẫu bị phạt U (Lỗi schema):      {schema_penalties}/{total} ({schema_penalties/total*100:.1f}%)")
     print(f"• ĐIỂM SỐ CHÍNH THỨC (FINAL SCORE):   {final_score:.4f} / 100.0")
-    if stopped_for_endpoint:
-        print("• Trạng thái:                         DỪNG SỚM do endpoint offline")
-    if checkpoint_path:
-        print(f"• Checkpoint:                         {checkpoint_path}")
     print("=" * 65)
 
 

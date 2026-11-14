@@ -30,13 +30,13 @@ def main():
     catalog_file = split_dir / "train_tools_catalog.json"
     cache_path = PROJECT_ROOT / "data" / "bm25_train_index.pkl"
     eval_path = PROJECT_ROOT / "data" / "val_benchmark_200.jsonl"
-    base_url = "https://aadf-34-16-190-83.ngrok-free.app/v1"
+    base_url = "https://paragraphs-preservation-triumph-month.trycloudflare.com/v1"
 
     sys.path.insert(0, str(split_dir))
     from zaic_tools import ToolEnv
 
     fuzzy_map = load_fuzzy_map(catalog_file)
-    llm_client = get_llm_client(client_type="openai", base_url=base_url, model="Qwen/Qwen2.5-3B-Instruct")
+    llm_client = get_llm_client(client_type="openai", base_url=base_url, model="Qwen/Qwen3-4B-Instruct-2507")
     catalog_filter = CatalogFilter(str(catalog_file))
     retriever = BM25ExemplarRetriever()
     retriever.load_cache(str(cache_path))

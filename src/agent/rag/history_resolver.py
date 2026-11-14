@@ -20,7 +20,7 @@ class HistoryResolver:
     từ danh sách các lượt hội thoại trước đó trong `history`.
     """
 
-    def __init__(self, max_history_turns: int = 4):
+    def __init__(self, max_history_turns: int = 10):
         self.max_history_turns = max_history_turns
 
     def extract_active_memory(self, history: Optional[List[Dict[str, Any]]]) -> str:
@@ -122,7 +122,8 @@ class HistoryResolver:
             # 6. Danh bạ (contacts.search)
             if "contacts" in res:
                 contacts = res["contacts"]
-                for ct in contacts[:2]:
-                    entities.append(f"  * Liên hệ: ID '{ct.get('id')}' - Tên: {ct.get('name')} - SĐT: {ct.get('phone')}")
+                for ct in contacts:
+                    if isinstance(ct, dict):
+                        entities.append(f"  * Liên hệ: ID '{ct.get('id')}' - Tên: {ct.get('name')} - Quan hệ: {ct.get('relation', '')} - SĐT: {ct.get('phone')} - Email: {ct.get('email', '')}")
 
         return entities

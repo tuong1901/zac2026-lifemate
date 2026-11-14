@@ -20,6 +20,19 @@ models/
 model/
 output/
 
+# Generated local ASR/SFT datasets, previews, audits and tokenizer runtime
+out/asr_cleaned_20261112/
+out/asr_text_audit/REVIEW.md
+out/asr_text_audit/differences.json
+out/asr_text_audit/priority_review.csv
+out/asr_text_audit/summary.json
+out/sft_data_audit/
+out/sft_full_history_v1/
+out/sft_raw_history_v2/
+out/sft_raw_history_v2_all/
+out/sft_preview/
+out/merge_backup/
+
 # Virtual Environments
 venv/
 env/

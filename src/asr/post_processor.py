@@ -110,8 +110,12 @@ def get_post_processor(mode: str = "lexicon", llm_client: Optional[Any] = None) 
     - 'aggressive': Alias tương thích của chế độ lexicon an toàn.
     - 'llm': Can thiệp tối đa bằng mô hình ngôn ngữ LLM Rewrite.
     - 'lexicon': Can thiệp cơ bản theo từ điển tĩnh gốc.
+    - 'phrases': Chuẩn hóa cụm từ có ngữ cảnh; truyền context vào process để dùng quy tắc theo app.
     """
     m = (mode or "lexicon").lower().strip()
+    if m == "phrases":
+        from src.asr.phrase_cleaner import PhraseCleaner
+        return PhraseCleaner()
     if m == "llm" and llm_client is not None:
         return LLMAssistedPostProcessor(llm_client)
     elif m == "lexicon":

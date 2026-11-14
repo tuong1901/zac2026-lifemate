@@ -3,11 +3,6 @@ run_with_asr.py — Đánh giá và so sánh trực tiếp điểm số giữa:
 1. Benchmark với DB chuẩn của BTC (Gold audio_text trong val_benchmark_200.jsonl)
 2. Benchmark với DB thực tế đã tối ưu ASR của Khoa (MultiASR_Results: PhoWhisper-medium / Whisper-turbo / PhoWhisper-small)
 3. Xuất file submission.jsonl trên 634 mẫu public_test (nếu bật --make_submission)
-
-TÍCH HỢP CONCURRENCY & PARALLEL EXECUTION:
-- Hỗ trợ chạy đa luồng (--concurrency / NUM_WORKERS từ .env) để tận dụng Continuous Batching trên vLLM
-- Tăng tốc xuất file submission từ 3.5 tiếng xuống ~20 phút
-- Tự động nạp cấu hình từ .env
 """
 
 import os
@@ -15,8 +10,6 @@ import sys
 import json
 import copy
 import argparse
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from tqdm import tqdm
 
@@ -36,7 +29,6 @@ from src.agent.rag.history_resolver import HistoryResolver
 from src.agent.rag.structured_router import StructuredDomainRouter
 from src.agent.react_loop import ReActAgent
 from src.agent.llm_client import get_llm_client
-from src.asr.config import get_llm_config, get_asr_config
 from local_eval import load_fuzzy_map, evaluate_sample
 
 
@@ -77,7 +69,7 @@ def inject_asr_into_item(item: dict, asr_rec: dict) -> tuple[dict, str]:
     return new_item, user_text
 
 
-def eval_dataset(agent, eval_items, root: Path, fuzzy_map: dict, asr_map: dict = None, desc: str = "Eval", trace_file: Path = None, concurrency: int = 1):
+def eval_dataset(agent, eval_items, root: Path, fuzzy_map: dict, asr_map: dict = None, desc: str = "Eval", trace_file: Path = None):
     from zaic_tools import ToolEnv
 
     scores = []
@@ -85,9 +77,7 @@ def eval_dataset(agent, eval_items, root: Path, fuzzy_map: dict, asr_map: dict =
     schema_penalties = 0
     total = len(eval_items)
 
-    lock = threading.Lock()
-
-    def process_one(idx, item):
+    for idx, item in enumerate(tqdm(eval_items, desc=desc), 1):
         sample_id = item["id"]
         gold_calls = item.get("label", {}).get("tool_calls", [])
 
@@ -108,65 +98,35 @@ def eval_dataset(agent, eval_items, root: Path, fuzzy_map: dict, asr_map: dict =
         pred_calls, hash_sys = agent.run(sys_env, run_item, user_text)
 
         has_rejected = any("error" in c.get("result", {}) for c in sys_env.log)
+        if has_rejected:
+            schema_penalties += 1
+
         sc = evaluate_sample(pred_calls, gold_calls, hash_sys, hash_gold, fuzzy_map)
+        scores.append(sc)
         matched = (hash_sys == hash_gold)
+        if matched:
+            state_matches += 1
 
-        return {
-            "idx": idx,
-            "sample_id": sample_id,
-            "user_text": user_text,
-            "gold_calls": gold_calls,
-            "pred_calls": pred_calls,
-            "hash_sys": hash_sys,
-            "hash_gold": hash_gold,
-            "matched": matched,
-            "score": sc,
-            "has_rejected": has_rejected
-        }
+        if trace_file is not None:
+            trace = {"source": "asr" if asr_map is not None else "gold", "id": sample_id,
+                     "user_text": user_text, "gold_calls": gold_calls, "pred_calls": pred_calls,
+                     "state_match": matched, "score": sc, "schema_rejected": has_rejected}
+            with open(trace_file, "a", encoding="utf-8") as out:
+                out.write(json.dumps(trace, ensure_ascii=False) + "\n")
 
-    if concurrency > 1 and total > 1:
-        print(f"\n⚡ Đang đánh giá {total} mẫu song song ({concurrency} workers)...", flush=True)
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            future_to_idx = {executor.submit(process_one, i, item): i for i, item in enumerate(eval_items, 1)}
-            for fut in tqdm(as_completed(future_to_idx), total=total, desc=desc):
-                res = fut.result()
-                with lock:
-                    scores.append(res["score"])
-                    if res["matched"]:
-                        state_matches += 1
-                    if res["has_rejected"]:
-                        schema_penalties += 1
+        if total <= 20:
+            status_icon = "✅" if matched and sc == 1.0 else ("⚠️" if matched else "❌")
+            print(f"\n   {status_icon} [{idx:02d}/{total}] {sample_id} | Điểm mẫu: {sc:.2f} (Hash match={matched})", flush=True)
+            if sc < 1.0:
+                print(f"      - PRED: {json.dumps(pred_calls, ensure_ascii=False)}", flush=True)
+                print(f"      - GOLD: {json.dumps(gold_calls, ensure_ascii=False)}", flush=True)
+            else:
+                print(f"      - CALLS: {[c['name'] for c in pred_calls]}", flush=True)
 
-                    if trace_file is not None:
-                        trace = {"source": "asr" if asr_map is not None else "gold", "id": res["sample_id"],
-                                 "user_text": res["user_text"], "gold_calls": res["gold_calls"], "pred_calls": res["pred_calls"],
-                                 "state_match": res["matched"], "score": res["score"], "schema_rejected": res["has_rejected"]}
-                        with open(trace_file, "a", encoding="utf-8") as out:
-                            out.write(json.dumps(trace, ensure_ascii=False) + "\n")
-    else:
-        for idx, item in enumerate(tqdm(eval_items, desc=desc), 1):
-            res = process_one(idx, item)
-            scores.append(res["score"])
-            if res["matched"]:
-                state_matches += 1
-            if res["has_rejected"]:
-                schema_penalties += 1
-
-            if trace_file is not None:
-                trace = {"source": "asr" if asr_map is not None else "gold", "id": res["sample_id"],
-                         "user_text": res["user_text"], "gold_calls": res["gold_calls"], "pred_calls": res["pred_calls"],
-                         "state_match": res["matched"], "score": res["score"], "schema_rejected": res["has_rejected"]}
-                with open(trace_file, "a", encoding="utf-8") as out:
-                    out.write(json.dumps(trace, ensure_ascii=False) + "\n")
-
-            if total <= 20:
-                status_icon = "✅" if res["matched"] and res["score"] == 1.0 else ("⚠️" if res["matched"] else "❌")
-                print(f"\n   {status_icon} [{idx:02d}/{total}] {res['sample_id']} | Điểm mẫu: {res['score']:.2f} (Hash match={res['matched']})", flush=True)
-
-            if idx % 25 == 0 or idx == total:
-                cur_score = (100.0 / idx) * sum(scores)
-                cur_state = (state_matches / idx) * 100.0
-                print(f"\n   -> [{desc}] Tiến độ {idx}/{total} | State Hash: {cur_state:.2f}% ({state_matches}/{idx}) | Phạt U: {schema_penalties} | Điểm: {cur_score:.4f}/100", flush=True)
+        if idx % 25 == 0 or idx == total:
+            cur_score = (100.0 / idx) * sum(scores)
+            cur_state = (state_matches / idx) * 100.0
+            print(f"\n   -> [{desc}] Tiến độ {idx}/{total} | State Hash: {cur_state:.2f}% ({state_matches}/{idx}) | Phạt U: {schema_penalties} | Điểm: {cur_score:.4f}/100", flush=True)
 
     final_score = (100.0 / total) * sum(scores) if total > 0 else 0.0
     state_rate = (state_matches / total) * 100.0 if total > 0 else 0.0
@@ -184,26 +144,19 @@ def eval_dataset(agent, eval_items, root: Path, fuzzy_map: dict, asr_map: dict =
 def resolve_data_root(preferred_path: str = None) -> Path:
     candidates = [
         preferred_path,
-        os.getenv("DATA_ROOT"),
-        "/kaggle/input/datasets/n107hoangtuong/zalo-competion/train+public_test",
-        "/kaggle/input/zalo-ai-challenge-2026/train+public_test",
-        "/kaggle/input/train+public_test",
         "D:/Download/train+public_test/train+public_test",
         "D:/TOOL_TH/ZAC_2026/train+public_test/train+public_test",
         "/content/train+public_test/train+public_test",
-        str(PROJECT_ROOT / "data"),
     ]
     for c in candidates:
         if c and Path(c).exists():
             return Path(c)
-    raise FileNotFoundError("Không tìm thấy thư mục data_root! Hãy truyền --data_root hợp lệ hoặc cấu hình trong .env.")
+    raise FileNotFoundError("Không tìm thấy thư mục data_root! Hãy truyền --data_root hợp lệ.")
 
 
 def resolve_asr_dir(preferred_path: str = None) -> Path:
     candidates = [
         preferred_path,
-        os.getenv("OUTPUT_DIR"),
-        "/kaggle/working/MultiASR_Results",
         str(PROJECT_ROOT / "data" / "MultiASR_Results"),
         "C:/Users/Admin/Downloads/MultiASR_Results",
         "D:/TOOL_TH/ZAC_2026/MultiASR_Results",
@@ -211,10 +164,10 @@ def resolve_asr_dir(preferred_path: str = None) -> Path:
     for c in candidates:
         if c and Path(c).exists():
             return Path(c)
-    raise FileNotFoundError("Không tìm thấy thư mục MultiASR_Results! Hãy truyền --asr_dir hợp lệ hoặc cấu hình OUTPUT_DIR trong .env.")
+    raise FileNotFoundError("Không tìm thấy thư mục MultiASR_Results! Hãy truyền --asr_dir hợp lệ.")
 
 
-def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, limit: int = None, asr_model: str = "phowhisper_medium", workers: int = 4):
+def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, limit: int = None, asr_model: str = "phowhisper_medium", workers: int = 1):
     import zipfile
     import threading
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -297,37 +250,23 @@ def generate_submission(agent, root: Path, asr_dir: Path, output_file: Path, lim
         for rec in ordered_recs:
             out_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
-    # Đóng gói zip submission theo đúng chuẩn BTC
-    zip_path = output_file.with_suffix(".zip")
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(output_file, arcname=output_file.name)
-
-    print(f"\n✅ ĐÃ XUẤT FILE SUBMISSION THÀNH CÔNG:")
-    print(f"   - File JSONL: {output_file} ({len(ordered_recs)} mẫu)")
-    print(f"   - File ZIP:   {zip_path}\n")
+    print(f"\n✅ ĐÃ XUẤT FILE SUBMISSION DUY NHẤT THÀNH CÔNG:")
+    print(f"   - File JSONL: {output_file} ({len(ordered_recs)} mẫu)\n")
 
 
 def main():
-    llm_cfg = get_llm_config()
-
-    parser = argparse.ArgumentParser(description="Chạy so sánh Benchmark BTC vs DB ASR của Khoa (Kèm Concurrency)")
+    parser = argparse.ArgumentParser(description="Chạy so sánh Benchmark BTC vs DB ASR của Khoa")
     parser.add_argument("--data_root", type=str, default=None)
     parser.add_argument("--asr_dir", type=str, default=None)
-    parser.add_argument("--eval_file", "--benchmark_file", dest="eval_file", type=str, default="data/val_benchmark_200.jsonl")
+    parser.add_argument("--eval_file", type=str, default="data/val_benchmark_200.jsonl")
+    parser.add_argument("--offset", type=int, default=0, help="Vị trí bắt đầu đọc mẫu trong eval_file")
     parser.add_argument("--limit", type=int, default=None, help="Số lượng mẫu tối đa (mặc định: toàn bộ)")
+    parser.add_argument("--shuffle_seed", type=int, default=None, help="Seed để lấy ngẫu nhiên tập mẫu")
     parser.add_argument("--sample_ids", type=str, default=None, help="Danh sách ID cần chấm, phân tách bằng dấu phẩy")
-    parser.add_argument("--mode", choices=["hf", "server"], default=llm_cfg.mode)
-    parser.add_argument("--base_url", type=str, default=llm_cfg.base_url)
-    parser.add_argument("--model", type=str, default=llm_cfg.model)
-    parser.add_argument(
-        "--max_tokens",
-        type=int,
-        default=llm_cfg.max_tokens or 256,
-        help="Giới hạn token sinh ở mỗi lượt LLM (tối đa bằng MAX_NEW_TOKENS của server).",
-    )
+    parser.add_argument("--mode", choices=["hf", "server"], default="server")
+    parser.add_argument("--base_url", type=str, default="https://athens-static-effectiveness-essentials.trycloudflare.com/v1")
+    parser.add_argument("--model", type=str, default="Qwen/Qwen3-4B-Instruct-2507")
     parser.add_argument("--asr_model", choices=["phowhisper_medium", "whisper_turbo", "phowhisper_small", "all"], default="phowhisper_medium")
-    parser.add_argument("--concurrency", "--workers", dest="concurrency", type=int, default=llm_cfg.concurrency,
-                        help=f"Số worker song song gọi LLM (Mặc định: {llm_cfg.concurrency})")
     parser.add_argument("--no_exemplars", action="store_true", help="Thử agent không dùng ví dụ BM25 trong prompt")
     parser.add_argument("--structured-router", action="store_true", help="Thử domain classifier + workflow chunks trước BM25 exemplar")
     parser.add_argument(
@@ -341,8 +280,8 @@ def main():
     parser.add_argument("--trace_file", type=str, default=None, help="Ghi kết quả từng mẫu JSONL để phân tích lỗi")
     parser.add_argument("--make_submission", action="store_true", help="Chạy trên 634 mẫu public_test và xuất submission.jsonl + submission.zip")
     parser.add_argument("--output_file", type=str, default="submission.jsonl")
+    parser.add_argument("--workers", type=int, default=4, help="Số luồng song song khi tạo submission")
     args = parser.parse_args()
-
     requested_ids = {value.strip() for value in args.sample_ids.split(",")} if args.sample_ids else None
     trace_file = Path(args.trace_file) if args.trace_file else None
     if trace_file is not None:
@@ -362,19 +301,16 @@ def main():
     fuzzy_map = load_fuzzy_map(catalog_file)
 
     if args.mode == "hf":
-        llm_client = get_llm_client(
-            client_type="hf", model_name_or_path=args.model, max_new_tokens=args.max_tokens
-        )
+        llm_client = get_llm_client(client_type="hf", model_name_or_path=args.model)
     else:
-        llm_client = get_llm_client(
-            client_type="openai", base_url=args.base_url, model=args.model, max_tokens=args.max_tokens
-        )
+        llm_client = get_llm_client(client_type="openai", base_url=args.base_url, model=args.model, timeout=180.0)
 
     catalog_filter = CatalogFilter(str(catalog_file))
     eval_items = []
     excluded_ids = set()
     if not args.make_submission:
         eval_path = PROJECT_ROOT / args.eval_file if not Path(args.eval_file).is_absolute() else Path(args.eval_file)
+        all_eval_candidates = []
         with open(eval_path, "r", encoding="utf-8") as f:
             for idx, line in enumerate(f):
                 if not line.strip():
@@ -383,9 +319,16 @@ def main():
                 excluded_ids.add(item["id"])
                 if requested_ids is not None and item["id"] not in requested_ids:
                     continue
-                if args.limit is not None and len(eval_items) >= args.limit:
-                    continue
-                eval_items.append(item)
+                all_eval_candidates.append(item)
+        if args.shuffle_seed is not None and requested_ids is None:
+            import random
+            rng = random.Random(args.shuffle_seed)
+            rng.shuffle(all_eval_candidates)
+        if args.offset > 0 and requested_ids is None:
+            all_eval_candidates = all_eval_candidates[args.offset:]
+        if args.limit is not None:
+            all_eval_candidates = all_eval_candidates[:args.limit]
+        eval_items = all_eval_candidates
 
     retriever = BM25ExemplarRetriever()
     if args.make_submission:
@@ -396,6 +339,7 @@ def main():
         if any(rec["id"] in excluded_ids for rec in retriever.corpus):
             raise RuntimeError("Validation ID vẫn nằm trong chỉ mục BM25")
         print(f"[Clean holdout] Loại {len(excluded_ids)} validation ID khỏi BM25; còn {len(retriever.corpus)} ví dụ train.")
+
 
     structured_router = None
     if args.structured_router and not args.no_exemplars:
@@ -410,24 +354,22 @@ def main():
         guardrail=SafeSchemaGuardrail(),
         max_steps=7,
         resolve_lock_ids=args.resolve_lock_ids,
-        structured_router=structured_router
+        structured_router=structured_router,
     )
 
     if args.make_submission:
         out_path = Path(args.output_file) if Path(args.output_file).is_absolute() else PROJECT_ROOT / args.output_file
-        generate_submission(agent, root, asr_dir, out_path, limit=args.limit,
-                            asr_model=args.asr_model if args.asr_model != "all" else "phowhisper_medium",
-                            concurrency=args.concurrency)
+        generate_submission(agent, root, asr_dir, out_path, limit=args.limit, asr_model=args.asr_model if args.asr_model != "all" else "phowhisper_medium", workers=args.workers)
         return
 
     print("\n" + "=" * 72)
-    print(f" BẮT ĐẦU CHẠY ĐỐI CHIẾU TRÊN {len(eval_items)} MẪU BENCHMARK [Concurrency: {args.concurrency}]")
+    print(f" BẮT ĐẦU CHẠY ĐỐI CHIẾU TRÊN {len(eval_items)} MẪU BENCHMARK")
     print("=" * 72)
 
     # 1. Chạy trên DB chuẩn của BTC (Gold Text)
     res_gold = None
     if args.eval_source in ("both", "gold"):
-        res_gold = eval_dataset(agent, eval_items, root, fuzzy_map, asr_map=None, desc="1. DB Chuẩn BTC (Gold Text)", trace_file=trace_file, concurrency=args.concurrency)
+        res_gold = eval_dataset(agent, eval_items, root, fuzzy_map, asr_map=None, desc="1. DB Chuẩn BTC (Gold Text)", trace_file=trace_file)
 
     # 2. Chạy trên DB ASR của Khoa
     models_to_run = (["phowhisper_medium", "whisper_turbo", "phowhisper_small"] if args.asr_model == "all" else [args.asr_model]) if args.eval_source in ("both", "asr") else []
@@ -435,7 +377,7 @@ def main():
     for m_name in models_to_run:
         asr_file = asr_dir / f"train_{m_name}_for_agent.jsonl"
         asr_map = load_asr_map(asr_file)
-        asr_results[m_name] = eval_dataset(agent, eval_items, root, fuzzy_map, asr_map=asr_map, desc=f"2. DB Khoa ({m_name})", trace_file=trace_file, concurrency=args.concurrency)
+        asr_results[m_name] = eval_dataset(agent, eval_items, root, fuzzy_map, asr_map=asr_map, desc=f"2. DB Khoa ({m_name})", trace_file=trace_file)
 
     print("\n" + "=" * 72)
     print(" BẢNG TỔNG HỢP ĐIỂM SỐ (TRÊN THANG 100.0 CỦA BTC)")
@@ -452,3 +394,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

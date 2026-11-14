@@ -108,33 +108,3 @@ Code mới gồm khôi phục checkpoint/DDP cuối run đang chuẩn bị từ 
 Không restart session và không xóa Output cũ. Có thể đánh giá decoding ngay trên model đã merge mà không train. Notebook thí nghiệm nay mặc định profile warm_start khi người dùng bật RUN_TRAIN=True: chọn adapter cũ có WER thấp nhất còn lưu, tải đúng base + adapter với is_trainable=True, khởi tạo optimizer/schedule mới và học thêm 1 epoch, LR=2e-5, speed +/-10%. Không dùng --resume với cấu hình LR mới để giả tiếp tục cùng lịch học. --init-adapter kiểm tra base khớp; kiến trúc adapter được giữ nguyên theo checkpoint.
 
 Chỉ chạy train nếu decoding chưa đủ tốt và còn thời gian GPU. So WER trước/sau trên cùng split và decoding. Nếu warm-start tệ hơn, dùng lại model 13,91%. Nó không chắc đạt 8%. Các profile speed_only/reference_like vẫn có sẵn để thử từ base; không chạy tất cả một lượt. Đường dẫn run mới asr_wer_experiments/warm_start, không ghi đè asr_training. Cần giữ cả checkpoint adapter (để warm-start) và full model đã merge (để inference).
-### Kết quả decoding do người dùng chạy trên 511 clip
-
-Cùng manifest: beam1/ngram3 WER=13,8398% (1011 lỗi/7305 từ), beam1/ngram0=12,3477% (902 lỗi), beam5/ngram0=11,8138% (863 lỗi). Cải thiện 2,026 điểm phần trăm giữa hai đầu của phép so cùng lượt; không có cập nhật weights. Không dùng đây làm kết quả test độc lập. Pipeline PhoWhisper nay mặc định ngram=0, beam=5; có thể đặt ASR_NO_REPEAT_NGRAM_SIZE để thử lại. Merge mới lưu beam5/ngram0 vào generation_config. Notebook WER warm-start đánh giá trực tiếp bằng --eval-beams 5 --eval-ngram 0 để so với mốc 11,81%. Đánh giá beam5 có thể chậm hơn greedy, chưa đo thời gian lượt train mới.
-## Runtime đã mất nhưng còn model trên Drive
-
-Dùng notebooks/kaggle_phowhisper_restore_drive.ipynb trong session mới, Dataset train cũ, Internet và T4x2. Notebook hỏi URL Drive khi chạy; không lưu URL cụ thể trong repo. Hỗ trợ folder chứa full model, ZIP model hoặc adapter. Kiểm tra metadata và đầy đủ các shard weights trước khi nạp; không nhận model chỉ có config nhưng thiếu weights.
-
-Nếu full model đã fine-tune: dùng đúng weights tải về làm base cho LoRA mới, optimizer mới, học thêm 1 epoch (LR2e-5, speed10%, beam5/ngram0). Không phải train lại từ Hugging Face base, cũng không thể resume optimizer cũ chỉ bằng full model. Nếu adapter: cần đúng base gốc; base là model custom thì không được thay bằng base Hugging Face chỉ vì cùng kiến trúc.
-
-Nếu Drive có split_manifest.json, dùng lại sau khi kiểm tra đường dẫn. Nếu chỉ có weights, tái tạo split từ cùng train, thuật toán và seed42; chưa thể xác nhận tuyệt đối là split cũ hoặc so trực tiếp với 11,81%. Luôn đo baseline của model Drive trước khi học, và so baseline/after trên split hiện dùng.
-
---save-steps 50 đánh giá/lưu checkpoint mỗi 50 updates, đồng thời bắt buộc đánh giá/lưu ở update cuối. Điều này tăng thời gian validation. Đây CHỈ là lưu local trong /kaggle/working, KHÔNG bảo vệ khỏi mất cả runtime. Kết thúc notebook phải tải phowhisper-selected-model.zip và phowhisper-training-records.zip ra máy/Drive hoặc lưu Kaggle version với outputs. Notebook không tự upload lên Drive, không có quyền OAuth/token để làm việc đó.
-
-Giữ model Drive gốc, baseline metrics, split_manifest.json, run_config.json và checkpoint. Chỉ chọn model mới nếu WER thấp hơn; nếu không giữ weights đã tải. Chưa có WER mới hoặc lượt restore GPU được chạy bởi agent ở môi trường phát triển.
-## So sánh hai model trên hai tập
-
-Notebook restore có thêm mục so sánh cuối cùng, mặc định RUN_COMPARE=False. Sau khi train hoàn tất, chọn RUN_COMPARE=True. COMPARE_SPLIT='validation' chạy validation + public_test; 'train' chạy toàn bộ current-turn audio train + public_test. Không đưa user history vào nhãn của audio hiện tại. Chạy toàn bộ train chỉ cho WER in-sample, không thay thế validation/test độc lập.
-
-DRIVE_MODEL dùng RESTORED_MODEL (weights gốc trên Drive). Model mới được merge từ best_adapter sang thư mục riêng, ngay cả khi trước đó FINAL_MODEL đã giữ model cũ vì WER model mới tệ hơn. Tránh so cùng một model với chính nó. Đường dẫn test mặc định lấy thư mục public_test cạnh train; sửa TEST_JSON nếu Dataset bố trí khác.
-
-Runner src.asr.compare chạy hai model lần lượt; mỗi lượt benchmark chia audio cho hai T4, beam5/ngram0 giống nhau. Bốn job cho hai model x hai tập, có thể mất đáng kể thời gian. Không training, không đọc state/environment, không tạo tool calls hoặc state_hash submission.
-
-Output:
-- comparison_report.json: WER của từng model ở phần có gold, số câu transcript khác nhau.
-- validation_drive_transcripts.jsonl, validation_new_transcripts.jsonl (hoặc train_*).
-- public_test_drive_transcripts.jsonl, public_test_new_transcripts.jsonl.
-- *_comparison.jsonl: id, reference nếu có, drive_text, new_text để đối chiếu từng câu.
-
-File transcripts chỉ gồm id/audio_text cho ASR. Public test gốc không có audio_text chuẩn: WER và errors phải là null, không báo 0 hoặc lấy model kia làm ground truth. Các transcript public_test là kết quả inference, không được trộn lại vào nhãn train. Muốn điểm thi phải chạy agent và chấm tool/state theo quy trình riêng. Có cell ZIP kết quả để tải khỏi runtime. Cần cả model mới đã train; nếu chưa có best_adapter thì chưa so hai model được.
-Theo xác nhận mới của người dùng, notebook so sánh mặc định COMPARE_SPLIT='public_test': chỉ chạy public_test bằng hai model, không chạy thêm train/validation. Runner không bắt buộc --validation-manifest hoặc --train-jsonl khi chỉ chạy public test.

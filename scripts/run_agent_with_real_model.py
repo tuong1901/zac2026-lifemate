@@ -1,12 +1,12 @@
 """
-run_agent_with_real_model.py — Chạy Agent với mô hình ngôn ngữ lớn thật (Qwen2.5-3B-Instruct).
+run_agent_with_real_model.py — Chạy Agent với mô hình ngôn ngữ lớn thật (Qwen3-4B-Instruct-2507).
 Hỗ trợ 2 chế độ:
 1. Mode 'hf': Nạp trực tiếp mô hình local qua HuggingFace (chạy trên GPU hoặc CPU).
 2. Mode 'server': Kết nối tới local vLLM / Ollama server (hoặc OpenAI compatible endpoint).
 
 Ví dụ chạy:
   # Chế độ HuggingFace local:
-  python scripts/run_agent_with_real_model.py --mode hf --model Qwen/Qwen2.5-3B-Instruct --sample_id train_1364
+  python scripts/run_agent_with_real_model.py --mode hf --model Qwen/Qwen3-4B-Instruct-2507 --sample_id train_1364
 
   # Chế độ kết nối local server (vLLM / Ollama):
   python scripts/run_agent_with_real_model.py --mode server --base_url http://localhost:8000/v1 --sample_id train_1364
@@ -41,8 +41,8 @@ from src.agent.llm_client import get_llm_client
 def main():
     parser = argparse.ArgumentParser(description="Chạy Agent LifeMate với LLM thật")
     parser.add_argument("--mode", choices=["hf", "server"], default="hf", help="Chế độ LLM: 'hf' (HuggingFace) hoặc 'server' (vLLM/OpenAI compatible)")
-    parser.add_argument("--model", default="Qwen/Qwen2.5-3B-Instruct", help="Tên model hoặc đường dẫn checkpoint local")
-    parser.add_argument("--base_url", default="http://localhost:8000/v1", help="Base URL nếu chạy server vLLM/Ollama")
+    parser.add_argument("--model", default="Qwen/Qwen3-4B-Instruct-2507", help="Tên model hoặc đường dẫn checkpoint local")
+    parser.add_argument("--base_url", default="https://paragraphs-preservation-triumph-month.trycloudflare.com/v1", help="Base URL nếu chạy server vLLM/Ollama")
     parser.add_argument("--api_key", default="EMPTY", help="API key nếu cần")
     parser.add_argument("--sample_id", default="train_1364", help="ID mẫu trong train.jsonl để chạy thử")
     parser.add_argument("--max_steps", type=int, default=5, help="Số bước ReAct tối đa")

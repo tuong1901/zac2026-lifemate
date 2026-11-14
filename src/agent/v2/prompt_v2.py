@@ -230,18 +230,18 @@ NGUYÊN TẮC THỰC THI:
 Định dạng phản hồi BẮT BUỘC là JSON duy nhất:
 ```json
 {
-  "thought": "Suy luận logic từng bước ngắn gọn",
-  "action": {
+"thought": "Suy luận logic từng bước ngắn gọn",
+"action": {
     "name": "tên_công_cụ",
     "arguments": { "tham_số_1": "giá_trị_1" }
-  }
+}
 }
 ```
 Nếu không cần gọi công cụ nào (đã hoàn thành hoặc không hợp lệ):
 ```json
 {
-  "thought": "Đã hoàn thành toàn bộ yêu cầu của người dùng / Không cần gọi thêm công cụ",
-  "action": null
+"thought": "Đã hoàn thành toàn bộ yêu cầu của người dùng / Không cần gọi thêm công cụ",
+"action": null
 }
 ```
 """

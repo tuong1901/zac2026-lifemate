@@ -1,0 +1,17 @@
+[
+  {"id":"zalopay","pattern":"\\b(?P<bad>za lo pay|dza lo pay|zalo pey|zalopay)\\b","replacement":"ZaloPay","canonical_case":true},
+  {"id":"momo","pattern":"\\b(?P<bad>mo mo|mo-mo|mô mô|momo)\\b","replacement":"MoMo","canonical_case":true},
+  {"id":"vtv","pattern":"\\b(?P<bad>(?:vê tê vê|v t v)\\s*(?P<channel>[136]))\\b","replacement":"VTV{channel}","canonical_case":true},
+  {"id":"invoice_spelling","pattern":"\\b(?P<bad>hoá đơn)\\b","replacement":"hóa đơn"},
+  {"id":"alarm_compound","pattern":"\\b(?:đặt|hẹn|tạo|chỉnh|dời|tắt|bật)(?:\\s+(?:lại|một|cái|giúp|cho|tôi|anh|chị|em)){0,4}\\s+(?P<bad>báo thiết)\\b(?!\\s+kế\\b)","replacement":"báo thức","apps":["alarm"]},
+  {"id":"invoice_due","pattern":"\\b(?P<bad>khoá đơn|khóa đơn)\\b(?=\\s+(?:nước|điện|mạng|truyền hình)\\s+(?:sắp|tới|đến|tháng)\\b)","replacement":"hóa đơn","apps":["bill_payment"],"block_before":"\\b(?:đừng|không|hãy|muốn|cần)\\s*$"},
+  {"id":"invoice_each","pattern":"\\b(?P<bad>thói đơn)(?=\\s+nào\\b)","replacement":"hóa đơn","apps":["bill_payment"],"context_pattern":"\\b(?:trả|thanh toán)\\b"},
+  {"id":"invoice_status","pattern":"\\bđã có (?P<bad>khoá đang|khóa đang)(?=\\s+chưa\\b)","replacement":"hóa đơn","apps":["bill_payment"],"context_pattern":"\\b(?:học phí|tiền|thanh toán|trả)\\b"},
+  {"id":"price_alert","pattern":"\\b(?:đặt|tạo|bật)\\s+(?P<bad>cạnh bao)(?=\\s+giá\\b)","replacement":"cảnh báo","apps":["stocks"]},
+  {"id":"shopping_list","pattern":"\\b(?P<bad>danh sách đi chờ|danh sách đi trả)\\b(?!\\s+(?:hàng|tiền|nợ)\\b)","replacement":"danh sách đi chợ","apps":["shopping_list"],"context_pattern":"\\b(?:thêm|cho|đưa|vào|mở)\\b"},
+  {"id":"repair_shop","pattern":"\\b(?P<bad>tiệm sữa xe)\\b","replacement":"tiệm sửa xe","apps":["maps"],"context_pattern":"\\b(?:tìm|quanh|gần|đường)\\b"},
+  {"id":"data_compound","pattern":"\\b(?P<bad>số liếc)\\b","replacement":"số liệu","apps":["email"],"context_pattern":"\\bgửi\\b"},
+  {"id":"review_draft","pattern":"\\b(?P<bad>xem like)(?=\\s+rồi\\s+(?:tự\\s+)?gửi\\b)","replacement":"xem lại","apps":["email"],"context_pattern":"\\bnháp\\b"},
+  {"id":"translate_phrase","pattern":"(?:^|[.!?]\\s*)(?P<bad>lịch)(?=\\s+sang\\s+tiếng\\b)","replacement":"dịch","apps":["translator"],"context_pattern":"\\bcâu này\\b"},
+  {"id":"translate_done","pattern":"\\b(?P<bad>lịch)(?=\\s+xong\\s+thì\\s+lưu\\b)","replacement":"dịch","apps":["translator"],"context_pattern":"\\bdịch sang tiếng\\b"}
+]
