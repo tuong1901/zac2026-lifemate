@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 CELLS = [
-    ("markdown", "# LifeMate: single-run Kaggle FP16 training\n\nRun this notebook top to bottom. It clones `frame-agent`, validates the two fixed Kaggle inputs, checks the selected Tesla T4 before downloading Qwen, downloads the exact Hugging Face model, prepares data, runs FP16 LoRA training and validation evaluation, then exports reports and adapter artifacts. Internet must be enabled for GitHub, Hugging Face, and any missing Python packages. If the GPU does not meet the FP16 memory gate, the workflow stops before model download."),
+    ("markdown", "# LifeMate: two-GPU Kaggle FP16 training\n\nRun this notebook top to bottom. It clones `frame-agent`, validates the two fixed Kaggle inputs, checks for two Tesla T4 GPUs before downloading Qwen, downloads the exact Hugging Face model, prepares data, runs FP16 LoRA training with FSDP full sharding and validation evaluation, then exports reports and adapter artifacts. Internet must be enabled for GitHub, Hugging Face, and any missing Python packages. If the two-GPU memory gate fails, the workflow stops before model download."),
     ("code", """from pathlib import Path
 import json, os, shutil, subprocess, sys, time
 
@@ -105,15 +105,14 @@ if prep.get('public_test_used_for_training') is not False or prep.get('source_ov
     raise RuntimeError('Data leakage/source split verification failed.')
 print(json.dumps({k:v for k,v in prep.items() if k!='source_split'},indent=2))
 """),
-    ("markdown", "## 4. Inspect actual hardware and stop before model download unless FP16 fits\nThis run uses one Tesla T4 with FP16 weights and FP16 Trainer autocast; it does not start multiple data-parallel copies or use FSDP. The gate requires at least 14 GiB total and 12 GiB free on the selected GPU. Sequence length is capped conservatively from that GPU's VRAM and longer examples are reported as excluded. The gate is not a guarantee: the forward smoke and first optimizer step still check actual memory, finite loss, and nonzero gradients."),
+    ("markdown", "## 4. Inspect actual hardware and stop before model download unless FP16 fits\nThis run uses two Tesla T4 GPUs with FP16 weights and Trainer autocast under PyTorch FSDP FULL_SHARD. The model parameters, gradients, and optimizer state are sharded across GPUs; activations remain local, so sequence length and gradient checkpointing still matter. The gate requires at least 14 GiB total and 10 GiB free on each GPU. Longer examples are reported as excluded. The first optimizer step checks actual memory, finite loss, and nonzero gradients."),
     ("code", """from lifemate.utils.hardware import inspect_hardware
-from lifemate.training.trainer import check_training_hardware
+from lifemate.training.trainer import check_fsdp_hardware
 runtime = inspect_hardware(['/kaggle/working', '/kaggle/input'])
 (RUN_ROOT/'runtime_training.json').write_text(json.dumps(runtime,indent=2,default=str))
 print(json.dumps(runtime,indent=2,default=str))
-gpu = check_training_hardware(runtime)  # raises before any model download if hardware is insufficient
-print('Training GPU:',gpu['name'],'VRAM GiB:',gpu['total_vram_bytes']/1024**3,'free GiB:',gpu['free_vram_bytes']/1024**3)
-if len(runtime['gpu']) > 1: print('This single-GPU workflow will use GPU 0; other GPUs are not used.')
+gpus = check_fsdp_hardware(runtime)  # raises before model download unless two T4s are available
+print('FSDP GPUs:',[(g['index'],g['name'],round(g['total_vram_bytes']/1024**3,1),round(g['free_vram_bytes']/1024**3,1)) for g in gpus])
 """),
     ("markdown", "## 5. Download and validate the exact Qwen model from Hugging Face\nThis stage downloads only after the GPU feasibility gate. The resolved model commit SHA is recorded automatically in `model_source.json`; no manual manifest or Kaggle-mounted model is used."),
     ("code", """from lifemate.models.loader import download_qwen_model
@@ -131,14 +130,14 @@ print('Model revision:',model_info['commit_hash'],'tokenizer template verified.'
 smoke=json.loads((RUN_ROOT/'model_smoke.json').read_text())
 if smoke.get('passed') is not True or smoke.get('precision') != 'float16' or not __import__('math').isfinite(smoke['loss']): raise RuntimeError('FP16 forward/loss smoke failed.')
 """),
-    ("markdown", "## 7. FP16 LoRA training\nThe first optimizer step checks that LoRA gradients exist, are finite, and are nonzero. Training can resume from the latest checkpoint under the same output directory."),
+    ("markdown", "## 7. FP16 LoRA training with two-GPU FSDP\nThe notebook launches one process per GPU with torchrun. FSDP FULL_SHARD distributes model parameters, gradients, and optimizer state. The first optimizer step checks that LoRA gradients exist, are finite, and are nonzero. Training can resume from the latest checkpoint under the same output directory."),
     ("code", """TRAIN_DIR=RUN_ROOT/'training'
 checkpoints=sorted((TRAIN_DIR/'checkpoints').glob('checkpoint-*'),key=lambda p:int(p.name.split('-')[-1])) if (TRAIN_DIR/'checkpoints').exists() else []
-train_cmd=[sys.executable,str(PROJECT/'scripts/train.py'),
+train_cmd=[sys.executable,'-m','torch.distributed.run','--standalone','--nproc_per_node',str(len(gpus)),str(PROJECT/'scripts/train.py'),
            '--model-dir',str(MODEL_DIR),'--train-jsonl',str(RUN_ROOT/'processed/train.jsonl'),
            '--validation-jsonl',str(RUN_ROOT/'processed/validation.jsonl'),'--output-dir',str(TRAIN_DIR)]
 if checkpoints: train_cmd += ['--resume-from-checkpoint',str(checkpoints[-1])]
-print('Running single-GPU FP16 training:', ' '.join(train_cmd))
+print('Running two-GPU FP16 FSDP training:', ' '.join(train_cmd))
 subprocess.run(train_cmd,cwd=PROJECT,check=True)
 adapter_dir=TRAIN_DIR/'adapter'
 if not (adapter_dir/'adapter_config.json').is_file(): raise FileNotFoundError('Training ended without a saved LoRA adapter.')

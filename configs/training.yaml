@@ -17,5 +17,9 @@ optim: adamw_torch
 fp16: true
 bf16: false
 tf32: false
+fsdp: full_shard auto_wrap
+fsdp_transformer_layer_wrapping: true
+fsdp_use_orig_params: true
+fsdp_cpu_ram_efficient_loading: true
 packing: false
 resume_from_checkpoint: null

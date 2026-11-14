@@ -22,7 +22,7 @@ from lifemate.data.trajectory import group_trajectories
 from lifemate.deployment.submission import validate_submission
 from lifemate.models.loader import inspect_local_model
 from lifemate.models.policy import PolicyContextOverflow
-from lifemate.training.trainer import check_training_hardware, choose_sequence_length
+from lifemate.training.trainer import check_fsdp_hardware, choose_sequence_length
 from lifemate.utils.runtime_compat import fp16_dtype_argument, torchao_compat_action
 
 
@@ -151,19 +151,19 @@ class CoreTests(unittest.TestCase):
             (p/"config.json").write_text(json.dumps({"model_type":"qwen3","_name_or_path":"Qwen/Qwen3-8B","_commit_hash":"a"*40}),encoding="utf-8")
             with self.assertRaises(ValueError): inspect_local_model(p)
 
-    def test_fp16_training_accepts_one_t4_and_gates_memory(self):
+    def test_fp16_fsdp_accepts_two_t4s_and_gates_memory(self):
         with patch("lifemate.training.trainer.platform.system", return_value="Linux"):
-            hw={"cuda_available":True,"gpu":[{"index":0,"name":"Tesla T4","total_vram_bytes":16*1024**3,"free_vram_bytes":15*1024**3}]}
-            self.assertEqual(check_training_hardware(hw),hw["gpu"][0])
+            hw={"cuda_available":True,"gpu":[{"index":i,"name":"Tesla T4","total_vram_bytes":16*1024**3,"free_vram_bytes":15*1024**3} for i in range(2)]}
+            self.assertEqual(check_fsdp_hardware(hw),hw["gpu"])
             self.assertEqual(choose_sequence_length(16*1024**3),8192)
-            hw["gpu"][0]["free_vram_bytes"]=8*1024**3
-            with self.assertRaisesRegex(RuntimeError,"12 GiB free"):
-                check_training_hardware(hw)
+            hw["gpu"][1]["free_vram_bytes"]=8*1024**3
+            with self.assertRaisesRegex(RuntimeError,"10 GiB free"):
+                check_fsdp_hardware(hw)
 
     def test_fp16_training_rejects_missing_gpu_before_download(self):
         with patch("lifemate.training.trainer.platform.system", return_value="Linux"):
-            with self.assertRaisesRegex(RuntimeError,"No CUDA GPU"):
-                check_training_hardware({"cuda_available":True,"gpu":[]})
+            with self.assertRaisesRegex(RuntimeError,"at least two CUDA GPUs"):
+                check_fsdp_hardware({"cuda_available":True,"gpu":[{"index":0,"name":"Tesla T4","total_vram_bytes":16*1024**3,"free_vram_bytes":15*1024**3}]})
 
     def test_old_optional_torchao_is_removed_without_changing_torch(self):
         self.assertEqual(torchao_compat_action(None),"not_installed")

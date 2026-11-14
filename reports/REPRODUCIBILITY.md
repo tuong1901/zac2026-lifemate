@@ -9,10 +9,10 @@
 
 ## Checks completed
 
-- 18/18 recreated CPU unit tests passed using `unittest`.
+- 20/20 recreated CPU unit tests passed using `unittest`.
 - 1/1 official ToolEnv integration test passed.
 - Full official train replay: 3,541 calls, zero discrepancies.
 - SFT action reconstruction: zero discrepancies.
 - All notebook code cells passed Python syntax parsing; `compileall` passed for source, scripts, and tests.
 
-The historical test files were not present, so the prior ten-test suite cannot be reproduced. No model run, Kaggle run, or GitHub action is represented as completed. ToolEnv emits upstream `ResourceWarning`s for unclosed JSON files during its integration test; the test itself passes. The revised FP16 single-GPU workflow has not been run on Kaggle.
+The historical test files were not present, so the prior ten-test suite cannot be reproduced. No model run, Kaggle run, or GitHub action is represented as completed. ToolEnv emits upstream `ResourceWarning`s for unclosed JSON files during its integration test; the test itself passes. The revised FP16 two-GPU FSDP workflow has not been run on Kaggle.

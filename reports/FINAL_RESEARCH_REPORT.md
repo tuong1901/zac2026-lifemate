@@ -22,7 +22,7 @@ The loader requires the exact Qwen model ID and a recorded 40-character source r
 
 ## Status and limits
 
-No base weights or Kaggle session were available. Therefore no Qwen model load, baseline inference, fine-tuning, checkpoint comparison, public-test inference, or Kaggle run is claimed. The laptop GPU has 4 GiB VRAM. The workflow requires one Tesla T4 with at least 14 GiB total and 12 GiB free before model download. FP16 training has not been validated against a live Kaggle image. The current changes are local and have not been pushed.
+No base weights or Kaggle session were available. Therefore no Qwen model load, baseline inference, fine-tuning, checkpoint comparison, public-test inference, or Kaggle run is claimed. The laptop GPU has 4 GiB VRAM. The Kaggle workflow now requires two Tesla T4 GPUs, each with at least 14 GiB total and 10 GiB free, and uses FP16 FSDP `FULL_SHARD`. This training path has not been validated against a live Kaggle image. The current changes are local and have not been pushed.
 
 ## Artifacts
 

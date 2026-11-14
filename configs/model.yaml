@@ -3,6 +3,6 @@ download_source: huggingface.co
 local_files_only: true
 trust_remote_code: false
 precision: float16
-parallelism: single_gpu
+parallelism: pytorch_fsdp_full_shard
 max_sequence_length: auto_from_data
 thinking_mode: native_model_non_thinking
