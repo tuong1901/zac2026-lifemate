@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.agent.sft_encoding import encode_decision, check_split_rows
+from src.agent.training_attention import configure_training_sdpa, probe_training_sdpa
 
 
 def read_rows(path):
@@ -42,8 +43,9 @@ def main():
         ap.error('Invalid training settings')
 
     import torch
-    from transformers import (AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig,
+    from transformers import (AutoConfig, AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig,
                               Trainer, TrainingArguments, set_seed)
+    from transformers.integrations import sdpa_attention
     from transformers.trainer_utils import get_last_checkpoint
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
     from liger_kernel.transformers import apply_liger_kernel_to_qwen3
@@ -54,8 +56,16 @@ def main():
         raise RuntimeError('Enable a CUDA GPU; this script does not train on CPU')
     torch.cuda.set_device(local_rank)
     if world_size > 1 and not torch.distributed.is_initialized():
-        torch.distributed.init_process_group(backend='nccl')
+        torch.distributed.init_process_group(backend='nccl', device_id=torch.device('cuda', local_rank))
     set_seed(42)
+    policy = configure_training_sdpa(torch, sdpa_attention)
+    compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    model_config = AutoConfig.from_pretrained(args.model)
+    if model_config.model_type != 'qwen3':
+        raise ValueError('This long-context attention recipe is for Qwen3 only')
+    attention_preflight = probe_training_sdpa(
+        torch, sdpa_attention, model_config, torch.device('cuda', local_rank), compute_dtype)
+    print(f'[rank {local_rank}] attention preflight: {attention_preflight}', flush=True)
     train_path, val_path = args.data_dir / 'train.jsonl', args.data_dir / 'validation.jsonl'
     rows, val_rows = read_rows(train_path), read_rows(val_path)
     check_split_rows(rows, val_rows)
@@ -65,6 +75,9 @@ def main():
         'learning_rate': args.lr, 'epochs': args.epochs, 'seed': 42,
         'script_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         'encoding_sha256': hashlib.sha256((Path(__file__).resolve().parents[1] / 'src/agent/sft_encoding.py').read_bytes()).hexdigest(),
+        'attention_policy': policy,
+        'attention_sha256': hashlib.sha256((Path(__file__).resolve().parents[1] / 'src/agent/training_attention.py').read_bytes()).hexdigest(),
+        'torch_version': torch.__version__,
         'train_sha256': hashlib.sha256(train_path.read_bytes()).hexdigest(),
         'validation_sha256': hashlib.sha256(val_path.read_bytes()).hexdigest(),
         'gpu': torch.cuda.get_device_name(local_rank),
@@ -78,7 +91,7 @@ def main():
     conflict = args.out.exists() and any(args.out.iterdir()) and not args.resume
     if world_size > 1:
         # Decide before any rank creates files in the shared output directory.
-        torch.distributed.barrier()
+        torch.distributed.barrier(device_ids=[local_rank])
     if conflict:
         raise ValueError('Output is not empty; choose a new --out or --resume auto')
     args.out.mkdir(parents=True, exist_ok=True)
@@ -101,7 +114,6 @@ def main():
     # Qwen3 fused linear cross entropy avoids materializing full [12K, vocabulary] logits.
     # Apply before PEFT; every DDP rank holds its own complete 4-bit replica.
     apply_liger_kernel_to_qwen3()
-    compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     model = AutoModelForCausalLM.from_pretrained(
         args.model, device_map={'': local_rank}, torch_dtype=compute_dtype,
         quantization_config=BitsAndBytesConfig(load_in_4bit=True,
@@ -155,6 +167,7 @@ def main():
         config = {'fingerprint': fingerprint, 'arguments': {k: str(v) if isinstance(v, Path) else v for k,v in vars(args).items()},
                   'train_decisions': len(rows), 'validation_decisions': len(val_rows),
                   'max_actual_tokens': max(lengths), 'supervised_train_tokens': supervised,
+                  'attention_preflight': attention_preflight,
                   'effective_batch': world_size * args.grad_accum, 'smoke': args.smoke}
         (args.out / 'run_config.json').write_text(json.dumps(config, indent=2), encoding='utf-8')
         print(json.dumps(config, indent=2), flush=True)
@@ -180,9 +193,14 @@ def main():
                 raise RuntimeError('Adapter export incomplete')
             print('Final adapter:', final, flush=True)
     if torch.distributed.is_initialized():
-        torch.distributed.barrier()
+        torch.distributed.barrier(device_ids=[local_rank])
         torch.distributed.destroy_process_group()
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    finally:
+        torch_module = sys.modules.get('torch')
+        if torch_module is not None and torch_module.distributed.is_initialized():
+            torch_module.distributed.destroy_process_group()

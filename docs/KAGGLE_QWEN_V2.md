@@ -76,3 +76,23 @@ accelerate 1.10.1, bitsandbytes 0.48.1, liger-kernel 0.6.2. Giữ PyTorch CUDA
 của Kaggle. Pin version giúp tái lập nhưng chưa thay thế phép kiểm tra GPU thật.
 Code tham khảo API chính thức: Hugging Face Trainer/PEFT và Liger Qwen3 forward
 (`skip_logits=True` để validation không cấp phát tensor logits toàn vocabulary).
+
+## Sửa OOM attention trên T4
+
+Log smoke đầu tiên trên Kaggle cho thấy SDPA cấp thêm 12,45 GiB cho attention
+và OOM trước optimizer step đầu tiên. Transformers 4.57.1 bật native GQA khi
+mask=None; trên T4 đường này có thể dùng math backend thay vì fused attention.
+Liger fused loss không xử lý được phần cấp phát attention này.
+
+Recipe mới dùng `src/agent/training_attention.py`: tắt native GQA trong hook
+Transformers để repeat KV heads tường minh, chỉ cho phép flash/memory-efficient
+SDPA, cấm fallback math và cuDNN. Trước khi load weights, mỗi rank chạy thử
+attention forward/backward trên sequence 256 token. Nếu build PyTorch không có
+kernel phù hợp thì dừng với thông báo rõ ràng; không fallback sang math.
+Smoke dài nhất vẫn cần chạy thành công mới có thể xác nhận VRAM toàn model.
+Dataset, max-length, LoRA rank và số mẫu không thay đổi.
+
+Sau lỗi cũ, pull nhánh `test` và dùng SMOKE_OUT mới
+`/kaggle/working/qwen_v2_smoke_t4_fused_v1` vì thư mục smoke cũ có run_config
+dở dang. Không cần tải lại weights/data và không xóa checkpoint cũ.
+Không tái sử dụng receipt trước khi đổi backend/script/PyTorch.
